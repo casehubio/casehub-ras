@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>io.casehub</groupId>
+        <artifactId>casehub-ras-parent</artifactId>
+        <version>0.2-SNAPSHOT</version>
+    </parent>
+    <artifactId>casehub-ras-drools</artifactId>
+    <name>CaseHub RAS :: Drools CEP Ganglion</name>
+    <description>Optional Ganglion implementation using Drools Complex Event Processing (CEP).
+        Stateful KieSession per situation; sliding windows, event correlation, temporal patterns.
+        Activates by classpath presence.</description>
+    <dependencies>
+        <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-api</artifactId></dependency>
+        <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-arc</artifactId></dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>io.smallrye</groupId>
+                <artifactId>jandex-maven-plugin</artifactId>
+                <version>${jandex-maven-plugin.version}</version>
+                <executions><execution><id>make-index</id><goals><goal>jandex</goal></goals></execution></executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
