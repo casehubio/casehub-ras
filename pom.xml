@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.casehub</groupId>
+        <artifactId>casehub-parent</artifactId>
+        <version>0.2-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>casehub-ras-parent</artifactId>
+    <version>0.2-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>CaseHub RAS :: Parent</name>
+    <description>Reticular Activating System — situational awareness and reactive case creation.
+        Monitors SensoryEvent streams, routes to pluggable Ganglion detection strategies, correlates
+        composite events, and triggers case creation via casehub-engine when situation threshold is crossed.
+        Platform stream infrastructure (Kafka, AMQP, webhook, Camel) lives in casehub-platform; RAS consumes
+        standardised SensoryEvent CDI events.</description>
+    <url>https://github.com/casehubio/casehub-ras</url>
+
+    <modules>
+        <module>api</module>
+        <module>runtime</module>
+        <module>ras-drools</module>
+        <module>ras-llm</module>
+        <module>testing</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.release>${java.version}</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <version.quarkus.platform>3.32.2</version.quarkus.platform>
+        <version.io.casehub>0.2-SNAPSHOT</version.io.casehub>
+        <jandex-maven-plugin.version>3.3.1</jandex-maven-plugin.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.quarkus.platform</groupId>
+                <artifactId>quarkus-bom</artifactId>
+                <version>${version.quarkus.platform}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- casehub-ras inter-module -->
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-ras-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-ras</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-ras-drools</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-ras-llm</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-ras-testing</artifactId>
+                <version>${project.version}</version>
+                <scope>test</scope>
+            </dependency>
+
+            <!-- Platform -->
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-platform-api</artifactId>
+                <version>${version.io.casehub}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-platform</artifactId>
+                <version>${version.io.casehub}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-platform-testing</artifactId>
+                <version>${version.io.casehub}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-platform-agent-api</artifactId>
+                <version>${version.io.casehub}</version>
+            </dependency>
+
+            <!-- Engine — startCase() trigger -->
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-engine-api</artifactId>
+                <version>${version.io.casehub}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.smallrye.reactive</groupId>
+                <artifactId>mutiny</artifactId>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.assertj</groupId>
+                <artifactId>assertj-core</artifactId>
+                <version>3.27.7</version>
+                <scope>test</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <repositories>
+        <repository>
+            <id>github</id>
+            <name>casehubio GitHub Packages</name>
+            <url>https://maven.pkg.github.com/casehubio/*</url>
+            <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+    </repositories>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <url>https://maven.pkg.github.com/casehubio/casehub-ras</url>
+        </repository>
+        <snapshotRepository>
+            <id>github</id>
+            <url>https://maven.pkg.github.com/casehubio/casehub-ras</url>
+            <uniqueVersion>false</uniqueVersion>
+        </snapshotRepository>
+    </distributionManagement>
+
+    <scm>
+        <connection>scm:git:https://github.com/casehubio/casehub-ras.git</connection>
+        <developerConnection>scm:git:https://github.com/casehubio/casehub-ras.git</developerConnection>
+        <url>https://github.com/casehubio/casehub-ras</url>
+    </scm>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.13.0</version>
+                    <configuration><parameters>true</parameters></configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.2.5</version>
+                    <configuration><rerunFailingTestsCount>2</rerunFailingTestsCount></configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>
