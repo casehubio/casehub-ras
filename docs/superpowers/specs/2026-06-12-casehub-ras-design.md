@@ -247,6 +247,54 @@ casehub-ras sits at the Integration tier — alongside claudony, casehub-opencla
 
 **Compliance drift:** Log retention policy last verified > 30 days AND encryption control changed → create compliance review case.
 
+**Service lifecycle management:** Service deployed → open `ServiceLifecycleCase` (long-lived, WAITING). RAS monitors health streams. Ganglion detects: service down → open `IncidentCase` (child); upgrade threshold crossed → open `UpgradeCase` (child); decommission signal → open `DecommissionCase` (child, closes parent with SUCCESS). The parent case blackboard holds desired state + current state + health status and is otherwise idle.
+
+---
+
+## 13. Service Lifecycle Management Pattern
+
+The RAS is the natural monitor for long-lived service lifecycle cases. This section describes the first-class integration pattern.
+
+### The Pattern
+
+A **service lifecycle case** opens when a service is deployed and closes only on intentional decommission (SUCCESS) or unrecoverable failure after N remediation attempts. The case holds the desired state and current state on its blackboard. The RAS instance is created alongside the case and monitors health/state streams continuously.
+
+```
+ServiceLifecycleCase (long-lived, WAITING)
+  ├── RAS instance (monitoring streams attached to this case)
+  │     ├── HealthCheckGanglion    (CDI bean — fast, deterministic)
+  │     ├── MetricsTrendGanglion   (case — stateful, 24h Bayesian/CEP window)
+  │     └── UpgradeSignalGanglion  (LLM ganglion — release notes, changelog analysis)
+  ├── IncidentCase       (child — opens on health failure; closes when resolved)
+  ├── UpgradeCase        (child — opens when upgrade threshold crossed)
+  └── DecommissionCase   (child — closes parent with SUCCESS on completion)
+```
+
+The parent case is **sparse by design** — it sits in WAITING with no active steps. All activity is in the RAS and child cases. Log compaction on the parent is trivial (almost nothing to compact). The child cases are short-lived and close cleanly. This resolves the apparent tension between "cases are bounded" and "service management is long-lived": the service lifetime IS the bound; decommission IS the terminal success condition.
+
+### Ganglion as Cases (Optional Pattern)
+
+For stateful, long-running detection — tracking metric trends over 24h, accumulating evidence across many events — a ganglion can itself be implemented as a **case** rather than a CDI bean. The Drools KieSession or Bayesian state lives on the ganglion case's blackboard, survives restarts, and is managed by casehub-engine.
+
+| Ganglion type | Implementation | When to use |
+|---|---|---|
+| Simple predicate | CDI bean | Threshold check, pattern match — no state needed |
+| Time-windowed CEP | Case (with Drools blackboard) | Sliding windows, event correlation over hours |
+| Bayesian accumulation | Case (with probability state) | Weighted multi-signal accumulation over time |
+| LLM narrative | CDI bean (async) | Slow path; stateless per invocation |
+
+The `Ganglion` SPI covers both: CDI beans registered by classpath, cases registered by case type. The RAS engine dispatches to both transparently.
+
+### RAS Instance as a Desired-State Node
+
+The RAS instance attached to a service lifecycle case can itself be declared as a `DesiredNode` in `casehub-desiredstate`. This means:
+
+- The desired state of the system includes "a running RAS monitoring this service"
+- If the RAS instance crashes, `casehub-desiredstate` provisions a replacement
+- The RAS and the service it monitors are co-managed via the same desired-state declaration
+
+This is the full circle: casehub-desiredstate manages topologies; casehub-ras detects conditions within those topologies; casehub-engine orchestrates responses. Each layer is independently useful; together they form a self-healing, self-aware system.
+
 ---
 
 ## 12. Open Design Questions
