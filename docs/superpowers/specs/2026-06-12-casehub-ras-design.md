@@ -1,8 +1,9 @@
 # casehub-ras — Design Spec
 
-**Date:** 2026-06-12
+**Date:** 2026-06-12 (revised 2026-06-18)
 **Status:** Pre-implementation — spec for brainstorm and issue creation
 **Repo:** casehubio/casehub-ras
+**Supersedes:** Original SensoryEvent design — replaced by CloudEvent per parent P0 layering decisions (2026-06-13)
 
 ---
 
@@ -43,17 +44,17 @@ Architecture: multiple `Ganglion` implementations → one `RasEngine` → `case 
 
 The raw data sources — Kafka topics, AMQP queues, REST webhooks, database change streams, IoT state events, Qhorus messages — are infrastructure concerns. They live in casehub-platform (new submodules) or casehub-connectors. Quarkus handles the endpoint wiring; Apache Camel handles data transformation and routing when mapping is needed.
 
-These produce a standardised `SensoryEvent` CDI event that the RAS observes. The RAS has zero knowledge of Kafka, webhooks, or Camel.
+These produce `CloudEvent` CDI events (`Event<CloudEvent>.fireAsync()`) that the RAS observes. The RAS has zero knowledge of Kafka, webhooks, or Camel. `CloudEvent` comes from `io.cloudevents:cloudevents-core` via `casehub-platform-api`.
 
 **RAS tier (casehub-ras):** detection intelligence.
 
-The RAS observes `SensoryEvent` CDI events, routes them to registered `Ganglion` implementations, accumulates `DetectionResult` outputs, correlates composite events, and triggers case creation when the situation threshold is crossed.
+The RAS observes `CloudEvent` CDI events (`@ObservesAsync CloudEvent`), routes them to registered `Ganglion` implementations, accumulates `DetectionResult` outputs, correlates composite events, and triggers case creation when the situation threshold is crossed.
 
 ```
 External sources
   → casehub-platform stream submodules (Quarkus + Camel)
-    → SensoryEvent CDI fireAsync()
-      → casehub-ras RasEngine
+    → CloudEvent CDI fireAsync()
+      → casehub-ras RasEngine (@ObservesAsync CloudEvent)
         → Ganglion implementations (parallel detection)
           → DetectionResult accumulation
             → CompositeEventCorrelator
@@ -73,31 +74,39 @@ New submodules in `casehub-platform` (or `casehub-connectors`):
 | `platform-streams-amqp` | AMQP 1.0 | Quarkus AMQP consumer |
 | `platform-streams-webhook` | HTTP push | Quarkus REST endpoint; receives webhook payloads |
 | `platform-streams-poll` | Any HTTP API | Quarkus `@Scheduled` + REST client; polling adapter |
-| `platform-streams-camel` | Any Camel connector | Apache Camel route → `SensoryEvent`; 300+ connectors available |
+| `platform-streams-camel` | Any Camel connector | Apache Camel route → `CloudEvent`; 300+ connectors available |
 
 Each module:
 - Activates by classpath presence (Jandex library pattern)
 - Applies any needed data mapping (Camel routes for transformation)
-- Fires `Event<SensoryEvent>` via CDI `fireAsync()`
+- Fires `Event<CloudEvent>` via CDI `fireAsync()`
 - Zero dependency on casehub-ras
 
-The `SensoryEvent` type lives in `casehub-ras-api` (so platform modules can import it without pulling in the RAS runtime). Platform stream modules depend on `casehub-ras-api` only.
+`CloudEvent` comes from `io.cloudevents:cloudevents-core`, provided transitively via `casehub-platform-api`. Platform stream modules have no dependency on `casehub-ras-api` — the event type is a platform-tier concern, not an integration-tier concern. See parent P0 layering decisions (Decision 1).
 
 ---
 
-## 5. Core Types (casehub-ras-api)
+## 5. Input Type — CloudEvent (from casehub-platform-api)
+
+The RAS does not define its own input event type. It observes `io.cloudevents.CloudEvent` from the
+CDI bus — the same type produced by all platform stream modules, IoT adapters, Qhorus adapters,
+and connector adapters. `casehub-ras-api` depends on `casehub-platform-api` (which provides
+`cloudevents-core` transitively).
+
+| CloudEvent field | RAS usage |
+|---|---|
+| `type` | Logical event type — used for ganglion routing via `handledEventTypes()` |
+| `source` | Logical producer URI |
+| `subject` | Entity the event concerns |
+| `id` | Unique event ID |
+| `time` | Event timestamp |
+| `data` | Typed payload — opaque to RasEngine, interpreted by ganglia |
+| `tenancyid` (extension) | Tenant isolation — `event.getExtension("tenancyid")` |
+
+## 6. Core Types (casehub-ras-api)
 
 ```java
-// The standardised input event — produced by platform stream modules
-record SensoryEvent(
-    String sourceId,        // identifies the data source (kafka topic, webhook path, etc.)
-    String streamType,      // domain classification ("iot.temperature", "finance.transaction")
-    Instant timestamp,
-    String tenancyId,
-    Map<String, Object> payload  // raw event data, opaque to the RAS engine
-) {}
-
-// What a Ganglion produces when it processes a SensoryEvent
+// What a Ganglion produces when it processes a CloudEvent
 record DetectionResult(
     String ganglionId,
     String situationId,     // groups related detections (composite events)
@@ -119,18 +128,18 @@ record SituationContext(
 
 ---
 
-## 6. Ganglion SPI (casehub-ras-api)
+## 7. Ganglion SPI (casehub-ras-api)
 
 ```java
 interface Ganglion {
     // Unique identifier — used to route events and filter results
     String ganglionId();
 
-    // Stream types this ganglion handles — RAS routes only matching events
-    Set<String> handledStreamTypes();
+    // CloudEvent types this ganglion handles — RAS routes only matching events
+    Set<String> handledEventTypes();
 
-    // Core detection — called by RasEngine for each matching SensoryEvent
-    Uni<DetectionResult> detect(SensoryEvent event, SituationContext context);
+    // Core detection — called by RasEngine for each matching CloudEvent
+    Uni<DetectionResult> detect(CloudEvent event, SituationContext context);
 
     // Optional: ganglion can request correlation window size
     default Duration correlationWindow() { return Duration.ofMinutes(5); }
@@ -148,9 +157,9 @@ interface Ganglion {
 
 ---
 
-## 7. Composite Event Chains
+## 8. Composite Event Chains
 
-A single `SensoryEvent` rarely warrants a case alone. The `CompositeEventCorrelator` accumulates `DetectionResult` objects sharing the same `situationId` within a configurable time window.
+A single `CloudEvent` rarely warrants a case alone. The `CompositeEventCorrelator` accumulates `DetectionResult` objects sharing the same `situationId` within a configurable time window.
 
 **Chaining modes:**
 - **AND** — all named ganglia must fire before case is created
@@ -179,7 +188,7 @@ situation:
 
 ---
 
-## 8. RasTriggerPolicy SPI (casehub-ras-api)
+## 9. RasTriggerPolicy SPI (casehub-ras-api)
 
 Controls when a case is created from a `SituationContext`:
 
@@ -194,16 +203,16 @@ interface RasTriggerPolicy {
 
 ---
 
-## 9. Module Structure
+## 10. Module Structure
 
 ```
 casehub-ras/
   pom.xml                      ← casehub-ras-parent
-  api/                         ← casehub-ras-api (Pure Java, Mutiny provided)
-    SensoryEvent, DetectionResult, SituationContext, SituationDefinition
+  api/                         ← casehub-ras-api (depends on casehub-platform-api for CloudEvent)
+    DetectionResult, SituationContext, SituationDefinition
     Ganglion SPI, RasTriggerPolicy SPI
   runtime/                     ← casehub-ras (Quarkus extension)
-    RasEngine — observes SensoryEvent CDI events, orchestrates ganglia
+    RasEngine — observes CloudEvent CDI events, orchestrates ganglia
     CompositeEventCorrelator — accumulates and correlates detection results
     SituationStore — tracks open situations (in-memory default; JPA optional)
     CaseTriggerService — calls casehub-engine startCase() when threshold crossed
@@ -217,25 +226,31 @@ casehub-ras/
 
 ---
 
-## 10. Tier Placement
+## 11. Tier Placement and Dependencies
 
 ```
 Foundation:
+  casehub-platform-api
+    → provides io.cloudevents.CloudEvent transitively (cloudevents-core)
   casehub-platform stream submodules (Kafka, AMQP, webhook, Camel)
-    → fires SensoryEvent CDI events
+    → fires CloudEvent CDI events
 
 Integration:
+  casehub-ras-api
+    → depends on casehub-platform-api (for CloudEvent type)
   casehub-ras
-    → consumes SensoryEvent
+    → observes @ObservesAsync CloudEvent
     → routes to Ganglion implementations
     → triggers cases via casehub-engine-api
 ```
 
 casehub-ras sits at the Integration tier — alongside claudony, casehub-openclaw, casehub-workers.
 
+Dependency direction: `casehub-ras-api` → `casehub-platform-api` (correct: integration depends on foundation). Platform stream modules have no dependency on `casehub-ras-api`.
+
 ---
 
-## 11. Use Cases (Reference Scenarios)
+## 12. Use Cases (Reference Scenarios)
 
 **Equipment failure (IoT):** Temperature spike + vibration anomaly within 10 minutes → create maintenance case with CRITICAL priority.
 
@@ -297,13 +312,13 @@ This is the full circle: casehub-desiredstate manages topologies; casehub-ras de
 
 ---
 
-## 12. Open Design Questions
+## 13. Open Design Questions
 
 1. **SituationStore persistence** — in-memory for prototype; JPA for durable correlation across restarts. What is the retention policy for expired situations?
-2. **SensoryEvent routing** — does the RasEngine broadcast to all ganglia or route by `handledStreamTypes()`? Routing is more efficient but requires registration.
+2. ~~**SensoryEvent routing**~~ → **Resolved:** RasEngine routes by `handledEventTypes()` matching `CloudEvent.getType()`.
 3. **Back-pressure** — high-volume streams could overwhelm ganglia. What is the buffering/dropping policy?
 4. **Situation deduplication** — if two events trigger the same case type within a short window, should the second be suppressed?
-5. **Platform stream module placement** — submodules of casehub-platform, or a separate `casehub-streams` repo?
+5. ~~**Platform stream module placement**~~ → **Resolved:** submodules of casehub-platform (Decision 2, parent P0 layering decisions).
 6. **Drools CEP integration** — stateful KieSession per situation or shared session? Stateful per-situation is safer but more expensive.
 7. **LlmGanglion latency** — LLM inference is slow. Should LlmGanglion always run async on a slow path with a timeout, while fast ganglia make immediate decisions?
-8. **Multi-tenancy** — each tenant has independent SituationContext. How is tenant isolation enforced in the SituationStore and RasEngine?
+8. **Multi-tenancy** — each tenant has independent SituationContext. How is tenant isolation enforced in the SituationStore and RasEngine? Tenancy extracted via `event.getExtension("tenancyid")`.
