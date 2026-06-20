@@ -28,6 +28,7 @@
         <module>runtime</module>
         <module>ras-drools</module>
         <module>ras-llm</module>
+        <module>persistence-memory</module>
         <module>testing</module>
     </modules>
 
@@ -69,6 +70,11 @@
             <dependency>
                 <groupId>io.casehub</groupId>
                 <artifactId>casehub-ras-llm</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-ras-memory</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
