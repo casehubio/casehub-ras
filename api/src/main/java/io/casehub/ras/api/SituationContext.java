@@ -21,10 +21,13 @@ public record SituationContext(
     }
 
     public static SituationContext initial(String situationId, String tenancyId, Instant eventTime) {
+        Objects.requireNonNull(eventTime, "eventTime");
         return new SituationContext(situationId, tenancyId, eventTime, eventTime, List.of());
     }
 
     public SituationContext withDetection(DetectionResult result, Instant eventTime) {
+        Objects.requireNonNull(result, "result");
+        Objects.requireNonNull(eventTime, "eventTime");
         var newDetections = new ArrayList<>(detections);
         newDetections.add(result);
         Instant newFirst = eventTime.isBefore(firstSignal) ? eventTime : firstSignal;

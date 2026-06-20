@@ -10,10 +10,19 @@
     </parent>
     <artifactId>casehub-ras-testing</artifactId>
     <name>CaseHub RAS :: Testing</name>
-    <description>Test fixtures — MockGanglion, FixedDetectionResult, InMemorySituationStore,
-        CannedSensoryEvent builders. Test scope only — never compile or runtime dep.</description>
+    <description>Test fixtures — MockGanglion, FixedDetectionResult.
+        Test scope only — never compile or runtime dep.</description>
     <dependencies>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-api</artifactId></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-platform-testing</artifactId></dependency>
+        <dependency>
+            <groupId>io.smallrye.reactive</groupId>
+            <artifactId>mutiny</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
