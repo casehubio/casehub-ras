@@ -16,10 +16,11 @@
 
     <name>CaseHub RAS :: Parent</name>
     <description>Reticular Activating System — situational awareness and reactive case creation.
-        Monitors SensoryEvent streams, routes to pluggable Ganglion detection strategies, correlates
-        composite events, and triggers case creation via casehub-engine when situation threshold is crossed.
-        Platform stream infrastructure (Kafka, AMQP, webhook, Camel) lives in casehub-platform; RAS consumes
-        standardised SensoryEvent CDI events.</description>
+        Observes CloudEvent CDI events from platform stream modules, routes to pluggable Ganglion
+        detection strategies, correlates composite events, and triggers case creation via
+        casehub-engine when situation threshold is crossed. Platform stream infrastructure
+        (Kafka, AMQP, webhook, Camel) lives in casehub-platform; RAS observes the CloudEvent
+        CDI events they produce.</description>
     <url>https://github.com/casehubio/casehub-ras</url>
 
     <modules>

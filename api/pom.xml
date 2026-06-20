@@ -11,17 +11,12 @@
     <artifactId>casehub-ras-api</artifactId>
     <name>CaseHub RAS :: API</name>
     <description>Core SPIs and domain types — Ganglion (detection strategy), RasTriggerPolicy,
-        SensoryEvent (standardised input), DetectionResult, SituationContext, SituationDefinition.
-        Pure Java; Mutiny provided. Imported by platform stream modules to produce SensoryEvent
-        without depending on the RAS runtime.</description>
+        DetectionResult, SituationContext, SituationDefinition, SituationStore.
+        Pure Java; Mutiny provided. Depends on casehub-platform-api for CloudEvent.</description>
     <dependencies>
         <dependency>
             <groupId>io.casehub</groupId>
             <artifactId>casehub-platform-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.casehub</groupId>
-            <artifactId>casehub-engine-api</artifactId>
         </dependency>
         <dependency>
             <groupId>io.smallrye.reactive</groupId>
