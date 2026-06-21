@@ -39,6 +39,7 @@
         <version.quarkus.platform>3.32.2</version.quarkus.platform>
         <version.io.casehub>0.2-SNAPSHOT</version.io.casehub>
         <jandex-maven-plugin.version>3.3.1</jandex-maven-plugin.version>
+        <version.drools>10.1.0</version.drools>
     </properties>
 
     <dependencyManagement>
@@ -112,6 +113,19 @@
                 <groupId>io.casehub</groupId>
                 <artifactId>casehub-engine-api</artifactId>
                 <version>${version.io.casehub}</version>
+            </dependency>
+
+            <!-- Drools CEP -->
+            <dependency>
+                <groupId>org.drools</groupId>
+                <artifactId>drools-model-codegen</artifactId>
+                <version>${version.drools}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.drools</groupId>
+                <artifactId>drools-wiring-static</artifactId>
+                <version>${version.drools}</version>
+                <scope>runtime</scope>
             </dependency>
 
             <dependency>
