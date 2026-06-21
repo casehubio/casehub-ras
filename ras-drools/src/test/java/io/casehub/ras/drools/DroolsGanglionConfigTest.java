@@ -67,4 +67,20 @@ class DroolsGanglionConfigTest {
         assertThat(config.handledEventTypes()).containsExactlyInAnyOrder("a", "b");
         assertThat(config.classpathRules()).containsExactly("r.drl");
     }
+
+    @Test
+    void nullSessionModeThrows() {
+        assertThatThrownBy(() -> new DroolsGanglionConfig(
+                "g", Set.of("e"), null, ClockMode.PSEUDO,
+                List.of("r.drl"), List.of()))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void nullClockModeThrows() {
+        assertThatThrownBy(() -> new DroolsGanglionConfig(
+                "g", Set.of("e"), SessionMode.LONG_LIVED, null,
+                List.of("r.drl"), List.of()))
+                .isInstanceOf(NullPointerException.class);
+    }
 }

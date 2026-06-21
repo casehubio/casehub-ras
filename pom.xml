@@ -127,6 +127,11 @@
                 <version>${version.drools}</version>
                 <scope>runtime</scope>
             </dependency>
+            <dependency>
+                <groupId>org.drools</groupId>
+                <artifactId>drools-wiring-dynamic</artifactId>
+                <version>${version.drools}</version>
+            </dependency>
 
             <dependency>
                 <groupId>org.assertj</groupId>

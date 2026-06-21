@@ -14,6 +14,8 @@ public record DroolsGanglionConfig(
 ) {
     public DroolsGanglionConfig {
         Objects.requireNonNull(ganglionId);
+        Objects.requireNonNull(sessionMode, "sessionMode");
+        Objects.requireNonNull(clockMode, "clockMode");
         if (handledEventTypes == null || handledEventTypes.isEmpty()) {
             throw new IllegalArgumentException("handledEventTypes must not be empty");
         }
