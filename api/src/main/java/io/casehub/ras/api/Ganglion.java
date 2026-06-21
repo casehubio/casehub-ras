@@ -15,4 +15,8 @@ public interface Ganglion {
     default Uni<SituationContext> compact(SituationContext context) {
         return Uni.createFrom().item(context);
     }
+
+    default Uni<Void> close(String situationId, String tenancyId) {
+        return Uni.createFrom().voidItem();
+    }
 }

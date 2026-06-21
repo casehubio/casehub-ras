@@ -54,6 +54,7 @@ interface Ganglion {
     Set<String> handledEventTypes();
     Uni<DetectionResult> detect(CloudEvent event, SituationContext context);
     default Uni<SituationContext> compact(SituationContext context) { ... }
+    default Uni<Void> close(String situationId, String tenancyId) { ... }
 }
 ```
 

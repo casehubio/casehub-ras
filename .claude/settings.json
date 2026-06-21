@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "/Users/mdproctor/claude"
+    ],
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(git *)",
+      "Bash(mvn *)",
+      "Bash(gh issue *)",
+      "Bash(gh pr *)",
+      "Bash(gh api *)",
+      "Bash(gh repo *)",
+      "Bash(gh label *)",
+      "Bash(python3 *)",
+      "Bash(open *)"
+    ]
+  }
+}

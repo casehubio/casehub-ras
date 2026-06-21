@@ -30,4 +30,24 @@ class GanglionContractTest {
         SituationContext compacted = ganglion.compact(ctx).await().indefinitely();
         assertThat(compacted).isSameAs(ctx);
     }
+
+    @Test
+    void closeDefaultReturnsCompletedUni() {
+        Ganglion ganglion = new Ganglion() {
+            @Override
+            public String ganglionId() { return "test-ganglion"; }
+
+            @Override
+            public Set<String> handledEventTypes() { return Set.of("test.event"); }
+
+            @Override
+            public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
+                return Uni.createFrom().item(
+                        new DetectionResult("test-ganglion", 0.5, DetectionSignal.DETECTED, null));
+            }
+        };
+
+        Void result = ganglion.close("sit-1", "tenant-a").await().indefinitely();
+        assertThat(result).isNull();
+    }
 }
