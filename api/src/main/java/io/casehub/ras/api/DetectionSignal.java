@@ -1,8 +1,12 @@
 package io.casehub.ras.api;
 
 public enum DetectionSignal {
-    DETECTED,
-    WEAK,
     NOISE,
-    ANTI
+    ANTI,
+    WEAK,
+    DETECTED;
+
+    public boolean isAtLeast(DetectionSignal threshold) {
+        return this.ordinal() >= threshold.ordinal();
+    }
 }
