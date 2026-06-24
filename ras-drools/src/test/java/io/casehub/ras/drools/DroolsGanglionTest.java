@@ -252,4 +252,71 @@ class DroolsGanglionTest {
         assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
         assertThat(result.confidence()).isEqualTo(0.8);
     }
+
+    @Test
+    void highestConfidenceStrategyPicksHigherConfidence() {
+        var config = new DroolsGanglionConfig(
+                "test-ganglion", Set.of("test.event"),
+                SessionMode.EPHEMERAL, ClockMode.PSEUDO,
+                List.of("io/casehub/ras/drools/test-multi-rule.drl"), List.of(),
+                ResultCollectionStrategy.HIGHEST_CONFIDENCE);
+        var ganglion = new DroolsGanglion(config, sessionStore, List.of());
+        var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
+        DetectionResult result = ganglion.detect(event, testContext())
+                .await().indefinitely();
+        assertThat(result.confidence()).isEqualTo(0.9);
+        assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
+    }
+
+    @Test
+    void accumulateStrategyMergesResults() {
+        var config = new DroolsGanglionConfig(
+                "test-ganglion", Set.of("test.event"),
+                SessionMode.EPHEMERAL, ClockMode.PSEUDO,
+                List.of("io/casehub/ras/drools/test-multi-rule.drl"), List.of(),
+                ResultCollectionStrategy.ACCUMULATE);
+        var ganglion = new DroolsGanglion(config, sessionStore, List.of());
+        var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
+        DetectionResult result = ganglion.detect(event, testContext())
+                .await().indefinitely();
+        assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
+        assertThat(result.confidence()).isEqualTo(0.9);
+        assertThat(result.evidence()).containsKeys("rule");
+    }
+
+    @Test
+    void closeOnEphemeralGanglionIsNoOp() {
+        var ganglion = ganglionWithClasspathRule();
+        var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
+        ganglion.detect(event, testContext()).await().indefinitely();
+        assertThat(sessionStore.get("test-ganglion", "sit-1", "tenant-a")).isEmpty();
+        ganglion.close("sit-1", "tenant-a").await().indefinitely();
+        assertThat(sessionStore.get("test-ganglion", "sit-1", "tenant-a")).isEmpty();
+    }
+
+    @Test
+    void nullEventTimeDoesNotAdvanceClock() {
+        var config = new DroolsGanglionConfig(
+                "test-ganglion", Set.of("test.event"),
+                SessionMode.LONG_LIVED, ClockMode.PSEUDO,
+                List.of("io/casehub/ras/drools/test-threshold.drl"), List.of());
+        var ganglion = new DroolsGanglion(config, sessionStore, List.of());
+        var ctx = testContext();
+
+        var event1 = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
+        DetectionResult r1 = ganglion.detect(event1, ctx).await().indefinitely();
+        assertThat(r1.signal()).isEqualTo(DetectionSignal.DETECTED);
+
+        var nullTimeEvent = CloudEventBuilder.v1()
+                .withId("evt-null")
+                .withSource(URI.create("/test"))
+                .withType("test.event")
+                .build();
+        DetectionResult r2 = ganglion.detect(nullTimeEvent, ctx).await().indefinitely();
+        assertThat(r2.signal()).isEqualTo(DetectionSignal.DETECTED);
+
+        var event3 = testEvent("test.event", Instant.parse("2026-06-21T10:01:00Z"));
+        DetectionResult r3 = ganglion.detect(event3, ctx).await().indefinitely();
+        assertThat(r3.signal()).isEqualTo(DetectionSignal.DETECTED);
+    }
 }

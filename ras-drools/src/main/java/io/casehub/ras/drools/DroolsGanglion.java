@@ -87,10 +87,8 @@ public class DroolsGanglion implements Ganglion {
             throw ex;
         }
 
-        DetectionResult result = collector.getResult();
-        if (result == null) {
-            result = new DetectionResult(config.ganglionId(), 0.0, DetectionSignal.NOISE, Map.of());
-        }
+        DetectionResult result = config.resultCollectionStrategy()
+                .resolve(collector.results(), config.ganglionId());
 
         session.unregisterChannel(RESULT_CHANNEL);
         if (config.sessionMode() == SessionMode.LONG_LIVED) {

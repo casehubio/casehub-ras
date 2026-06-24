@@ -1,5 +1,6 @@
 package io.casehub.ras.drools;
 
+import org.drools.model.codegen.ExecutableModelProject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.kie.api.KieBase;
@@ -20,7 +21,7 @@ class InMemoryDroolsSessionStoreTest {
         KieServices kieServices = KieServices.Factory.get();
         KieFileSystem kfs = kieServices.newKieFileSystem();
         KieBuilder kieBuilder = kieServices.newKieBuilder(kfs);
-        kieBuilder.buildAll();
+        kieBuilder.buildAll(ExecutableModelProject.class);
         kieBase = kieServices.newKieContainer(kieBuilder.getKieModule().getReleaseId()).getKieBase();
     }
 

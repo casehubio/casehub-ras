@@ -25,6 +25,8 @@ Multiple ganglia, one RAS per deployment context.
 **Design specs:**
 - Original: `docs/superpowers/specs/2026-06-12-casehub-ras-design.md`
 - Epic 1 API: `docs/superpowers/specs/2026-06-18-epic1-core-ras-api-design.md`
+- Epic 4 DroolsGanglion: `docs/superpowers/specs/2026-06-21-epic4-drools-ganglion-design.md`
+- Result collection + test gaps: `docs/superpowers/specs/2026-06-22-drools-result-collection-and-test-gaps.md`
 
 ## Build Commands
 
@@ -83,8 +85,8 @@ interface SituationStore {
 | Type | Purpose |
 |------|---------|
 | `CloudEvent` | Input — from `io.cloudevents:cloudevents-core` via `casehub-platform-api`. Fields: `type` (event type for routing), `source`, `subject`, `data`, `tenancyid` extension |
-| `DetectionResult` | Ganglion output — `ganglionId`, `confidence` (0.0–1.0), `signal` (DETECTED/WEAK/NOISE/ANTI), `evidence` |
-| `DetectionSignal` | Signal classification — DETECTED, WEAK, NOISE, ANTI |
+| `DetectionResult` | Ganglion output — `ganglionId`, `confidence` (0.0–1.0), `signal` (NOISE/ANTI/WEAK/DETECTED), `evidence` |
+| `DetectionSignal` | Signal strength — NOISE, ANTI, WEAK, DETECTED (ascending). `isAtLeast(threshold)` for comparisons. |
 | `SituationContext` | Accumulated state — `situationId`, `tenancyId`, `firstSignal`, `lastSignal`, `List<DetectionResult>` |
 | `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `ChainMode`, `CaseTriggerConfig` |
 | `ChainMode` | Sealed interface — And, Or, Threshold, Sequence, Count. All variants carry explicit ganglion references. |

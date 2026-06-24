@@ -83,4 +83,31 @@ class DroolsGanglionConfigTest {
                 List.of("r.drl"), List.of()))
                 .isInstanceOf(NullPointerException.class);
     }
+
+    @Test
+    void canonicalConstructorRequiresResultCollectionStrategy() {
+        assertThatThrownBy(() -> new DroolsGanglionConfig(
+                "g", Set.of("e"), SessionMode.LONG_LIVED, ClockMode.PSEUDO,
+                List.of("r.drl"), List.of(), null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("resultCollectionStrategy");
+    }
+
+    @Test
+    void convenienceConstructorDefaultsToHighestConfidence() {
+        var config = new DroolsGanglionConfig(
+                "g", Set.of("e"), SessionMode.LONG_LIVED, ClockMode.PSEUDO,
+                List.of("r.drl"), List.of());
+        assertThat(config.resultCollectionStrategy())
+                .isEqualTo(ResultCollectionStrategy.HIGHEST_CONFIDENCE);
+    }
+
+    @Test
+    void canonicalConstructorAcceptsExplicitStrategy() {
+        var config = new DroolsGanglionConfig(
+                "g", Set.of("e"), SessionMode.LONG_LIVED, ClockMode.PSEUDO,
+                List.of("r.drl"), List.of(), ResultCollectionStrategy.ACCUMULATE);
+        assertThat(config.resultCollectionStrategy())
+                .isEqualTo(ResultCollectionStrategy.ACCUMULATE);
+    }
 }

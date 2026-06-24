@@ -1,0 +1,22 @@
+package io.casehub.ras.drools;
+
+import io.cloudevents.CloudEvent;
+import io.casehub.ras.api.DetectionResult;
+import io.casehub.ras.api.DetectionSignal;
+import java.util.Map;
+
+rule "Low confidence"
+when
+    $ce : CloudEvent(type == "test.event")
+then
+    channels["results"].send(new DetectionResult(
+        "test-ganglion", 0.3, DetectionSignal.WEAK, Map.of("rule", "low")));
+end
+
+rule "High confidence"
+when
+    $ce : CloudEvent(type == "test.event")
+then
+    channels["results"].send(new DetectionResult(
+        "test-ganglion", 0.9, DetectionSignal.DETECTED, Map.of("rule", "high")));
+end

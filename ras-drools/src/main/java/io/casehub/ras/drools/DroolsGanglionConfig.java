@@ -10,12 +10,14 @@ public record DroolsGanglionConfig(
         SessionMode sessionMode,
         ClockMode clockMode,
         List<String> classpathRules,
-        List<String> programmaticRules
+        List<String> programmaticRules,
+        ResultCollectionStrategy resultCollectionStrategy
 ) {
     public DroolsGanglionConfig {
-        Objects.requireNonNull(ganglionId);
+        Objects.requireNonNull(ganglionId, "ganglionId");
         Objects.requireNonNull(sessionMode, "sessionMode");
         Objects.requireNonNull(clockMode, "clockMode");
+        Objects.requireNonNull(resultCollectionStrategy, "resultCollectionStrategy");
         if (handledEventTypes == null || handledEventTypes.isEmpty()) {
             throw new IllegalArgumentException("handledEventTypes must not be empty");
         }
@@ -27,5 +29,12 @@ public record DroolsGanglionConfig(
         if (classpathRules.isEmpty() && programmaticRules.isEmpty()) {
             throw new IllegalArgumentException("At least one rule source required");
         }
+    }
+
+    public DroolsGanglionConfig(String ganglionId, Set<String> handledEventTypes,
+            SessionMode sessionMode, ClockMode clockMode,
+            List<String> classpathRules, List<String> programmaticRules) {
+        this(ganglionId, handledEventTypes, sessionMode, clockMode,
+             classpathRules, programmaticRules, ResultCollectionStrategy.HIGHEST_CONFIDENCE);
     }
 }
