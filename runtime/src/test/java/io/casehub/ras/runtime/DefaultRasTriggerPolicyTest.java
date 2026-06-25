@@ -203,6 +203,54 @@ class DefaultRasTriggerPolicyTest {
         assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
+    // --- ANTI SIGNAL HANDLING ---
+
+    @Test
+    void thresholdSubtractsAntiConfidence() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g2", DetectionSignal.ANTI, 0.5, T2)),
+                def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
+        ).await().indefinitely();
+        // 0.9 - 0.5 = 0.4, below 0.8 threshold
+        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    @Test
+    void thresholdAntiCanPullBelowThreshold() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.5, T1),
+                    td("g2", DetectionSignal.DETECTED, 0.4, T2),
+                    td("g1", DetectionSignal.ANTI, 0.3, T3)),
+                def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
+        ).await().indefinitely();
+        // 0.5 + 0.4 - 0.3 = 0.6, below 0.8 threshold
+        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    @Test
+    void thresholdStillSatisfiedDespiteAntiWhenSumSufficient() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g2", DetectionSignal.DETECTED, 0.5, T2),
+                    td("g1", DetectionSignal.ANTI, 0.3, T3)),
+                def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
+        ).await().indefinitely();
+        // 0.9 + 0.5 - 0.3 = 1.1, above 0.8
+        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+    }
+
+    @Test
+    void thresholdIgnoresAntiFromNonParticipatingGanglia() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g3", DetectionSignal.ANTI, 0.5, T2)),
+                def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
+        ).await().indefinitely();
+        // g3 not in threshold ganglia → ignored; 0.9 >= 0.8
+        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+    }
+
     // --- EMPTY CONTEXT ---
 
     @Test
