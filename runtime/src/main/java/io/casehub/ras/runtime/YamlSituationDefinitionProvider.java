@@ -1,0 +1,153 @@
+package io.casehub.ras.runtime;
+
+import io.casehub.ras.api.*;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.yaml.snakeyaml.Yaml;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.time.Duration;
+import java.util.*;
+import java.util.logging.Logger;
+
+@ApplicationScoped
+public class YamlSituationDefinitionProvider implements SituationDefinitionProvider {
+
+    private static final Logger LOG = Logger.getLogger(YamlSituationDefinitionProvider.class.getName());
+
+    private final List<SituationRegistration> registrations;
+
+    @Inject
+    YamlSituationDefinitionProvider(
+            @ConfigProperty(name = "ras.situations.yaml",
+                            defaultValue = "META-INF/ras-situations.yaml") String resourcePath) {
+        InputStream is = Thread.currentThread().getContextClassLoader()
+                .getResourceAsStream(resourcePath);
+        if (is == null) {
+            LOG.fine("No YAML situation definitions found at " + resourcePath);
+            this.registrations = List.of();
+        } else {
+            try (is) {
+                this.registrations = parse(is);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to read " + resourcePath, e);
+            }
+        }
+    }
+
+    YamlSituationDefinitionProvider(InputStream yaml) {
+        this.registrations = parse(yaml);
+    }
+
+    @Override
+    public List<SituationRegistration> registrations() {
+        return registrations;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<SituationRegistration> parse(InputStream yaml) {
+        Map<String, Object> root = new Yaml().load(yaml);
+        if (root == null || !root.containsKey("situations")) {
+            return List.of();
+        }
+        List<Map<String, Object>> situations = (List<Map<String, Object>>) root.get("situations");
+        List<SituationRegistration> result = new ArrayList<>(situations.size());
+        for (Map<String, Object> sit : situations) {
+            result.add(parseSituation(sit));
+        }
+        return List.copyOf(result);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static SituationRegistration parseSituation(Map<String, Object> map) {
+        String situationId = requireString(map, "situationId");
+        List<String> eventTypeList = (List<String>) map.get("eventTypes");
+        if (eventTypeList == null || eventTypeList.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "eventTypes must not be empty for situation '" + situationId + "'");
+        }
+
+        Duration correlationWindow = null;
+        if (map.containsKey("correlationWindow")) {
+            correlationWindow = Duration.parse((String) map.get("correlationWindow"));
+        }
+
+        Map<String, Object> chainModeMap = (Map<String, Object>) map.get("chainMode");
+        if (chainModeMap == null) {
+            throw new IllegalArgumentException(
+                    "chainMode required for situation '" + situationId + "'");
+        }
+
+        Map<String, Object> triggerMap = (Map<String, Object>) map.get("triggerConfig");
+        if (triggerMap == null) {
+            throw new IllegalArgumentException(
+                    "triggerConfig required for situation '" + situationId + "'");
+        }
+
+        ChainMode chainMode = parseChainMode(chainModeMap, situationId);
+        CaseTriggerConfig triggerConfig = parseTriggerConfig(triggerMap);
+        SituationDefinition def = new SituationDefinition(
+                situationId, new LinkedHashSet<>(eventTypeList),
+                correlationWindow, chainMode, triggerConfig);
+        return new SituationRegistration(def);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ChainMode parseChainMode(Map<String, Object> map, String situationId) {
+        String type = requireString(map, "type");
+        return switch (type) {
+            case "and" -> new ChainMode.And(
+                    new LinkedHashSet<>(requireList(map, "ganglia", situationId)));
+            case "or" -> new ChainMode.Or(
+                    new LinkedHashSet<>(requireList(map, "ganglia", situationId)));
+            case "threshold" -> new ChainMode.Threshold(
+                    new LinkedHashSet<>(requireList(map, "ganglia", situationId)),
+                    requireNumber(map, "minConfidence", situationId).doubleValue());
+            case "sequence" -> new ChainMode.Sequence(
+                    requireList(map, "ganglia", situationId));
+            case "count" -> new ChainMode.Count(
+                    requireString(map, "ganglionId"),
+                    requireNumber(map, "requiredCount", situationId).intValue());
+            default -> throw new IllegalArgumentException(
+                    "Unknown chainMode type '" + type + "' in situation '" + situationId + "'");
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    private static CaseTriggerConfig parseTriggerConfig(Map<String, Object> map) {
+        return new CaseTriggerConfig(
+                requireString(map, "caseNamespace"),
+                requireString(map, "caseName"),
+                requireString(map, "caseVersion"),
+                (Map<String, Object>) map.getOrDefault("baseCaseData", Map.of()));
+    }
+
+    private static String requireString(Map<String, Object> map, String key) {
+        Object value = map.get(key);
+        if (value == null) {
+            throw new IllegalArgumentException("Missing required field: " + key);
+        }
+        return value.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> requireList(Map<String, Object> map, String key, String situationId) {
+        Object value = map.get(key);
+        if (value == null) {
+            throw new IllegalArgumentException(
+                    "Missing required field '" + key + "' in chainMode for situation '" + situationId + "'");
+        }
+        return (List<String>) value;
+    }
+
+    private static Number requireNumber(Map<String, Object> map, String key, String situationId) {
+        Object value = map.get(key);
+        if (value == null) {
+            throw new IllegalArgumentException(
+                    "Missing required field '" + key + "' in chainMode for situation '" + situationId + "'");
+        }
+        return (Number) value;
+    }
+}
