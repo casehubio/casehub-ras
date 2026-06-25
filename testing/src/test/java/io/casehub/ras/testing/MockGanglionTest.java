@@ -14,7 +14,7 @@ class MockGanglionTest {
         var expected = new DetectionResult("mock", 0.9, DetectionSignal.DETECTED, Map.of());
         var ganglion = new MockGanglion("mock", Set.of("test.event"), expected);
 
-        var ctx = SituationContext.initial("sit-1", "tenant-a",
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-20T10:00:00Z"));
 
         var result = ganglion.detect(null, ctx).await().indefinitely();
@@ -26,7 +26,7 @@ class MockGanglionTest {
         var expected = new DetectionResult("mock", 0.5, DetectionSignal.WEAK, Map.of());
         var ganglion = new MockGanglion("mock", Set.of("test.event"), expected);
 
-        var ctx = SituationContext.initial("sit-1", "tenant-a",
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-20T10:00:00Z"));
 
         ganglion.detect(null, ctx).await().indefinitely();

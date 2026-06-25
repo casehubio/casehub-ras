@@ -15,24 +15,24 @@ import java.util.concurrent.ConcurrentHashMap;
 @Priority(1)
 public class InMemorySituationStore implements SituationStore {
 
-    private record SituationKey(String situationId, String tenancyId) {}
+    private record SituationKey(String situationId, String correlationKey, String tenancyId) {}
 
     private final ConcurrentHashMap<SituationKey, SituationContext> store = new ConcurrentHashMap<>();
 
     @Override
-    public Uni<Optional<SituationContext>> find(String situationId, String tenancyId) {
-        return Uni.createFrom().item(Optional.ofNullable(store.get(new SituationKey(situationId, tenancyId))));
+    public Uni<Optional<SituationContext>> find(String situationId, String correlationKey, String tenancyId) {
+        return Uni.createFrom().item(Optional.ofNullable(store.get(new SituationKey(situationId, correlationKey, tenancyId))));
     }
 
     @Override
     public Uni<Void> save(SituationContext context) {
-        store.put(new SituationKey(context.situationId(), context.tenancyId()), context);
+        store.put(new SituationKey(context.situationId(), context.correlationKey(), context.tenancyId()), context);
         return Uni.createFrom().voidItem();
     }
 
     @Override
-    public Uni<Void> remove(String situationId, String tenancyId) {
-        store.remove(new SituationKey(situationId, tenancyId));
+    public Uni<Void> remove(String situationId, String correlationKey, String tenancyId) {
+        store.remove(new SituationKey(situationId, correlationKey, tenancyId));
         return Uni.createFrom().voidItem();
     }
 

@@ -6,6 +6,16 @@ import java.util.Set;
 
 public sealed interface ChainMode {
 
+    default Set<String> referencedGanglia() {
+        return switch (this) {
+            case And a -> a.requiredGanglia();
+            case Or o -> o.ganglia();
+            case Threshold t -> t.ganglia();
+            case Sequence s -> Set.copyOf(s.orderedGanglia());
+            case Count c -> Set.of(c.ganglionId());
+        };
+    }
+
     record And(Set<String> requiredGanglia) implements ChainMode {
         public And {
             if (requiredGanglia == null || requiredGanglia.isEmpty()) {

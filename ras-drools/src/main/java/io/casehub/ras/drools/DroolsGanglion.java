@@ -50,12 +50,13 @@ public class DroolsGanglion implements Ganglion {
     @Override
     public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
         String situationId = context.situationId();
+        String correlationKey = context.correlationKey();
         String tenancyId = context.tenancyId();
         boolean isNewSession = false;
 
         KieSession session;
         if (config.sessionMode() == SessionMode.LONG_LIVED) {
-            session = sessionStore.get(config.ganglionId(), situationId, tenancyId)
+            session = sessionStore.get(config.ganglionId(), situationId, correlationKey, tenancyId)
                     .orElse(null);
             if (session == null) {
                 session = createSession();
@@ -82,7 +83,7 @@ public class DroolsGanglion implements Ganglion {
             session.unregisterChannel(RESULT_CHANNEL);
             session.dispose();
             if (!isNewSession) {
-                sessionStore.remove(config.ganglionId(), situationId, tenancyId);
+                sessionStore.remove(config.ganglionId(), situationId, correlationKey, tenancyId);
             }
             throw ex;
         }
@@ -92,7 +93,7 @@ public class DroolsGanglion implements Ganglion {
 
         session.unregisterChannel(RESULT_CHANNEL);
         if (config.sessionMode() == SessionMode.LONG_LIVED) {
-            sessionStore.put(config.ganglionId(), situationId, tenancyId, session);
+            sessionStore.put(config.ganglionId(), situationId, correlationKey, tenancyId, session);
         } else {
             session.dispose();
         }
@@ -101,8 +102,8 @@ public class DroolsGanglion implements Ganglion {
     }
 
     @Override
-    public Uni<Void> close(String situationId, String tenancyId) {
-        sessionStore.remove(config.ganglionId(), situationId, tenancyId);
+    public Uni<Void> close(String situationId, String correlationKey, String tenancyId) {
+        sessionStore.remove(config.ganglionId(), situationId, correlationKey, tenancyId);
         return Uni.createFrom().voidItem();
     }
 

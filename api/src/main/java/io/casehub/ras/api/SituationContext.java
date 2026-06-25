@@ -7,31 +7,37 @@ import java.util.Objects;
 
 public record SituationContext(
         String situationId,
+        String correlationKey,
         String tenancyId,
         Instant firstSignal,
         Instant lastSignal,
-        List<DetectionResult> detections
+        List<TimestampedDetection> detections
 ) {
     public SituationContext {
         Objects.requireNonNull(situationId, "situationId");
+        Objects.requireNonNull(correlationKey, "correlationKey");
         Objects.requireNonNull(tenancyId, "tenancyId");
         Objects.requireNonNull(firstSignal, "firstSignal");
         Objects.requireNonNull(lastSignal, "lastSignal");
         detections = detections != null ? List.copyOf(detections) : List.of();
     }
 
-    public static SituationContext initial(String situationId, String tenancyId, Instant eventTime) {
+    public static SituationContext initial(String situationId, String correlationKey,
+                                           String tenancyId, Instant eventTime) {
         Objects.requireNonNull(eventTime, "eventTime");
-        return new SituationContext(situationId, tenancyId, eventTime, eventTime, List.of());
+        return new SituationContext(situationId, correlationKey, tenancyId,
+                                   eventTime, eventTime, List.of());
     }
 
     public SituationContext withDetection(DetectionResult result, Instant eventTime) {
         Objects.requireNonNull(result, "result");
         Objects.requireNonNull(eventTime, "eventTime");
+        var td = new TimestampedDetection(result, eventTime);
         var newDetections = new ArrayList<>(detections);
-        newDetections.add(result);
+        newDetections.add(td);
         Instant newFirst = eventTime.isBefore(firstSignal) ? eventTime : firstSignal;
         Instant newLast = eventTime.isAfter(lastSignal) ? eventTime : lastSignal;
-        return new SituationContext(situationId, tenancyId, newFirst, newLast, newDetections);
+        return new SituationContext(situationId, correlationKey, tenancyId,
+                                   newFirst, newLast, newDetections);
     }
 }

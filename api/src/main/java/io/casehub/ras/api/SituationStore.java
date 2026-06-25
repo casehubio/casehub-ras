@@ -6,11 +6,11 @@ import java.util.Optional;
 
 public interface SituationStore {
 
-    Uni<Optional<SituationContext>> find(String situationId, String tenancyId);
+    Uni<Optional<SituationContext>> find(String situationId, String correlationKey, String tenancyId);
 
     Uni<Void> save(SituationContext context);
 
-    Uni<Void> remove(String situationId, String tenancyId);
+    Uni<Void> remove(String situationId, String correlationKey, String tenancyId);
 
     Uni<Void> removeExpired(Instant cutoff);
 }

@@ -40,7 +40,7 @@ class DroolsGanglionTest {
     }
 
     private SituationContext testContext() {
-        return SituationContext.initial("sit-1", "tenant-a",
+        return SituationContext.initial("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-21T10:00:00Z"));
     }
 
@@ -77,7 +77,7 @@ class DroolsGanglionTest {
         var ganglion = ganglionWithClasspathRule();
         var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
         ganglion.detect(event, testContext()).await().indefinitely();
-        assertThat(sessionStore.get("test-ganglion", "sit-1", "tenant-a")).isEmpty();
+        assertThat(sessionStore.get("test-ganglion", "sit-1", "key-1", "tenant-a")).isEmpty();
     }
 
     @Test
@@ -89,7 +89,7 @@ class DroolsGanglionTest {
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
         ganglion.detect(event, testContext()).await().indefinitely();
-        assertThat(sessionStore.get("test-ganglion", "sit-1", "tenant-a")).isPresent();
+        assertThat(sessionStore.get("test-ganglion", "sit-1", "key-1", "tenant-a")).isPresent();
     }
 
     @Test
@@ -102,10 +102,10 @@ class DroolsGanglionTest {
         var ctx = testContext();
         var event1 = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
         ganglion.detect(event1, ctx).await().indefinitely();
-        var session1 = sessionStore.get("test-ganglion", "sit-1", "tenant-a").orElseThrow();
+        var session1 = sessionStore.get("test-ganglion", "sit-1", "key-1", "tenant-a").orElseThrow();
         var event2 = testEvent("test.event", Instant.parse("2026-06-21T10:01:00Z"));
         ganglion.detect(event2, ctx).await().indefinitely();
-        var session2 = sessionStore.get("test-ganglion", "sit-1", "tenant-a").orElseThrow();
+        var session2 = sessionStore.get("test-ganglion", "sit-1", "key-1", "tenant-a").orElseThrow();
         assertThat(session2).isSameAs(session1);
     }
 
@@ -118,9 +118,9 @@ class DroolsGanglionTest {
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
         ganglion.detect(event, testContext()).await().indefinitely();
-        assertThat(sessionStore.get("test-ganglion", "sit-1", "tenant-a")).isPresent();
-        ganglion.close("sit-1", "tenant-a").await().indefinitely();
-        assertThat(sessionStore.get("test-ganglion", "sit-1", "tenant-a")).isEmpty();
+        assertThat(sessionStore.get("test-ganglion", "sit-1", "key-1", "tenant-a")).isPresent();
+        ganglion.close("sit-1", "key-1", "tenant-a").await().indefinitely();
+        assertThat(sessionStore.get("test-ganglion", "sit-1", "key-1", "tenant-a")).isEmpty();
     }
 
     @Test
@@ -137,7 +137,7 @@ class DroolsGanglionTest {
         assertThatThrownBy(() -> ganglion.detect(event2, ctx).await().indefinitely())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Out-of-order");
-        assertThat(sessionStore.get("test-ganglion", "sit-1", "tenant-a")).isEmpty();
+        assertThat(sessionStore.get("test-ganglion", "sit-1", "key-1", "tenant-a")).isEmpty();
     }
 
     @Test
@@ -289,9 +289,9 @@ class DroolsGanglionTest {
         var ganglion = ganglionWithClasspathRule();
         var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
         ganglion.detect(event, testContext()).await().indefinitely();
-        assertThat(sessionStore.get("test-ganglion", "sit-1", "tenant-a")).isEmpty();
-        ganglion.close("sit-1", "tenant-a").await().indefinitely();
-        assertThat(sessionStore.get("test-ganglion", "sit-1", "tenant-a")).isEmpty();
+        assertThat(sessionStore.get("test-ganglion", "sit-1", "key-1", "tenant-a")).isEmpty();
+        ganglion.close("sit-1", "key-1", "tenant-a").await().indefinitely();
+        assertThat(sessionStore.get("test-ganglion", "sit-1", "key-1", "tenant-a")).isEmpty();
     }
 
     @Test

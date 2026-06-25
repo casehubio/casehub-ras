@@ -31,46 +31,46 @@ class InMemoryDroolsSessionStoreTest {
 
     @Test
     void getReturnsEmptyForUnknownKey() {
-        assertThat(store.get("g1", "sit-1", "tenant-a")).isEmpty();
+        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).isEmpty();
     }
 
     @Test
     void putThenGetReturnsSameSession() {
         var session = freshSession();
-        store.put("g1", "sit-1", "tenant-a", session);
-        assertThat(store.get("g1", "sit-1", "tenant-a")).containsSame(session);
+        store.put("g1", "sit-1", "key-1", "tenant-a", session);
+        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).containsSame(session);
     }
 
     @Test
     void differentGanglionIdsSameKeysAreIndependent() {
         var session1 = freshSession();
         var session2 = freshSession();
-        store.put("g1", "sit-1", "tenant-a", session1);
-        store.put("g2", "sit-1", "tenant-a", session2);
-        assertThat(store.get("g1", "sit-1", "tenant-a")).containsSame(session1);
-        assertThat(store.get("g2", "sit-1", "tenant-a")).containsSame(session2);
+        store.put("g1", "sit-1", "key-1", "tenant-a", session1);
+        store.put("g2", "sit-1", "key-1", "tenant-a", session2);
+        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).containsSame(session1);
+        assertThat(store.get("g2", "sit-1", "key-1", "tenant-a")).containsSame(session2);
     }
 
     @Test
     void removeDisposesAndEvictsSession() {
         var session = freshSession();
-        store.put("g1", "sit-1", "tenant-a", session);
-        store.remove("g1", "sit-1", "tenant-a");
-        assertThat(store.get("g1", "sit-1", "tenant-a")).isEmpty();
+        store.put("g1", "sit-1", "key-1", "tenant-a", session);
+        store.remove("g1", "sit-1", "key-1", "tenant-a");
+        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).isEmpty();
     }
 
     @Test
     void removeNonExistentKeyIsNoOp() {
         assertThatNoException().isThrownBy(
-                () -> store.remove("g1", "no-such", "tenant-a"));
+                () -> store.remove("g1", "no-such", "key-1", "tenant-a"));
     }
 
     @Test
     void putUpsertDisposesOldSession() {
         var session1 = freshSession();
         var session2 = freshSession();
-        store.put("g1", "sit-1", "tenant-a", session1);
-        store.put("g1", "sit-1", "tenant-a", session2);
-        assertThat(store.get("g1", "sit-1", "tenant-a")).containsSame(session2);
+        store.put("g1", "sit-1", "key-1", "tenant-a", session1);
+        store.put("g1", "sit-1", "key-1", "tenant-a", session2);
+        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).containsSame(session2);
     }
 }

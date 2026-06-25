@@ -110,4 +110,34 @@ class ChainModeTest {
         assertThat(sequence).isInstanceOf(ChainMode.class);
         assertThat(count).isInstanceOf(ChainMode.class);
     }
+
+    @Test
+    void referencedGangliaForAnd() {
+        ChainMode mode = new ChainMode.And(Set.of("g1", "g2"));
+        assertThat(mode.referencedGanglia()).containsExactlyInAnyOrder("g1", "g2");
+    }
+
+    @Test
+    void referencedGangliaForOr() {
+        ChainMode mode = new ChainMode.Or(Set.of("g3"));
+        assertThat(mode.referencedGanglia()).containsExactly("g3");
+    }
+
+    @Test
+    void referencedGangliaForThreshold() {
+        ChainMode mode = new ChainMode.Threshold(Set.of("g1", "g4"), 1.0);
+        assertThat(mode.referencedGanglia()).containsExactlyInAnyOrder("g1", "g4");
+    }
+
+    @Test
+    void referencedGangliaForSequence() {
+        ChainMode mode = new ChainMode.Sequence(List.of("g1", "g2", "g3"));
+        assertThat(mode.referencedGanglia()).containsExactlyInAnyOrder("g1", "g2", "g3");
+    }
+
+    @Test
+    void referencedGangliaForCount() {
+        ChainMode mode = new ChainMode.Count("g5", 3);
+        assertThat(mode.referencedGanglia()).containsExactly("g5");
+    }
 }
