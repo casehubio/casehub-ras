@@ -10,20 +10,21 @@
     </parent>
     <artifactId>casehub-ras</artifactId>
     <name>CaseHub RAS :: Runtime</name>
-    <description>RAS engine — observes SensoryEvent CDI events, routes to registered Ganglion
-        implementations, accumulates DetectionResult via CompositeEventCorrelator, evaluates
-        SituationThreshold, triggers case creation via casehub-engine-api startCase().</description>
+    <description>RAS engine — observes CloudEvent CDI events, routes to registered Ganglion
+        implementations via SituationDefinitionRegistry, evaluates chain modes via
+        DefaultRasTriggerPolicy, triggers case creation via CaseTrigger SPI.</description>
     <dependencies>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-api</artifactId></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-platform-api</artifactId></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-platform</artifactId></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-engine-api</artifactId></dependency>
         <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-arc</artifactId></dependency>
-        <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-vertx</artifactId></dependency>
+        <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-scheduler</artifactId></dependency>
         <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-junit5</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.assertj</groupId><artifactId>assertj-core</artifactId><scope>test</scope></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-platform-testing</artifactId><scope>test</scope></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-testing</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-memory</artifactId><scope>test</scope></dependency>
     </dependencies>
     <build>
         <plugins>
