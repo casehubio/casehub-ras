@@ -42,7 +42,7 @@ mvn --batch-mode deploy -DskipTests   # CI only
 |--------|----------|-------------|---------|
 | `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types. Depends on `casehub-platform-api` (for `CloudEvent`). Mutiny provided. |
 | `persistence-memory/` | `casehub-ras-memory` | `io.casehub.ras.memory` | InMemorySituationStore — `@ApplicationScoped @Alternative @Priority(1)`, ConcurrentHashMap-backed. |
-| `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob. Quarkus extension. |
+| `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, YamlSituationDefinitionProvider. Quarkus extension. |
 | `ras-drools/` | `casehub-ras-drools` | `io.casehub.ras.drools` | DroolsGanglion — Drools CEP (KieSession, sliding windows, temporal correlation). Optional. |
 | `ras-llm/` | `casehub-ras-llm` | `io.casehub.ras.llm` | LlmGanglion — narrative detection via casehub-platform-agent-api. Optional, slow path. |
 | `testing/` | `casehub-ras-testing` | `io.casehub.ras.testing` | MockGanglion, FixedDetectionResult, MockCaseTrigger. **Test scope only.** |
@@ -105,7 +105,21 @@ validation only. A situation instance is identified by the tuple `(situationId, 
 `correlationKey` defaults to `CloudEvent.getSubject()` or `"_singleton"` when null.
 
 Chain modes: AND (all named ganglia must fire), OR (any single firing), THRESHOLD (min confidence sum,
-no upper bound), SEQUENCE (ordered arrival), COUNT (same ganglion fires N times).
+no upper bound — ANTI detections subtract from the sum), SEQUENCE (ordered arrival), COUNT (same
+ganglion fires N times).
+
+## YAML Situation Definitions (runtime/)
+
+`YamlSituationDefinitionProvider` reads `SituationDefinition` entries from a classpath YAML resource
+(default `META-INF/ras-situations.yaml`, configurable via `ras.situations.yaml`). Returns empty list
+when the resource is absent — coexists with programmatic providers. Supports all five ChainMode variants
+via a `type` discriminator (`and`, `or`, `threshold`, `sequence`, `count`).
+
+## Persistent Situation Compaction (runtime/)
+
+For persistent situations (`correlationWindow = null`), `SituationEvaluator` calls `Ganglion.compact()`
+on each referenced ganglion after every `CONTINUE_ACCUMULATING` decision. The ganglion decides what to
+compact — the evaluator just triggers it. Windowed situations skip compaction.
 
 ## Key Rules
 

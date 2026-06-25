@@ -335,14 +335,16 @@ requires "both have fired at some point within the window," not "both fire on ev
 `@DefaultBean @ApplicationScoped`. Pure domain logic — no CDI dependencies beyond the scope annotation.
 
 Exhaustive pattern match on ChainMode. Signal threshold: `signal.isAtLeast(DetectionSignal.WEAK)`.
-NOISE and ANTI detections do not contribute to chain satisfaction. The policy accesses the
-`DetectionResult` via `TimestampedDetection.result()`.
+NOISE detections do not contribute to chain satisfaction. ANTI detections subtract their
+confidence from the running sum in Threshold mode; in other modes (And, Or, Sequence, Count)
+they are filtered out alongside NOISE. The policy accesses the `DetectionResult` via
+`TimestampedDetection.result()`.
 
 | ChainMode | Satisfaction condition |
 |-----------|----------------------|
 | And | Every required ganglion has ≥1 detection with signal ≥ WEAK |
 | Or | Any listed ganglion has ≥1 detection with signal ≥ WEAK |
-| Threshold | Sum of confidence values from detections with signal ≥ WEAK ≥ minConfidence |
+| Threshold | Sum of confidence values from detections with signal ≥ ANTI ≥ minConfidence (ANTI subtracts, WEAK/DETECTED adds) |
 | Sequence | Detections with signal ≥ WEAK from listed ganglia appear in declared order **when sorted by `eventTime`** (not arrival order — see §5.2) |
 | Count | Ganglion has ≥ requiredCount detections with signal ≥ WEAK |
 
@@ -531,9 +533,9 @@ Plus corresponding test files for each new/modified production class.
 
 | Item | Issue | Reason |
 |------|-------|--------|
-| Ganglion `compact()` invocation | #12 | Compaction matters for persistent situations (null window). Short-lived windowed situations don't accumulate enough to need it. |
-| YAML-driven SituationDefinitionProvider | #13 | Programmatic providers cover initial use. Config loading is a convenience. |
+| ~~Ganglion `compact()` invocation~~ | ~~#12~~ | ~~Implemented: SituationEvaluator calls compact() on each referenced ganglion for persistent situations after CONTINUE_ACCUMULATING.~~ |
+| ~~YAML-driven SituationDefinitionProvider~~ | ~~#13~~ | ~~Implemented: YamlSituationDefinitionProvider reads from classpath YAML (default META-INF/ras-situations.yaml).~~ |
 | JPA SituationStore | #14 | InMemorySituationStore covers development/testing. Production persistence is a deployment concern. |
-| ANTI signal subtraction | #15 | Default policy ignores ANTI. Custom policies handle it. Needs domain-specific requirements. |
+| ~~ANTI signal subtraction~~ | ~~#15~~ | ~~Implemented: ANTI detections subtract confidence in Threshold mode; filtered in other modes.~~ |
 | Per-situation event reordering buffer | #16 | DroolsGanglion pseudo clock mode requires events dispatched in non-decreasing timestamp order (Epic 4 §8.1). The runtime currently dispatches in arrival order. Upstream ordering (Kafka partition ordering) mitigates this. A runtime-level buffer sorted by `CloudEvent.getTime()` with configurable delay/watermark would eliminate the upstream requirement. |
 | SituationExpiryJob ganglia cleanup | — | SituationExpiryJob does not close ganglia for expired situations. DroolsSessionStore entries for orphaned situations accumulate until JVM restart. Per-event window check handles the common case (another event arrives); this job handles the uncommon case (no further events) where KieSession leak is accepted. Coupled to #12 (compact) — a ganglia-aware expiry mechanism is the proper solution for both compaction and orphan cleanup. |

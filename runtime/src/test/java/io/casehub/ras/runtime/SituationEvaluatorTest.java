@@ -7,6 +7,7 @@ import io.casehub.ras.testing.MockCaseTrigger;
 import io.casehub.ras.testing.MockGanglion;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
+import io.smallrye.mutiny.Uni;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import java.net.URI;
@@ -17,6 +18,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.*;
 
 class SituationEvaluatorTest {
@@ -190,5 +192,61 @@ class SituationEvaluatorTest {
 
         evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
         assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+    }
+
+    @Test
+    void compactInvokedForPersistentSituations() {
+        var compactCalls = new AtomicInteger();
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.4)) {
+            @Override
+            public Uni<SituationContext> compact(SituationContext context) {
+                compactCalls.incrementAndGet();
+                if (context.detections().size() > 1) {
+                    var latest = context.detections().get(context.detections().size() - 1);
+                    return Uni.createFrom().item(new SituationContext(
+                            context.situationId(), context.correlationKey(), context.tenancyId(),
+                            context.firstSignal(), context.lastSignal(), List.of(latest)));
+                }
+                return Uni.createFrom().item(context);
+            }
+        };
+        // null correlationWindow → persistent situation
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG);
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
+
+        assertThat(compactCalls.get()).isEqualTo(2);
+        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        assertThat(saved).isPresent();
+        // compact() kept only the latest detection each time
+        assertThat(saved.get().detections()).hasSize(1);
+    }
+
+    @Test
+    void compactNotInvokedForWindowedSituations() {
+        var compactCalls = new AtomicInteger();
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.4)) {
+            @Override
+            public Uni<SituationContext> compact(SituationContext context) {
+                compactCalls.incrementAndGet();
+                return Uni.createFrom().item(context);
+            }
+        };
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), new ChainMode.Count("g1", 5), TRIGGER_CONFIG);
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
+
+        assertThat(compactCalls.get()).isZero();
+        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        assertThat(saved).isPresent();
+        assertThat(saved.get().detections()).hasSize(2);
     }
 }

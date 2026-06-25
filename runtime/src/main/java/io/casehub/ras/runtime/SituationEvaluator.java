@@ -77,7 +77,12 @@ public class SituationEvaluator {
                     store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
                     locks.remove(key);
                 }
-                case CONTINUE_ACCUMULATING -> store.save(context).await().indefinitely();
+                case CONTINUE_ACCUMULATING -> {
+                    if (definition.correlationWindow() == null) {
+                        context = compactGanglia(definition, context);
+                    }
+                    store.save(context).await().indefinitely();
+                }
                 case DISCARD -> {
                     closeGanglia(definition, situationId, correlationKey, tenancyId);
                     store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
@@ -103,6 +108,17 @@ public class SituationEvaluator {
         return all.stream()
                 .filter(id -> registry.ganglion(id).handledEventTypes().contains(eventType))
                 .collect(Collectors.toSet());
+    }
+
+    private SituationContext compactGanglia(SituationDefinition definition, SituationContext context) {
+        for (String ganglionId : definition.chainMode().referencedGanglia()) {
+            try {
+                context = registry.ganglion(ganglionId).compact(context).await().indefinitely();
+            } catch (RuntimeException ex) {
+                LOG.warning("Ganglion '" + ganglionId + "' compact() failed: " + ex.getMessage());
+            }
+        }
+        return context;
     }
 
     private void closeGanglia(SituationDefinition definition,
