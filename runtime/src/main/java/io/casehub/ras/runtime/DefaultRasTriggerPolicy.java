@@ -41,8 +41,10 @@ public class DefaultRasTriggerPolicy implements RasTriggerPolicy {
     private boolean evaluateThreshold(SituationContext ctx, ChainMode.Threshold threshold) {
         double sum = ctx.detections().stream()
                 .filter(td -> threshold.ganglia().contains(td.result().ganglionId()))
-                .filter(td -> td.result().signal().isAtLeast(DetectionSignal.WEAK))
-                .mapToDouble(td -> td.result().confidence())
+                .filter(td -> td.result().signal().isAtLeast(DetectionSignal.ANTI))
+                .mapToDouble(td -> td.result().signal() == DetectionSignal.ANTI
+                        ? -td.result().confidence()
+                        : td.result().confidence())
                 .sum();
         return sum >= threshold.minConfidence();
     }
