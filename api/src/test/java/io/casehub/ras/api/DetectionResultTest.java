@@ -60,6 +60,13 @@ class DetectionResultTest {
     }
 
     @Test
+    void nanConfidenceIsRejected() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new DetectionResult("g1", Double.NaN, DetectionSignal.DETECTED, Map.of()))
+                .withMessageContaining("NaN");
+    }
+
+    @Test
     void evidenceIsDefensivelyCopied() {
         var mutable = new java.util.HashMap<String, Object>();
         mutable.put("key", "value");

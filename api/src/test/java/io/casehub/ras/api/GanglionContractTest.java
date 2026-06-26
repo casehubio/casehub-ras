@@ -1,14 +1,18 @@
 package io.casehub.ras.api;
 
 import io.cloudevents.CloudEvent;
+import io.cloudevents.core.builder.CloudEventBuilder;
 import io.smallrye.mutiny.Uni;
-import org.junit.jupiter.api.Test;
+
+import java.net.URI;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Set;
-import static org.assertj.core.api.Assertions.*;
 
-class GanglionContractTest {
+class GanglionContractTest extends AbstractGanglionContractTest {
 
-    private Ganglion minimalGanglion() {
+    @Override
+    protected Ganglion createGanglion() {
         return new Ganglion() {
             @Override
             public String ganglionId() { return "test-ganglion"; }
@@ -24,20 +28,13 @@ class GanglionContractTest {
         };
     }
 
-    @Test
-    void compactDefaultReturnsContextUnchanged() {
-        Ganglion ganglion = minimalGanglion();
-        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a",
-                java.time.Instant.parse("2026-06-20T10:00:00Z"));
-
-        SituationContext compacted = ganglion.compact(ctx).await().indefinitely();
-        assertThat(compacted).isSameAs(ctx);
-    }
-
-    @Test
-    void closeDefaultReturnsCompletedUni() {
-        Ganglion ganglion = minimalGanglion();
-        Void result = ganglion.close("sit-1", "key-1", "tenant-a").await().indefinitely();
-        assertThat(result).isNull();
+    @Override
+    protected CloudEvent createTestEvent() {
+        return CloudEventBuilder.v1()
+                .withId("evt-1")
+                .withSource(URI.create("/test"))
+                .withType("test.event")
+                .withTime(OffsetDateTime.of(2026, 6, 20, 10, 0, 0, 0, ZoneOffset.UTC))
+                .build();
     }
 }
