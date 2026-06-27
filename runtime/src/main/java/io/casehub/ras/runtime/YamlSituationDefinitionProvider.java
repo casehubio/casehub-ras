@@ -74,6 +74,11 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
             correlationWindow = Duration.parse((String) map.get("correlationWindow"));
         }
 
+        Duration eventBufferDelay = null;
+        if (map.containsKey("eventBufferDelay")) {
+            eventBufferDelay = Duration.parse((String) map.get("eventBufferDelay"));
+        }
+
         Map<String, Object> chainModeMap = (Map<String, Object>) map.get("chainMode");
         if (chainModeMap == null) {
             throw new IllegalArgumentException(
@@ -90,7 +95,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         CaseTriggerConfig triggerConfig = parseTriggerConfig(triggerMap);
         SituationDefinition def = new SituationDefinition(
                 situationId, new LinkedHashSet<>(eventTypeList),
-                correlationWindow, chainMode, triggerConfig);
+                correlationWindow, eventBufferDelay, chainMode, triggerConfig);
         return new SituationRegistration(def);
     }
 

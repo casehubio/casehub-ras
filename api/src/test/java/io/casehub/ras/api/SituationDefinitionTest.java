@@ -15,7 +15,7 @@ class SituationDefinitionTest {
     @Test
     void validDefinitionIsCreated() {
         var def = new SituationDefinition("equipment-failure",
-                Set.of("iot.temperature"), Duration.ofMinutes(10), CHAIN, TRIGGER);
+                Set.of("iot.temperature"), Duration.ofMinutes(10), null, CHAIN, TRIGGER);
 
         assertThat(def.situationId()).isEqualTo("equipment-failure");
         assertThat(def.eventTypes()).containsExactly("iot.temperature");
@@ -25,7 +25,7 @@ class SituationDefinitionTest {
     @Test
     void nullCorrelationWindowMeansPersistent() {
         var def = new SituationDefinition("persistent-sit",
-                Set.of("iot.temperature"), null, CHAIN, TRIGGER);
+                Set.of("iot.temperature"), null, null, CHAIN, TRIGGER);
         assertThat(def.correlationWindow()).isNull();
     }
 
@@ -33,7 +33,7 @@ class SituationDefinitionTest {
     void emptyEventTypesRejected() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of(), null, CHAIN, TRIGGER))
+                        Set.of(), null, null, CHAIN, TRIGGER))
                 .withMessageContaining("must not be empty");
     }
 
@@ -41,7 +41,7 @@ class SituationDefinitionTest {
     void nullEventTypesRejected() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        null, null, CHAIN, TRIGGER))
+                        null, null, null, CHAIN, TRIGGER))
                 .withMessageContaining("must not be empty");
     }
 
@@ -49,7 +49,7 @@ class SituationDefinitionTest {
     void zeroCorrelationWindowRejected() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of("type"), Duration.ZERO, CHAIN, TRIGGER))
+                        Set.of("type"), Duration.ZERO, null, CHAIN, TRIGGER))
                 .withMessageContaining("positive");
     }
 
@@ -57,7 +57,7 @@ class SituationDefinitionTest {
     void negativeCorrelationWindowRejected() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of("type"), Duration.ofMinutes(-5), CHAIN, TRIGGER))
+                        Set.of("type"), Duration.ofMinutes(-5), null, CHAIN, TRIGGER))
                 .withMessageContaining("positive");
     }
 
@@ -65,7 +65,7 @@ class SituationDefinitionTest {
     void nullChainModeRejected() {
         assertThatNullPointerException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of("type"), null, null, TRIGGER))
+                        Set.of("type"), null, null, null, TRIGGER))
                 .withMessage("chainMode");
     }
 
@@ -73,7 +73,37 @@ class SituationDefinitionTest {
     void nullTriggerConfigRejected() {
         assertThatNullPointerException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of("type"), null, CHAIN, null))
+                        Set.of("type"), null, null, CHAIN, null))
                 .withMessage("triggerConfig");
+    }
+
+    @Test
+    void nullEventBufferDelayIsAllowed() {
+        var def = new SituationDefinition("sit-1",
+                Set.of("type"), null, null, CHAIN, TRIGGER);
+        assertThat(def.eventBufferDelay()).isNull();
+    }
+
+    @Test
+    void validEventBufferDelay() {
+        var def = new SituationDefinition("sit-1",
+                Set.of("type"), null, Duration.ofSeconds(5), CHAIN, TRIGGER);
+        assertThat(def.eventBufferDelay()).isEqualTo(Duration.ofSeconds(5));
+    }
+
+    @Test
+    void zeroEventBufferDelayRejected() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new SituationDefinition("sit-1",
+                        Set.of("type"), null, Duration.ZERO, CHAIN, TRIGGER))
+                .withMessageContaining("positive");
+    }
+
+    @Test
+    void negativeEventBufferDelayRejected() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new SituationDefinition("sit-1",
+                        Set.of("type"), null, Duration.ofSeconds(-1), CHAIN, TRIGGER))
+                .withMessageContaining("positive");
     }
 }

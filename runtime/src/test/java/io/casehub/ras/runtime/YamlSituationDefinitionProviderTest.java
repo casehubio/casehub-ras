@@ -263,6 +263,45 @@ class YamlSituationDefinitionProviderTest {
     }
 
     @Test
+    void parsesEventBufferDelay() {
+        var regs = provider("""
+                situations:
+                  - situationId: buffered-sit
+                    eventTypes: [test.event]
+                    correlationWindow: PT5M
+                    eventBufferDelay: PT3S
+                    chainMode:
+                      type: or
+                      ganglia: [g1]
+                    triggerConfig:
+                      caseNamespace: ns
+                      caseName: case
+                      caseVersion: "1.0"
+                """).registrations();
+        assertThat(regs).hasSize(1);
+        assertThat(regs.get(0).definition().eventBufferDelay())
+                .isEqualTo(Duration.ofSeconds(3));
+    }
+
+    @Test
+    void absentEventBufferDelayIsNull() {
+        var regs = provider("""
+                situations:
+                  - situationId: no-buffer
+                    eventTypes: [test.event]
+                    chainMode:
+                      type: or
+                      ganglia: [g1]
+                    triggerConfig:
+                      caseNamespace: ns
+                      caseName: case
+                      caseVersion: "1.0"
+                """).registrations();
+        assertThat(regs).hasSize(1);
+        assertThat(regs.get(0).definition().eventBufferDelay()).isNull();
+    }
+
+    @Test
     void missingChainModeThrows() {
         assertThatThrownBy(() -> provider("""
                 situations:

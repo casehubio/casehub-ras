@@ -61,7 +61,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -78,7 +78,7 @@ class SituationEvaluatorTest {
                 FixedDetectionResult.detected("g2", 0.8));
         var def = new SituationDefinition("sit-1",
                 Set.of("temp.reading", "vibration.reading"),
-                Duration.ofMinutes(5), new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG);
         buildEvaluator(List.of(g1, g2), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -95,7 +95,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.noise("g1"));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -109,7 +109,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(1), new ChainMode.Count("g1", 2), TRIGGER_CONFIG);
+                Duration.ofMinutes(1), null, new ChainMode.Count("g1", 2), TRIGGER_CONFIG);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -133,7 +133,7 @@ class SituationEvaluatorTest {
                 FixedDetectionResult.detected("g2", 0.8));
         var def = new SituationDefinition("sit-1",
                 Set.of("temp.reading", "vibration.reading"),
-                Duration.ofMinutes(5), new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG);
         buildEvaluator(List.of(g1, g2), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -147,7 +147,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
         buildEvaluator(List.of(ganglion), def);
 
         CloudEvent noTime = CloudEventBuilder.v1()
@@ -163,7 +163,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
 
         var failOnceTrigger = new CaseTrigger() {
             private int callCount = 0;
@@ -213,7 +213,7 @@ class SituationEvaluatorTest {
         };
         // null correlationWindow → persistent situation
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG);
+                null, null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -238,7 +238,7 @@ class SituationEvaluatorTest {
             }
         };
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), new ChainMode.Count("g1", 5), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -248,5 +248,129 @@ class SituationEvaluatorTest {
         var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
         assertThat(saved).isPresent();
         assertThat(saved.get().detections()).hasSize(2);
+    }
+
+    @Test
+    void nullBufferDelayProcessesImmediately() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+    }
+
+    @Test
+    void bufferReordersOutOfOrderEvents() {
+        var detections = new java.util.ArrayList<Instant>();
+        var ganglion = new Ganglion() {
+            @Override public String ganglionId() { return "g1"; }
+            @Override public Set<String> handledEventTypes() { return Set.of("temp.reading"); }
+            @Override public io.smallrye.mutiny.Uni<DetectionResult> detect(
+                    io.cloudevents.CloudEvent event, SituationContext context) {
+                detections.add(event.getTime().toInstant());
+                return io.smallrye.mutiny.Uni.createFrom().item(
+                        FixedDetectionResult.detected("g1", 0.4));
+            }
+        };
+        // 5-second buffer, Count(g1, 3) so it accumulates
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), Duration.ofSeconds(5),
+                new ChainMode.Count("g1", 3), TRIGGER_CONFIG);
+        buildEvaluator(List.of(ganglion), def);
+
+        var t10 = Instant.parse("2026-06-25T10:00:10Z");
+        var t5 = Instant.parse("2026-06-25T10:00:05Z");
+        var t3 = Instant.parse("2026-06-25T10:00:03Z");
+
+        // T=10 arrives first — buffered (watermark = 10-5 = 5, nothing to drain)
+        evaluator.evaluate(event("temp.reading", t10), def, "key-1", "tenant-a");
+        assertThat(detections).isEmpty();
+
+        // T=5 arrives — buffered. watermark = 10-5 = 5. T=5 <= 5 → released.
+        evaluator.evaluate(event("temp.reading", t5), def, "key-1", "tenant-a");
+        assertThat(detections).containsExactly(t5);
+
+        // T=3 arrives — late (below watermark). Released immediately.
+        evaluator.evaluate(event("temp.reading", t3), def, "key-1", "tenant-a");
+        assertThat(detections).containsExactly(t5, t3);
+    }
+
+    @Test
+    void nullTimeEventBypassesBuffer() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), Duration.ofSeconds(5),
+                new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+        buildEvaluator(List.of(ganglion), def);
+
+        CloudEvent noTime = CloudEventBuilder.v1()
+                .withId("evt-null").withSource(URI.create("/test"))
+                .withType("temp.reading").build();
+
+        evaluator.evaluate(noTime, def, "key-1", "tenant-a");
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+    }
+
+    @Test
+    void midBatchTerminationStopsProcessing() {
+        var callCount = new AtomicInteger();
+        var ganglion = new Ganglion() {
+            @Override public String ganglionId() { return "g1"; }
+            @Override public Set<String> handledEventTypes() { return Set.of("temp.reading"); }
+            @Override public io.smallrye.mutiny.Uni<DetectionResult> detect(
+                    io.cloudevents.CloudEvent event, SituationContext context) {
+                callCount.incrementAndGet();
+                return io.smallrye.mutiny.Uni.createFrom().item(
+                        FixedDetectionResult.detected("g1", 0.9));
+            }
+        };
+        // Or mode with 1 ganglion → first detection triggers CREATE_CASE
+        // Buffer with large delay so all events stay buffered until a late event releases them
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), Duration.ofSeconds(2),
+                new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+        buildEvaluator(List.of(ganglion), def);
+
+        var t1 = Instant.parse("2026-06-25T10:00:01Z");
+        var t2 = Instant.parse("2026-06-25T10:00:02Z");
+        var t10 = Instant.parse("2026-06-25T10:00:10Z");
+
+        // Buffer t1 and t2
+        evaluator.evaluate(event("temp.reading", t1), def, "key-1", "tenant-a");
+        evaluator.evaluate(event("temp.reading", t2), def, "key-1", "tenant-a");
+        assertThat(callCount.get()).isZero();
+
+        // t10 arrives — watermark = 10-2 = 8. All three events released.
+        // t1 triggers CREATE_CASE → loop stops → t2 and t10 not processed.
+        evaluator.evaluate(event("temp.reading", t10), def, "key-1", "tenant-a");
+        assertThat(callCount.get()).isEqualTo(1);
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+    }
+
+    @Test
+    void idleFlushProcessesBufferedEvents() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), Duration.ofSeconds(5),
+                new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+        buildEvaluator(List.of(ganglion), def);
+
+        // Event arrives, stays buffered (within delay window)
+        var t1 = Instant.parse("2026-06-25T10:00:01Z");
+        evaluator.evaluate(event("temp.reading", t1), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).isEmpty();
+
+        // Simulate idle flush after bufferDelay
+        Instant flushTime = Instant.now().plusSeconds(10);
+        evaluator.flushIdleBuffers(flushTime);
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
     }
 }

@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
@@ -23,6 +24,7 @@ public class SituationEvaluator {
     private final CaseTrigger caseTrigger;
     private final SituationDefinitionRegistry registry;
     private final ConcurrentHashMap<SituationInstanceKey, Object> locks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<SituationInstanceKey, EventReorderBuffer> buffers = new ConcurrentHashMap<>();
 
     @Inject
     public SituationEvaluator(SituationStore store, RasTriggerPolicy triggerPolicy,
@@ -40,56 +42,80 @@ public class SituationEvaluator {
         Object lock = locks.computeIfAbsent(key, k -> new Object());
 
         synchronized (lock) {
-            Instant eventTime = extractEventTime(event);
-
-            SituationContext context = store.find(situationId, correlationKey, tenancyId)
-                    .await().indefinitely()
-                    .orElseGet(() -> SituationContext.initial(situationId, correlationKey,
-                                                             tenancyId, eventTime));
-
-            if (isExpired(context, definition, eventTime)) {
-                closeGanglia(definition, situationId, correlationKey, tenancyId);
-                store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
-                context = SituationContext.initial(situationId, correlationKey, tenancyId, eventTime);
+            boolean terminated;
+            if (definition.eventBufferDelay() != null && event.getTime() != null) {
+                var buffer = buffers.computeIfAbsent(key,
+                        k -> new EventReorderBuffer(definition.eventBufferDelay(), definition));
+                List<CloudEvent> toProcess = buffer.submit(event, Instant.now());
+                terminated = false;
+                for (CloudEvent e : toProcess) {
+                    terminated = processEvent(e, definition, correlationKey, tenancyId);
+                    if (terminated) break;
+                }
+            } else {
+                terminated = processEvent(event, definition, correlationKey, tenancyId);
             }
-
-            Set<String> gangliaForEvent = gangliaHandlingEventType(definition, event.getType());
-            for (String ganglionId : gangliaForEvent) {
-                Ganglion ganglion = registry.ganglion(ganglionId);
-                DetectionResult result = ganglion.detect(event, context).await().indefinitely();
-                context = context.withDetection(result, eventTime);
-            }
-
-            TriggerDecision decision = triggerPolicy.evaluate(context, definition)
-                    .await().indefinitely();
-
-            switch (decision) {
-                case CREATE_CASE -> {
-                    try {
-                        caseTrigger.fire(definition.triggerConfig(), context).await().indefinitely();
-                    } catch (RuntimeException ex) {
-                        LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
-                                   + "': " + ex.getMessage());
-                        store.save(context).await().indefinitely();
-                        return;
-                    }
-                    closeGanglia(definition, situationId, correlationKey, tenancyId);
-                    store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
-                    locks.remove(key);
-                }
-                case CONTINUE_ACCUMULATING -> {
-                    if (definition.correlationWindow() == null) {
-                        context = compactGanglia(definition, context);
-                    }
-                    store.save(context).await().indefinitely();
-                }
-                case DISCARD -> {
-                    closeGanglia(definition, situationId, correlationKey, tenancyId);
-                    store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
-                    locks.remove(key);
-                }
+            if (terminated) {
+                buffers.remove(key);
+                locks.remove(key);
             }
         }
+    }
+
+    private boolean processEvent(CloudEvent event, SituationDefinition definition,
+                                  String correlationKey, String tenancyId) {
+        String situationId = definition.situationId();
+        Instant eventTime = extractEventTime(event);
+
+        SituationContext context = store.find(situationId, correlationKey, tenancyId)
+                .await().indefinitely()
+                .orElseGet(() -> SituationContext.initial(situationId, correlationKey,
+                                                         tenancyId, eventTime));
+
+        if (isExpired(context, definition, eventTime)) {
+            closeGanglia(definition, situationId, correlationKey, tenancyId);
+            store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
+            context = SituationContext.initial(situationId, correlationKey, tenancyId, eventTime);
+        }
+
+        Set<String> gangliaForEvent = gangliaHandlingEventType(definition, event.getType());
+        for (String ganglionId : gangliaForEvent) {
+            Ganglion ganglion = registry.ganglion(ganglionId);
+            DetectionResult result = ganglion.detect(event, context).await().indefinitely();
+            context = context.withDetection(result, eventTime);
+        }
+
+        TriggerDecision decision = triggerPolicy.evaluate(context, definition)
+                .await().indefinitely();
+
+        switch (decision) {
+            case CREATE_CASE -> {
+                try {
+                    caseTrigger.fire(definition.triggerConfig(), context).await().indefinitely();
+                } catch (RuntimeException ex) {
+                    LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
+                               + "': " + ex.getMessage());
+                    store.save(context).await().indefinitely();
+                    return false;
+                }
+                closeGanglia(definition, situationId, correlationKey, tenancyId);
+                store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
+                return true;
+            }
+            case CONTINUE_ACCUMULATING -> {
+                if (definition.correlationWindow() == null) {
+                    context = compactGanglia(definition, context);
+                }
+                store.save(context).await().indefinitely();
+                return false;
+            }
+            case DISCARD -> {
+                closeGanglia(definition, situationId, correlationKey, tenancyId);
+                store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
+                return true;
+            }
+        }
+        return false;
     }
 
     private Instant extractEventTime(CloudEvent event) {
@@ -129,6 +155,29 @@ public class SituationEvaluator {
                         .await().indefinitely();
             } catch (RuntimeException ex) {
                 LOG.warning("Ganglion '" + ganglionId + "' close() failed: " + ex.getMessage());
+            }
+        }
+    }
+
+    void flushIdleBuffers(Instant now) {
+        for (var entry : buffers.entrySet()) {
+            var key = entry.getKey();
+            var buffer = entry.getValue();
+            Object lock = locks.computeIfAbsent(key, k -> new Object());
+            synchronized (lock) {
+                if (buffer.isIdle(now)) {
+                    List<CloudEvent> events = buffer.drainAll();
+                    boolean terminated = false;
+                    for (CloudEvent e : events) {
+                        terminated = processEvent(e, buffer.definition(),
+                                     key.correlationKey(), key.tenancyId());
+                        if (terminated) break;
+                    }
+                    if (terminated) {
+                        buffers.remove(key);
+                        locks.remove(key);
+                    }
+                }
             }
         }
     }

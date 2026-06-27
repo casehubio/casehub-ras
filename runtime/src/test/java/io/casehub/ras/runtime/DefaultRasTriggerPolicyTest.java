@@ -19,7 +19,7 @@ class DefaultRasTriggerPolicyTest {
     private static final CaseTriggerConfig TRIGGER = new CaseTriggerConfig("ns", "c", "1", Map.of());
 
     private SituationDefinition def(ChainMode mode) {
-        return new SituationDefinition("sit", Set.of("e"), Duration.ofMinutes(10), mode, TRIGGER);
+        return new SituationDefinition("sit", Set.of("e"), Duration.ofMinutes(10), null, mode, TRIGGER);
     }
 
     private SituationContext ctx(TimestampedDetection... detections) {

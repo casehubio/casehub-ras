@@ -14,8 +14,8 @@ import static org.assertj.core.api.Assertions.*;
 
 class SituationExpiryJobTest {
 
-    private static final Instant OLD = Instant.parse("2026-06-24T00:00:00Z");
-    private static final Instant RECENT = Instant.parse("2026-06-25T05:20:00Z");
+    private static final Instant OLD = Instant.now().minus(Duration.ofHours(2));
+    private static final Instant RECENT = Instant.now().minus(Duration.ofMinutes(30));
 
     @Test
     void removesExpiredSituations() {
@@ -25,7 +25,7 @@ class SituationExpiryJobTest {
 
         var ganglion = new MockGanglion("g1", Set.of("e"),
                 FixedDetectionResult.noise("g1"));
-        var def = new SituationDefinition("sit-old", Set.of("e"), Duration.ofHours(1),
+        var def = new SituationDefinition("sit-old", Set.of("e"), Duration.ofHours(1), null,
                 new ChainMode.Or(Set.of("g1")),
                 new CaseTriggerConfig("ns", "c", "1", Map.of()));
         var registry = new SituationDefinitionRegistry(
@@ -45,7 +45,7 @@ class SituationExpiryJobTest {
 
         var ganglion = new MockGanglion("g1", Set.of("e"),
                 FixedDetectionResult.noise("g1"));
-        var def = new SituationDefinition("sit-1", Set.of("e"), null,
+        var def = new SituationDefinition("sit-1", Set.of("e"), null, null,
                 new ChainMode.Or(Set.of("g1")),
                 new CaseTriggerConfig("ns", "c", "1", Map.of()));
         var registry = new SituationDefinitionRegistry(

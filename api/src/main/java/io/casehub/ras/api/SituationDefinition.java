@@ -8,6 +8,7 @@ public record SituationDefinition(
         String situationId,
         Set<String> eventTypes,
         Duration correlationWindow,
+        Duration eventBufferDelay,
         ChainMode chainMode,
         CaseTriggerConfig triggerConfig
 ) {
@@ -23,6 +24,11 @@ public record SituationDefinition(
                 && (correlationWindow.isZero() || correlationWindow.isNegative())) {
             throw new IllegalArgumentException(
                     "correlationWindow must be positive when set, got: " + correlationWindow);
+        }
+        if (eventBufferDelay != null
+                && (eventBufferDelay.isZero() || eventBufferDelay.isNegative())) {
+            throw new IllegalArgumentException(
+                    "eventBufferDelay must be positive when set, got: " + eventBufferDelay);
         }
     }
 }

@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.*;
 class SituationRegistrationTest {
 
     private static final SituationDefinition DEF = new SituationDefinition(
-            "sit-1", Set.of("test.event"), Duration.ofMinutes(5),
+            "sit-1", Set.of("test.event"), Duration.ofMinutes(5), null,
             new ChainMode.Or(Set.of("g1")),
             new CaseTriggerConfig("ns", "name", "1.0", Map.of()));
 
