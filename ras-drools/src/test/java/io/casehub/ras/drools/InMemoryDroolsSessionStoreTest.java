@@ -73,4 +73,25 @@ class InMemoryDroolsSessionStoreTest {
         store.put("g1", "sit-1", "key-1", "tenant-a", session2);
         assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).containsSame(session2);
     }
+
+    @Test
+    void removeAllDisposesAllSessionsForGanglion() {
+        var s1 = freshSession();
+        var s2 = freshSession();
+        var s3 = freshSession();
+        store.put("g1", "sit-1", "key-1", "tenant-a", s1);
+        store.put("g1", "sit-2", "key-2", "tenant-a", s2);
+        store.put("g2", "sit-1", "key-1", "tenant-a", s3);
+
+        store.removeAll("g1");
+
+        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).isEmpty();
+        assertThat(store.get("g1", "sit-2", "key-2", "tenant-a")).isEmpty();
+        assertThat(store.get("g2", "sit-1", "key-1", "tenant-a")).containsSame(s3);
+    }
+
+    @Test
+    void removeAllNonExistentGanglionIsNoOp() {
+        assertThatNoException().isThrownBy(() -> store.removeAll("no-such"));
+    }
 }

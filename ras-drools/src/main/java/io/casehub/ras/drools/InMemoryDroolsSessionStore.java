@@ -35,4 +35,15 @@ public class InMemoryDroolsSessionStore implements DroolsSessionStore {
             removed.dispose();
         }
     }
+
+    public void removeAll(String ganglionId) {
+        var iterator = sessions.entrySet().iterator();
+        while (iterator.hasNext()) {
+            var entry = iterator.next();
+            if (entry.getKey().ganglionId().equals(ganglionId)) {
+                entry.getValue().dispose();
+                iterator.remove();
+            }
+        }
+    }
 }

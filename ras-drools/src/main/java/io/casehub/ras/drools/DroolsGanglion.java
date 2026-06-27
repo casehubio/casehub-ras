@@ -8,8 +8,8 @@ import org.kie.api.KieBase;
 import org.kie.api.KieServices;
 import org.kie.api.builder.KieBuilder;
 import org.kie.api.builder.KieFileSystem;
-import org.kie.api.builder.KieModule;
 import org.kie.api.builder.Message;
+import org.kie.api.builder.ReleaseId;
 import org.kie.api.builder.Results;
 import org.kie.api.conf.EventProcessingOption;
 import org.kie.api.runtime.KieSession;
@@ -19,51 +19,73 @@ import org.kie.api.runtime.rule.FactHandle;
 import org.kie.api.time.SessionPseudoClock;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public class DroolsGanglion implements Ganglion {
 
     public static final String RESULT_CHANNEL = "results";
 
-    private final DroolsGanglionConfig config;
-    private final KieBase kieBase;
+    private final String ganglionId;
+    private final Set<String> handledEventTypes;
+    private final SessionMode sessionMode;
+    private final ClockMode clockMode;
+    private final ResultCollectionStrategy resultCollectionStrategy;
     private final DroolsSessionStore sessionStore;
     private final List<DroolsObjectExtractor> extractors;
+    private volatile KieBase kieBase;
+    private volatile long reloadGeneration = 0;
+    private ReleaseId currentReleaseId;
+    private final ConcurrentHashMap<SessionGenKey, Long> sessionGenerations = new ConcurrentHashMap<>();
+
+    private record SessionGenKey(String situationId, String correlationKey, String tenancyId) {}
 
     public DroolsGanglion(DroolsGanglionConfig config,
                           DroolsSessionStore sessionStore,
                           List<DroolsObjectExtractor> extractors) {
-        this.config = config;
+        this.ganglionId = config.ganglionId();
+        this.handledEventTypes = config.handledEventTypes();
+        this.sessionMode = config.sessionMode();
+        this.clockMode = config.clockMode();
+        this.resultCollectionStrategy = config.resultCollectionStrategy();
         this.sessionStore = sessionStore;
         this.extractors = List.copyOf(extractors);
-        this.kieBase = buildKieBase(config);
+        this.kieBase = buildKieBase(config.classpathRules(), config.programmaticRules());
     }
 
     @Override
-    public String ganglionId() { return config.ganglionId(); }
+    public String ganglionId() { return ganglionId; }
 
     @Override
-    public Set<String> handledEventTypes() { return config.handledEventTypes(); }
+    public Set<String> handledEventTypes() { return handledEventTypes; }
 
     @Override
     public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
+        long currentGen = this.reloadGeneration;
+        KieBase currentBase = this.kieBase;
+
         String situationId = context.situationId();
         String correlationKey = context.correlationKey();
         String tenancyId = context.tenancyId();
         boolean isNewSession = false;
 
         KieSession session;
-        if (config.sessionMode() == SessionMode.LONG_LIVED) {
-            session = sessionStore.get(config.ganglionId(), situationId, correlationKey, tenancyId)
+        if (sessionMode == SessionMode.LONG_LIVED) {
+            var genKey = new SessionGenKey(situationId, correlationKey, tenancyId);
+            session = sessionStore.get(ganglionId, situationId, correlationKey, tenancyId)
                     .orElse(null);
+            Long storedGen = sessionGenerations.get(genKey);
+            if (session != null && (storedGen == null || storedGen < currentGen)) {
+                sessionStore.remove(ganglionId, situationId, correlationKey, tenancyId);
+                session = null;
+            }
             if (session == null) {
-                session = createSession();
+                session = createSession(currentBase);
                 isNewSession = true;
             }
         } else {
-            session = createSession();
+            session = createSession(currentBase);
             isNewSession = true;
         }
 
@@ -81,19 +103,21 @@ public class DroolsGanglion implements Ganglion {
             session.delete(ceHandle);
         } catch (RuntimeException ex) {
             session.unregisterChannel(RESULT_CHANNEL);
-            session.dispose();
-            if (!isNewSession) {
-                sessionStore.remove(config.ganglionId(), situationId, correlationKey, tenancyId);
+            if (isNewSession) {
+                session.dispose();
+            } else {
+                sessionStore.remove(ganglionId, situationId, correlationKey, tenancyId);
             }
             throw ex;
         }
 
-        DetectionResult result = config.resultCollectionStrategy()
-                .resolve(collector.results(), config.ganglionId());
+        DetectionResult result = resultCollectionStrategy
+                .resolve(collector.results(), ganglionId);
 
         session.unregisterChannel(RESULT_CHANNEL);
-        if (config.sessionMode() == SessionMode.LONG_LIVED) {
-            sessionStore.put(config.ganglionId(), situationId, correlationKey, tenancyId, session);
+        if (sessionMode == SessionMode.LONG_LIVED) {
+            sessionStore.put(ganglionId, situationId, correlationKey, tenancyId, session);
+            sessionGenerations.put(new SessionGenKey(situationId, correlationKey, tenancyId), currentGen);
         } else {
             session.dispose();
         }
@@ -103,12 +127,22 @@ public class DroolsGanglion implements Ganglion {
 
     @Override
     public Uni<Void> close(String situationId, String correlationKey, String tenancyId) {
-        sessionStore.remove(config.ganglionId(), situationId, correlationKey, tenancyId);
+        sessionStore.remove(ganglionId, situationId, correlationKey, tenancyId);
+        sessionGenerations.remove(new SessionGenKey(situationId, correlationKey, tenancyId));
         return Uni.createFrom().voidItem();
     }
 
+    public synchronized void reload(List<String> classpathRules, List<String> programmaticRules) {
+        if (classpathRules.isEmpty() && programmaticRules.isEmpty()) {
+            throw new IllegalArgumentException("At least one rule source required");
+        }
+        KieBase newBase = buildKieBase(classpathRules, programmaticRules);
+        this.kieBase = newBase;
+        this.reloadGeneration++;
+    }
+
     private void advanceClock(KieSession session, CloudEvent event) {
-        if (config.clockMode() != ClockMode.PSEUDO) {
+        if (clockMode != ClockMode.PSEUDO) {
             return;
         }
         OffsetDateTime eventTime = event.getTime();
@@ -121,7 +155,7 @@ public class DroolsGanglion implements Ganglion {
         long delta = eventMs - clockMs;
         if (delta < 0) {
             throw new IllegalStateException(
-                    "Out-of-order event for ganglion '" + config.ganglionId()
+                    "Out-of-order event for ganglion '" + ganglionId
                     + "': event time " + eventMs + " < clock time " + clockMs);
         }
         if (delta > 0) {
@@ -129,36 +163,45 @@ public class DroolsGanglion implements Ganglion {
         }
     }
 
-    private KieSession createSession() {
+    private KieSession createSession(KieBase base) {
         KieSessionConfiguration ksc = KieServices.Factory.get()
                 .newKieSessionConfiguration();
-        if (config.clockMode() == ClockMode.PSEUDO) {
+        if (clockMode == ClockMode.PSEUDO) {
             ksc.setOption(ClockTypeOption.PSEUDO);
         }
-        return kieBase.newKieSession(ksc, null);
+        return base.newKieSession(ksc, null);
     }
 
-    private KieBase buildKieBase(DroolsGanglionConfig config) {
+    private KieBase buildKieBase(List<String> classpathRules, List<String> programmaticRules) {
         KieServices ks = KieServices.Factory.get();
         KieFileSystem kfs = ks.newKieFileSystem();
-        for (String path : config.classpathRules()) {
+        ReleaseId rid = ks.newReleaseId("io.casehub.ras.drools", ganglionId,
+                String.valueOf(System.nanoTime()));
+        kfs.generateAndWritePomXML(rid);
+        for (String path : classpathRules) {
             kfs.write(ks.getResources().newClassPathResource(path));
         }
-        for (int i = 0; i < config.programmaticRules().size(); i++) {
+        for (int i = 0; i < programmaticRules.size(); i++) {
             kfs.write("src/main/resources/programmatic-" + i + ".drl",
-                       config.programmaticRules().get(i));
+                       programmaticRules.get(i));
         }
         KieBuilder kb = ks.newKieBuilder(kfs)
                 .buildAll(ExecutableModelProject.class);
         Results results = kb.getResults();
         if (results.hasMessages(Message.Level.ERROR)) {
             throw new IllegalStateException(
-                    "DRL compilation failed for ganglion '" + config.ganglionId()
+                    "DRL compilation failed for ganglion '" + ganglionId
                     + "': " + results.getMessages());
         }
-        KieModule module = kb.getKieModule();
         var kbc = ks.newKieBaseConfiguration();
         kbc.setOption(EventProcessingOption.STREAM);
-        return ks.newKieContainer(module.getReleaseId()).newKieBase(kbc);
+        KieBase result = ks.newKieContainer(rid).newKieBase(kbc);
+
+        ReleaseId oldRid = this.currentReleaseId;
+        this.currentReleaseId = rid;
+        if (oldRid != null) {
+            ks.getRepository().removeKieModule(oldRid);
+        }
+        return result;
     }
 }
