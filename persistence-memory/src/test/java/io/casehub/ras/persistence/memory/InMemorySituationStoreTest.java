@@ -1,4 +1,4 @@
-package io.casehub.ras.memory;
+package io.casehub.ras.persistence.memory;
 
 import io.casehub.ras.api.*;
 import org.junit.jupiter.api.BeforeEach;

@@ -1,7 +1,7 @@
 package io.casehub.ras.runtime;
 
 import io.casehub.ras.api.*;
-import io.casehub.ras.memory.InMemorySituationStore;
+import io.casehub.ras.persistence.memory.InMemorySituationStore;
 import io.casehub.ras.testing.FixedDetectionResult;
 import io.casehub.ras.testing.MockCaseTrigger;
 import io.casehub.ras.testing.MockGanglion;

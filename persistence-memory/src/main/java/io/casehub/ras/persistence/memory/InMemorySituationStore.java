@@ -1,4 +1,4 @@
-package io.casehub.ras.memory;
+package io.casehub.ras.persistence.memory;
 
 import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.SituationStore;
@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @ApplicationScoped
 @Alternative
-@Priority(1)
+@Priority(100)
 public class InMemorySituationStore implements SituationStore {
 
     private record SituationKey(String situationId, String correlationKey, String tenancyId) {}

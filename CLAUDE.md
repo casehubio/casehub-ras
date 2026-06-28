@@ -29,6 +29,9 @@ Multiple ganglia, one RAS per deployment context.
 - Epic 4 DroolsGanglion: `docs/superpowers/specs/2026-06-21-epic4-drools-ganglion-design.md`
 - Result collection + test gaps: `docs/superpowers/specs/2026-06-22-drools-result-collection-and-test-gaps.md`
 - Epic 3 JavaSwitchGanglion + NaiveBayesGanglion: `docs/superpowers/specs/2026-06-26-epic3-java-switch-naive-bayes-ganglion-design.md`
+- DroolsGanglion hot reload: `docs/superpowers/specs/2026-06-26-drools-hot-reload-design.md`
+- Event reorder buffer: `docs/superpowers/specs/2026-06-27-event-reorder-buffer-design.md`
+- JPA SituationStore: `docs/superpowers/specs/2026-06-28-jpa-situation-store-design.md`
 
 ## Build Commands
 
@@ -42,8 +45,9 @@ mvn --batch-mode deploy -DskipTests   # CI only
 | Module | Artifact | Root package | Purpose |
 |--------|----------|-------------|---------|
 | `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. Depends on `casehub-platform-api` (for `CloudEvent`). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest. |
-| `persistence-memory/` | `casehub-ras-memory` | `io.casehub.ras.memory` | InMemorySituationStore — `@ApplicationScoped @Alternative @Priority(1)`, ConcurrentHashMap-backed. |
-| `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, YamlSituationDefinitionProvider, NaiveBayesGanglion. Quarkus extension. |
+| `persistence-memory/` | `casehub-ras-memory` | `io.casehub.ras.persistence.memory` | InMemorySituationStore — `@Alternative @Priority(100)`, ConcurrentHashMap-backed. Dev/test only. |
+| `persistence-jpa/` | `casehub-ras-jpa` | `io.casehub.ras.persistence.jpa` | JpaSituationStore — `@ApplicationScoped`, Hibernate ORM + JSONB detections. Consumers add `classpath:db/ras/migration` to `quarkus.flyway.locations`. |
+| `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, EventBufferFlushJob, EventReorderBuffer, YamlSituationDefinitionProvider, NaiveBayesGanglion. Quarkus extension. |
 | `ras-drools/` | `casehub-ras-drools` | `io.casehub.ras.drools` | DroolsGanglion — Drools CEP (KieSession, sliding windows, temporal correlation). Optional. |
 | `ras-llm/` | `casehub-ras-llm` | `io.casehub.ras.llm` | LlmGanglion — narrative detection via casehub-platform-agent-api. Optional, slow path. |
 | `testing/` | `casehub-ras-testing` | `io.casehub.ras.testing` | MockGanglion, FixedDetectionResult, MockCaseTrigger. **Test scope only.** |
@@ -104,7 +108,7 @@ running posteriors into a single detection — necessary for correct Threshold C
 | `DetectionSignal` | Signal strength — NOISE, ANTI, WEAK, DETECTED (ascending). `isAtLeast(threshold)` for comparisons. |
 | `TimestampedDetection` | Wraps `DetectionResult` + `Instant eventTime` — runtime adds event timestamp at accumulation boundary |
 | `SituationContext` | Accumulated state — `situationId`, `correlationKey`, `tenancyId`, `firstSignal`, `lastSignal`, `List<TimestampedDetection>` |
-| `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `ChainMode`, `CaseTriggerConfig` |
+| `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `eventBufferDelay` (@Nullable), `ChainMode`, `CaseTriggerConfig` |
 | `ChainMode` | Sealed interface — And, Or, Threshold, Sequence, Count. All variants carry explicit ganglion references. `referencedGanglia()` default method extracts IDs. |
 | `CaseTriggerConfig` | Case creation parameters — `caseNamespace`, `caseName`, `caseVersion`, `baseCaseData`. String identifiers, no engine-api dependency. |
 | `CaseTrigger` | SPI for case creation — `fire(CaseTriggerConfig, SituationContext) → Uni<UUID>`. Default impl in runtime/ bridges to CaseHub. |
@@ -127,7 +131,8 @@ ganglion fires N times).
 `YamlSituationDefinitionProvider` reads `SituationDefinition` entries from a classpath YAML resource
 (default `META-INF/ras-situations.yaml`, configurable via `ras.situations.yaml`). Returns empty list
 when the resource is absent — coexists with programmatic providers. Supports all five ChainMode variants
-via a `type` discriminator (`and`, `or`, `threshold`, `sequence`, `count`).
+via a `type` discriminator (`and`, `or`, `threshold`, `sequence`, `count`). Optional `eventBufferDelay`
+field (ISO-8601 Duration) enables per-situation event reordering for pseudo clock mode.
 
 ## Persistent Situation Compaction (runtime/)
 
