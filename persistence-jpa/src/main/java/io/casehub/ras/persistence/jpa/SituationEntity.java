@@ -35,6 +35,9 @@ public class SituationEntity {
     @Column(name = "detections", columnDefinition = "jsonb", nullable = false)
     private String detections;
 
+    @Version
+    private Long version = 0L;
+
     protected SituationEntity() {}
 
     public SituationEntity(String situationId, String correlationKey, String tenancyId,
@@ -57,4 +60,5 @@ public class SituationEntity {
     public void setLastSignal(Instant lastSignal) { this.lastSignal = lastSignal; }
     public String getDetections() { return detections; }
     public void setDetections(String detections) { this.detections = detections; }
+    public Long getVersion() { return version; }
 }

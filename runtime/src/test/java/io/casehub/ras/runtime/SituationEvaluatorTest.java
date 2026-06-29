@@ -17,6 +17,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.*;
@@ -44,7 +45,7 @@ class SituationEvaluatorTest {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), ganglia);
-        evaluator = new SituationEvaluator(store, policy, caseTrigger, registry);
+        evaluator = new SituationEvaluator(store, policy, caseTrigger, registry, 3);
     }
 
     private CloudEvent event(String type, Instant time) {
@@ -181,7 +182,7 @@ class SituationEvaluatorTest {
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))),
                 List.of(ganglion));
-        evaluator = new SituationEvaluator(store, policy, failOnceTrigger, registry);
+        evaluator = new SituationEvaluator(store, policy, failOnceTrigger, registry, 3);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
@@ -206,7 +207,8 @@ class SituationEvaluatorTest {
                     var latest = context.detections().get(context.detections().size() - 1);
                     return Uni.createFrom().item(new SituationContext(
                             context.situationId(), context.correlationKey(), context.tenancyId(),
-                            context.firstSignal(), context.lastSignal(), List.of(latest)));
+                            context.firstSignal(), context.lastSignal(), List.of(latest),
+                            context.storeVersion()));
                 }
                 return Uni.createFrom().item(context);
             }
@@ -372,5 +374,187 @@ class SituationEvaluatorTest {
         evaluator.flushIdleBuffers(flushTime);
 
         assertThat(caseTrigger.firedCases()).hasSize(1);
+    }
+
+    // --- Conflict retry tests ---
+
+    @Test
+    void conflictOnSaveRetriesAndSucceeds() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+
+        var conflictStore = new ConflictSimulatingStore(store, 1);
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(conflictStore, policy, caseTrigger, registry, 3);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+    }
+
+    @Test
+    void allRetriesExhaustedLosesEvent() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.4));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 3), TRIGGER_CONFIG);
+
+        var alwaysConflict = new ConflictSimulatingStore(store, Integer.MAX_VALUE);
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(alwaysConflict, policy, caseTrigger, registry, 3);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        // Event lost — nothing saved, no case triggered
+        assertThat(caseTrigger.firedCases()).isEmpty();
+        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+    }
+
+    @Test
+    void detectionNotRecomputedOnRetry() {
+        var detectCount = new AtomicInteger();
+        var ganglion = new Ganglion() {
+            @Override public String ganglionId() { return "g1"; }
+            @Override public Set<String> handledEventTypes() { return Set.of("temp.reading"); }
+            @Override public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
+                detectCount.incrementAndGet();
+                return Uni.createFrom().item(FixedDetectionResult.detected("g1", 0.4));
+            }
+        };
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 3), TRIGGER_CONFIG);
+
+        var conflictStore = new ConflictSimulatingStore(store, 2);
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(conflictStore, policy, caseTrigger, registry, 3);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(detectCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    void compactionRerunOnRetry() {
+        var compactCalls = new AtomicInteger();
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.4)) {
+            @Override
+            public Uni<SituationContext> compact(SituationContext context) {
+                compactCalls.incrementAndGet();
+                return Uni.createFrom().item(context);
+            }
+        };
+        // null correlationWindow → persistent → compact invoked
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                null, null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG);
+
+        var conflictStore = new ConflictSimulatingStore(store, 1);
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(conflictStore, policy, caseTrigger, registry, 3);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        // compact called on first attempt (conflict) + second attempt (success) = 2
+        assertThat(compactCalls.get()).isEqualTo(2);
+    }
+
+    @Test
+    void winnerRemovedSituationRetryCreatesFreshContext() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.4));
+        // Count mode — needs 3 detections, so a single event → CONTINUE_ACCUMULATING
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 3), TRIGGER_CONFIG);
+
+        // Store that simulates: first save conflicts, AND winner removed the situation
+        var conflictAndRemoveStore = new SituationStore() {
+            private final SituationStore delegate = store;
+            private boolean conflicted = false;
+
+            @Override
+            public Uni<Optional<SituationContext>> find(String situationId, String correlationKey, String tenancyId) {
+                return delegate.find(situationId, correlationKey, tenancyId);
+            }
+
+            @Override
+            public Uni<Void> save(SituationContext context) {
+                if (!conflicted) {
+                    conflicted = true;
+                    // Simulate winner saving and then removing (CREATE_CASE path)
+                    delegate.save(context).await().indefinitely();
+                    delegate.remove(context.situationId(), context.correlationKey(), context.tenancyId()).await().indefinitely();
+                    throw new SituationConflictException("Simulated conflict", null);
+                }
+                return delegate.save(context);
+            }
+
+            @Override
+            public Uni<Void> remove(String situationId, String correlationKey, String tenancyId) {
+                return delegate.remove(situationId, correlationKey, tenancyId);
+            }
+
+            @Override
+            public Uni<Void> removeExpired(Instant cutoff) {
+                return delegate.removeExpired(cutoff);
+            }
+        };
+
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(conflictAndRemoveStore, policy, caseTrigger, registry, 3);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        // Retry created fresh context, applied detection, CONTINUE_ACCUMULATING → saved
+        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        assertThat(saved).isPresent();
+        assertThat(saved.get().detections()).hasSize(1);
+        assertThat(saved.get().storeVersion()).isEmpty(); // fresh context, not from DB
+    }
+
+    private static class ConflictSimulatingStore implements SituationStore {
+        private final SituationStore delegate;
+        private int conflictsRemaining;
+
+        ConflictSimulatingStore(SituationStore delegate, int conflictCount) {
+            this.delegate = delegate;
+            this.conflictsRemaining = conflictCount;
+        }
+
+        @Override
+        public Uni<Optional<SituationContext>> find(String situationId, String correlationKey,
+                                                     String tenancyId) {
+            return delegate.find(situationId, correlationKey, tenancyId);
+        }
+
+        @Override
+        public Uni<Void> save(SituationContext context) {
+            if (conflictsRemaining > 0) {
+                conflictsRemaining--;
+                throw new SituationConflictException("Simulated conflict", null);
+            }
+            return delegate.save(context);
+        }
+
+        @Override
+        public Uni<Void> remove(String situationId, String correlationKey, String tenancyId) {
+            return delegate.remove(situationId, correlationKey, tenancyId);
+        }
+
+        @Override
+        public Uni<Void> removeExpired(Instant cutoff) {
+            return delegate.removeExpired(cutoff);
+        }
     }
 }

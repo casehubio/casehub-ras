@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import static org.assertj.core.api.Assertions.*;
 
 class SituationContextTest {
@@ -98,14 +99,38 @@ class SituationContextTest {
     void detectionsAreDefensivelyCopied() {
         var td = new TimestampedDetection(RESULT_A, T1);
         var mutableDetections = new ArrayList<>(List.of(td));
-        var ctx = new SituationContext("sit-1", "key", "tenant-a", T1, T1, mutableDetections);
+        var ctx = new SituationContext("sit-1", "key", "tenant-a", T1, T1,
+                mutableDetections, OptionalLong.empty());
         mutableDetections.add(new TimestampedDetection(RESULT_B, T2));
         assertThat(ctx.detections()).hasSize(1);
     }
 
     @Test
     void nullDetectionsNormalisedToEmptyList() {
-        var ctx = new SituationContext("sit-1", "key", "tenant-a", T1, T1, null);
+        var ctx = new SituationContext("sit-1", "key", "tenant-a", T1, T1,
+                null, OptionalLong.empty());
         assertThat(ctx.detections()).isNotNull().isEmpty();
+    }
+
+    @Test
+    void initialCreatesContextWithEmptyStoreVersion() {
+        var ctx = SituationContext.initial("sit-1", "key", "tenant-a", T1);
+        assertThat(ctx.storeVersion()).isEmpty();
+    }
+
+    @Test
+    void withDetectionPreservesStoreVersion() {
+        var ctx = new SituationContext("sit-1", "key", "tenant-a", T1, T1,
+                List.of(), OptionalLong.of(5));
+        var updated = ctx.withDetection(RESULT_A, T2);
+        assertThat(updated.storeVersion()).hasValue(5);
+    }
+
+    @Test
+    void constructorWithNullStoreVersionIsRejected() {
+        assertThatNullPointerException()
+                .isThrownBy(() -> new SituationContext("sit-1", "key", "tenant-a",
+                        T1, T1, List.of(), null))
+                .withMessage("storeVersion");
     }
 }

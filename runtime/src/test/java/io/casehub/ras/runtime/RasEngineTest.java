@@ -46,7 +46,7 @@ class RasEngineTest {
         var store = new InMemorySituationStore();
         var caseTrigger = new MockCaseTrigger();
         var evaluator = new SituationEvaluator(store, new DefaultRasTriggerPolicy(),
-                caseTrigger, registry);
+                caseTrigger, registry, 3);
         var engine = new RasEngine(registry, evaluator);
 
         engine.onCloudEvent(event("temp.reading", "tenant-a"));
@@ -65,7 +65,7 @@ class RasEngineTest {
         var store = new InMemorySituationStore();
         var caseTrigger = new MockCaseTrigger();
         var evaluator = new SituationEvaluator(store, new DefaultRasTriggerPolicy(),
-                caseTrigger, registry);
+                caseTrigger, registry, 3);
         var engine = new RasEngine(registry, evaluator);
 
         engine.onCloudEvent(event("temp.reading", null));
@@ -85,7 +85,7 @@ class RasEngineTest {
         var store = new InMemorySituationStore();
         var caseTrigger = new MockCaseTrigger();
         var evaluator = new SituationEvaluator(store, new DefaultRasTriggerPolicy(),
-                caseTrigger, registry);
+                caseTrigger, registry, 3);
         var engine = new RasEngine(registry, evaluator);
 
         engine.onCloudEvent(event("unknown.type", "tenant-a"));

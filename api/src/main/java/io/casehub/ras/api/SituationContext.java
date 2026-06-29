@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalLong;
 
 public record SituationContext(
         String situationId,
@@ -11,7 +12,8 @@ public record SituationContext(
         String tenancyId,
         Instant firstSignal,
         Instant lastSignal,
-        List<TimestampedDetection> detections
+        List<TimestampedDetection> detections,
+        OptionalLong storeVersion
 ) {
     public SituationContext {
         Objects.requireNonNull(situationId, "situationId");
@@ -19,6 +21,7 @@ public record SituationContext(
         Objects.requireNonNull(tenancyId, "tenancyId");
         Objects.requireNonNull(firstSignal, "firstSignal");
         Objects.requireNonNull(lastSignal, "lastSignal");
+        Objects.requireNonNull(storeVersion, "storeVersion");
         detections = detections != null ? List.copyOf(detections) : List.of();
     }
 
@@ -26,7 +29,7 @@ public record SituationContext(
                                            String tenancyId, Instant eventTime) {
         Objects.requireNonNull(eventTime, "eventTime");
         return new SituationContext(situationId, correlationKey, tenancyId,
-                                   eventTime, eventTime, List.of());
+                                   eventTime, eventTime, List.of(), OptionalLong.empty());
     }
 
     public SituationContext withDetection(DetectionResult result, Instant eventTime) {
@@ -38,6 +41,6 @@ public record SituationContext(
         Instant newFirst = eventTime.isBefore(firstSignal) ? eventTime : firstSignal;
         Instant newLast = eventTime.isAfter(lastSignal) ? eventTime : lastSignal;
         return new SituationContext(situationId, correlationKey, tenancyId,
-                                   newFirst, newLast, newDetections);
+                                   newFirst, newLast, newDetections, storeVersion);
     }
 }

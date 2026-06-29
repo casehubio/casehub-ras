@@ -32,6 +32,7 @@ Multiple ganglia, one RAS per deployment context.
 - DroolsGanglion hot reload: `docs/superpowers/specs/2026-06-26-drools-hot-reload-design.md`
 - Event reorder buffer: `docs/superpowers/specs/2026-06-27-event-reorder-buffer-design.md`
 - JPA SituationStore: `docs/superpowers/specs/2026-06-28-jpa-situation-store-design.md`
+- Clustered retry logic: `docs/superpowers/specs/2026-06-29-clustered-retry-logic-design.md`
 
 ## Build Commands
 
@@ -107,7 +108,8 @@ running posteriors into a single detection — necessary for correct Threshold C
 | `DetectionResult` | Ganglion output — `ganglionId`, `confidence` (0.0–1.0, NaN rejected), `signal` (NOISE/ANTI/WEAK/DETECTED), `evidence` |
 | `DetectionSignal` | Signal strength — NOISE, ANTI, WEAK, DETECTED (ascending). `isAtLeast(threshold)` for comparisons. |
 | `TimestampedDetection` | Wraps `DetectionResult` + `Instant eventTime` — runtime adds event timestamp at accumulation boundary |
-| `SituationContext` | Accumulated state — `situationId`, `correlationKey`, `tenancyId`, `firstSignal`, `lastSignal`, `List<TimestampedDetection>` |
+| `SituationContext` | Accumulated state — `situationId`, `correlationKey`, `tenancyId`, `firstSignal`, `lastSignal`, `List<TimestampedDetection>`, `OptionalLong storeVersion` |
+| `SituationConflictException` | Thrown by `SituationStore.save()` on concurrent modification — evaluator catches and retries |
 | `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `eventBufferDelay` (@Nullable), `ChainMode`, `CaseTriggerConfig` |
 | `ChainMode` | Sealed interface — And, Or, Threshold, Sequence, Count. All variants carry explicit ganglion references. `referencedGanglia()` default method extracts IDs. |
 | `CaseTriggerConfig` | Case creation parameters — `caseNamespace`, `caseName`, `caseVersion`, `baseCaseData`. String identifiers, no engine-api dependency. |
@@ -139,6 +141,15 @@ field (ISO-8601 Duration) enables per-situation event reordering for pseudo cloc
 For persistent situations (`correlationWindow = null`), `SituationEvaluator` calls `Ganglion.compact()`
 on each referenced ganglion after every `CONTINUE_ACCUMULATING` decision. The ganglion decides what to
 compact — the evaluator just triggers it. Windowed situations skip compaction.
+
+## Clustered Conflict Handling (runtime/)
+
+`SituationEvaluator.processEvent()` is two-phase: Phase 1 detects once (ganglia mutate internal state),
+Phase 2 retries read-modify-write on `SituationConflictException`. `JpaSituationStore` uses two-layer
+conflict detection: application-level `storeVersion` comparison (non-overlapping transactions) +
+Hibernate `@Version` OLE/constraint violation (overlapping transactions). Max retries configurable
+via `ras.evaluator.max-conflict-retries` (default 3). `InMemorySituationStore` is unaffected — per-key
+`synchronized` locks prevent concurrent access within a single JVM.
 
 ## Key Rules
 

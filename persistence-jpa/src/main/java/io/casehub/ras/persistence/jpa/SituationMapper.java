@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.TimestampedDetection;
 import java.util.List;
+import java.util.OptionalLong;
 
 class SituationMapper {
 
@@ -26,7 +27,8 @@ class SituationMapper {
                 entity.getTenancyId(),
                 entity.getFirstSignal(),
                 entity.getLastSignal(),
-                detections);
+                detections,
+                OptionalLong.of(entity.getVersion()));
     }
 
     SituationEntity toEntity(SituationContext context) {

@@ -6,11 +6,13 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 @ApplicationScoped
 public class SituationEvaluator {
@@ -23,16 +25,21 @@ public class SituationEvaluator {
     private final RasTriggerPolicy triggerPolicy;
     private final CaseTrigger caseTrigger;
     private final SituationDefinitionRegistry registry;
+    private final int maxConflictRetries;
     private final ConcurrentHashMap<SituationInstanceKey, Object> locks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<SituationInstanceKey, EventReorderBuffer> buffers = new ConcurrentHashMap<>();
 
     @Inject
     public SituationEvaluator(SituationStore store, RasTriggerPolicy triggerPolicy,
-                              CaseTrigger caseTrigger, SituationDefinitionRegistry registry) {
+                              CaseTrigger caseTrigger, SituationDefinitionRegistry registry,
+                              @ConfigProperty(name = "ras.evaluator.max-conflict-retries",
+                                              defaultValue = "3")
+                              int maxConflictRetries) {
         this.store = store;
         this.triggerPolicy = triggerPolicy;
         this.caseTrigger = caseTrigger;
         this.registry = registry;
+        this.maxConflictRetries = maxConflictRetries;
     }
 
     public void evaluate(CloudEvent event, SituationDefinition definition,
@@ -67,27 +74,77 @@ public class SituationEvaluator {
         String situationId = definition.situationId();
         Instant eventTime = extractEventTime(event);
 
+        // Phase 1: Detect (once, never retried)
+        SituationContext initialContext = loadContext(situationId, correlationKey,
+                                                      tenancyId, definition, eventTime);
+        List<DetectionResult> detectionResults = runDetection(event, definition, initialContext);
+
+        // Phase 2: Apply + persist (retried on conflict)
+        for (int attempt = 0; attempt <= maxConflictRetries; attempt++) {
+            SituationContext context;
+            if (attempt == 0) {
+                context = initialContext;
+            } else {
+                LOG.info("Retry " + attempt + "/" + maxConflictRetries
+                         + " for situation '" + situationId + "'");
+                context = loadContext(situationId, correlationKey,
+                                     tenancyId, definition, eventTime);
+            }
+
+            for (DetectionResult result : detectionResults) {
+                context = context.withDetection(result, eventTime);
+            }
+
+            TriggerDecision decision = triggerPolicy.evaluate(context, definition)
+                    .await().indefinitely();
+
+            try {
+                return executeDecision(decision, context, definition,
+                                       situationId, correlationKey, tenancyId);
+            } catch (SituationConflictException e) {
+                if (attempt == maxConflictRetries) {
+                    LOG.severe("All retries exhausted for situation '" + situationId
+                               + "' correlationKey='" + correlationKey
+                               + "', event lost: " + event.getType());
+                    return false;
+                }
+            }
+        }
+        return false;
+    }
+
+    private SituationContext loadContext(String situationId, String correlationKey,
+                                         String tenancyId, SituationDefinition definition,
+                                         Instant eventTime) {
         SituationContext context = store.find(situationId, correlationKey, tenancyId)
                 .await().indefinitely()
                 .orElseGet(() -> SituationContext.initial(situationId, correlationKey,
-                                                         tenancyId, eventTime));
-
+                                                          tenancyId, eventTime));
         if (isExpired(context, definition, eventTime)) {
             closeGanglia(definition, situationId, correlationKey, tenancyId);
             store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
             context = SituationContext.initial(situationId, correlationKey, tenancyId, eventTime);
         }
+        return context;
+    }
 
+    private List<DetectionResult> runDetection(CloudEvent event,
+                                                SituationDefinition definition,
+                                                SituationContext context) {
         Set<String> gangliaForEvent = gangliaHandlingEventType(definition, event.getType());
+        List<DetectionResult> results = new ArrayList<>();
         for (String ganglionId : gangliaForEvent) {
             Ganglion ganglion = registry.ganglion(ganglionId);
             DetectionResult result = ganglion.detect(event, context).await().indefinitely();
-            context = context.withDetection(result, eventTime);
+            results.add(result);
         }
+        return results;
+    }
 
-        TriggerDecision decision = triggerPolicy.evaluate(context, definition)
-                .await().indefinitely();
-
+    private boolean executeDecision(TriggerDecision decision, SituationContext context,
+                                     SituationDefinition definition,
+                                     String situationId, String correlationKey,
+                                     String tenancyId) {
         switch (decision) {
             case CREATE_CASE -> {
                 try {
@@ -123,7 +180,8 @@ public class SituationEvaluator {
         return time != null ? time.toInstant() : Instant.now();
     }
 
-    private boolean isExpired(SituationContext context, SituationDefinition definition, Instant eventTime) {
+    private boolean isExpired(SituationContext context, SituationDefinition definition,
+                              Instant eventTime) {
         if (definition.correlationWindow() == null) return false;
         Instant cutoff = eventTime.minus(definition.correlationWindow());
         return context.lastSignal().isBefore(cutoff);
@@ -136,7 +194,8 @@ public class SituationEvaluator {
                 .collect(Collectors.toSet());
     }
 
-    private SituationContext compactGanglia(SituationDefinition definition, SituationContext context) {
+    private SituationContext compactGanglia(SituationDefinition definition,
+                                            SituationContext context) {
         for (String ganglionId : definition.chainMode().referencedGanglia()) {
             try {
                 context = registry.ganglion(ganglionId).compact(context).await().indefinitely();

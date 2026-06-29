@@ -1,6 +1,7 @@
 package io.casehub.ras.persistence.jpa;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.casehub.ras.api.SituationConflictException;
 import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.SituationStore;
 import io.smallrye.mutiny.Uni;
@@ -24,8 +25,10 @@ public class JpaSituationStore implements SituationStore {
         this.mapper = new SituationMapper(objectMapper);
     }
 
+    // REQUIRED (not SUPPORTS) — each find needs its own persistence context
+    // so retry loops in SituationEvaluator always see the latest committed state.
     @Override
-    @Transactional(TxType.SUPPORTS)
+    @Transactional(TxType.REQUIRED)
     public Uni<Optional<SituationContext>> find(String situationId, String correlationKey,
                                                  String tenancyId) {
         SituationEntity entity = em.createQuery(
@@ -53,12 +56,52 @@ public class JpaSituationStore implements SituationStore {
                 .setParameter("ck", context.correlationKey())
                 .setParameter("tid", context.tenancyId())
                 .getResultStream().findFirst().orElse(null);
-        if (existing != null) {
-            mapper.updateEntity(existing, context);
-        } else {
-            em.persist(mapper.toEntity(context));
+
+        // Layer 1: application-level storeVersion comparison
+        if (existing != null && context.storeVersion().isEmpty()) {
+            throw new SituationConflictException(
+                    "Entity exists but context has no storeVersion — concurrent insert",
+                    null);
+        }
+        if (existing == null && context.storeVersion().isPresent()) {
+            throw new SituationConflictException(
+                    "Entity removed but context has storeVersion — concurrent delete",
+                    null);
+        }
+        if (existing != null && context.storeVersion().isPresent()
+                && existing.getVersion() != context.storeVersion().getAsLong()) {
+            throw new SituationConflictException(
+                    "storeVersion mismatch: context=" + context.storeVersion().getAsLong()
+                    + " entity=" + existing.getVersion(),
+                    null);
+        }
+
+        try {
+            if (existing != null) {
+                mapper.updateEntity(existing, context);
+            } else {
+                em.persist(mapper.toEntity(context));
+            }
+            em.flush();
+        } catch (jakarta.persistence.OptimisticLockException e) {
+            throw new SituationConflictException("Concurrent modification detected", e);
+        } catch (jakarta.persistence.PersistenceException e) {
+            if (isConstraintViolation(e)) {
+                throw new SituationConflictException("Concurrent insert detected", e);
+            }
+            throw e;
         }
         return Uni.createFrom().voidItem();
+    }
+
+    private boolean isConstraintViolation(Throwable t) {
+        while (t != null) {
+            if (t instanceof org.hibernate.exception.ConstraintViolationException) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
     }
 
     @Override
