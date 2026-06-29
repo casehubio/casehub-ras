@@ -37,6 +37,12 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
+            <groupId>io.casehub</groupId>
+            <artifactId>casehub-ras-api</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>

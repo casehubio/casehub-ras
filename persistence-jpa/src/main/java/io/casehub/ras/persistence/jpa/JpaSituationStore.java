@@ -118,6 +118,36 @@ public class JpaSituationStore implements SituationStore {
 
     @Override
     @Transactional(TxType.REQUIRED)
+    public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
+                                         String tenancyId) {
+        int updated = em.createQuery(
+                        "UPDATE SituationEntity s SET s.policyTriggered = true " +
+                        "WHERE s.situationId = :sid AND s.correlationKey = :ck " +
+                        "AND s.tenancyId = :tid AND s.policyTriggered = false")
+                .setParameter("sid", situationId)
+                .setParameter("ck", correlationKey)
+                .setParameter("tid", tenancyId)
+                .executeUpdate();
+        return Uni.createFrom().item(updated > 0);
+    }
+
+    @Override
+    @Transactional(TxType.REQUIRED)
+    public Uni<Void> resetTriggerClaim(String situationId, String correlationKey,
+                                        String tenancyId) {
+        em.createQuery(
+                        "UPDATE SituationEntity s SET s.policyTriggered = false " +
+                        "WHERE s.situationId = :sid AND s.correlationKey = :ck " +
+                        "AND s.tenancyId = :tid")
+                .setParameter("sid", situationId)
+                .setParameter("ck", correlationKey)
+                .setParameter("tid", tenancyId)
+                .executeUpdate();
+        return Uni.createFrom().voidItem();
+    }
+
+    @Override
+    @Transactional(TxType.REQUIRED)
     public Uni<Void> removeExpired(Instant cutoff) {
         em.createQuery("DELETE FROM SituationEntity s WHERE s.lastSignal <= :cutoff")
                 .setParameter("cutoff", cutoff)

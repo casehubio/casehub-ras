@@ -38,6 +38,9 @@ public class SituationEntity {
     @Version
     private Long version = 0L;
 
+    @Column(name = "policy_triggered", nullable = false)
+    private boolean policyTriggered = false;
+
     protected SituationEntity() {}
 
     public SituationEntity(String situationId, String correlationKey, String tenancyId,
@@ -61,4 +64,5 @@ public class SituationEntity {
     public String getDetections() { return detections; }
     public void setDetections(String detections) { this.detections = detections; }
     public Long getVersion() { return version; }
+    public boolean isPolicyTriggered() { return policyTriggered; }
 }

@@ -84,6 +84,8 @@ interface SituationStore {
     Uni<Void> save(SituationContext context);
     Uni<Void> remove(String situationId, String correlationKey, String tenancyId);
     Uni<Void> removeExpired(Instant cutoff);
+    default Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey, String tenancyId) { ... }
+    default Uni<Void> resetTriggerClaim(String situationId, String correlationKey, String tenancyId) { ... }
 }
 ```
 
@@ -150,6 +152,17 @@ conflict detection: application-level `storeVersion` comparison (non-overlapping
 Hibernate `@Version` OLE/constraint violation (overlapping transactions). Max retries configurable
 via `ras.evaluator.max-conflict-retries` (default 3). `InMemorySituationStore` is unaffected — per-key
 `synchronized` locks prevent concurrent access within a single JVM.
+
+## Duplicate Trigger Prevention (runtime/)
+
+CREATE_CASE path uses `SituationStore.tryClaimTrigger()` for exactly-once case creation across
+clustered JVMs. Bifurcated claim path: new entities (storeVersion empty) use save-before-claim to
+create the DB row; existing entities (storeVersion present) use claim-before-save to avoid refreshing
+`lastSignal` (which would prevent expiry). `tryClaimTrigger` is a conditional atomic operation — JPA
+uses `UPDATE ... WHERE policyTriggered = false`; InMemory uses `ConcurrentHashMap.putIfAbsent`. Entity
+removal is deferred after successful trigger — the `policyTriggered=true` entity guards against
+duplicate triggers from retrying losers, cleaned up by expiry mechanisms. On trigger failure,
+`resetTriggerClaim()` clears the flag for retry on the next event.
 
 ## Key Rules
 

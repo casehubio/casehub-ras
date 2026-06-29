@@ -68,7 +68,7 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
         assertThat(caseTrigger.firedCases()).hasSize(1);
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
     }
 
     @Test
@@ -88,7 +88,7 @@ class SituationEvaluatorTest {
 
         evaluator.evaluate(event("vibration.reading", T2), def, "key-1", "tenant-a");
         assertThat(caseTrigger.firedCases()).hasSize(1);
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
     }
 
     @Test
@@ -192,7 +192,11 @@ class SituationEvaluatorTest {
         assertThat(saved.get().detections().get(0).result().signal()).isEqualTo(DetectionSignal.DETECTED);
 
         evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+        var afterRetry = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        assertThat(afterRetry).isPresent();
+        boolean claimTaken = !store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+                .await().indefinitely();
+        assertThat(claimTaken).isTrue();
     }
 
     @Test
@@ -520,7 +524,184 @@ class SituationEvaluatorTest {
         var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
         assertThat(saved).isPresent();
         assertThat(saved.get().detections()).hasSize(1);
-        assertThat(saved.get().storeVersion()).isEmpty(); // fresh context, not from DB
+        assertThat(saved.get().storeVersion()).isPresent();
+    }
+
+    // --- Claim coordination tests ---
+
+    @Test
+    void firstEventCreateCaseSavesAndClaims() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        assertThat(saved).isPresent();
+        boolean secondClaim = store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+                .await().indefinitely();
+        assertThat(secondClaim).isFalse();
+    }
+
+    @Test
+    void claimPreventsDuplicateTrigger() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+
+        var claimOnceStore = new ClaimTrackingStore(store);
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(claimOnceStore, policy, caseTrigger, registry, 3);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+
+        evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+    }
+
+    @Test
+    void existingEntityClaimFailsNoSave() {
+        var g1 = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.4));
+        var g2 = new MockGanglion("g2", Set.of("vibration.reading"),
+                FixedDetectionResult.detected("g2", 0.8));
+        var def = new SituationDefinition("sit-1",
+                Set.of("temp.reading", "vibration.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG);
+        buildEvaluator(List.of(g1, g2), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        var afterFirst = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        Instant firstLastSignal = afterFirst.lastSignal();
+
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a").await().indefinitely();
+
+        evaluator.evaluate(event("vibration.reading", T2), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).isEmpty();
+
+        var afterSecond = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        assertThat(afterSecond.lastSignal()).isEqualTo(firstLastSignal);
+    }
+
+    @Test
+    void triggerFailureAfterClaimResets() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+
+        var failingTrigger = new CaseTrigger() {
+            @Override
+            public Uni<java.util.UUID> fire(CaseTriggerConfig config, SituationContext context) {
+                return Uni.createFrom().failure(new RuntimeException("Trigger failed"));
+            }
+        };
+
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(store, policy, failingTrigger, registry, 3);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        assertThat(saved).isPresent();
+        boolean reclaimable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+                .await().indefinitely();
+        assertThat(reclaimable).isTrue();
+    }
+
+    @Test
+    void triggerFailureRecoveryOnNextEvent() {
+        var callCount = new AtomicInteger();
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+
+        var failOnceTrigger = new CaseTrigger() {
+            @Override
+            public Uni<java.util.UUID> fire(CaseTriggerConfig config, SituationContext context) {
+                if (callCount.incrementAndGet() == 1) {
+                    return Uni.createFrom().failure(new RuntimeException("Transient"));
+                }
+                return Uni.createFrom().item(java.util.UUID.randomUUID());
+            }
+        };
+
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(store, policy, failOnceTrigger, registry, 3);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        assertThat(callCount.get()).isEqualTo(1);
+
+        evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
+        assertThat(callCount.get()).isEqualTo(2);
+    }
+
+    @Test
+    void postTriggerEventsDoNotRefreshLastSignal() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+
+        var afterTrigger = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        Instant originalLastSignal = afterTrigger.lastSignal();
+
+        evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+
+        var afterSecond = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        assertThat(afterSecond.lastSignal()).isEqualTo(originalLastSignal);
+    }
+
+    @Test
+    void claimSucceedsSaveFailsResetsAndRetries() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.4));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 2), TRIGGER_CONFIG);
+
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        store.save(ctx).await().indefinitely();
+
+        var conflictOnSecondSave = new ClaimTrackingStore(store) {
+            private int saveCount = 0;
+            @Override
+            public Uni<Void> save(SituationContext context) {
+                saveCount++;
+                if (saveCount == 2) {
+                    throw new SituationConflictException("Simulated version conflict", null);
+                }
+                return super.save(context);
+            }
+        };
+
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(conflictOnSecondSave, policy, caseTrigger, registry, 3);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        boolean claimAvailable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+                .await().indefinitely();
+        assertThat(claimAvailable).isTrue();
     }
 
     private static class ConflictSimulatingStore implements SituationStore {
@@ -555,6 +736,59 @@ class SituationEvaluatorTest {
         @Override
         public Uni<Void> removeExpired(Instant cutoff) {
             return delegate.removeExpired(cutoff);
+        }
+
+        @Override
+        public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
+                                             String tenancyId) {
+            return delegate.tryClaimTrigger(situationId, correlationKey, tenancyId);
+        }
+
+        @Override
+        public Uni<Void> resetTriggerClaim(String situationId, String correlationKey,
+                                            String tenancyId) {
+            return delegate.resetTriggerClaim(situationId, correlationKey, tenancyId);
+        }
+    }
+
+    private static class ClaimTrackingStore implements SituationStore {
+        private final SituationStore delegate;
+
+        ClaimTrackingStore(SituationStore delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Uni<Optional<SituationContext>> find(String situationId, String correlationKey,
+                                                     String tenancyId) {
+            return delegate.find(situationId, correlationKey, tenancyId);
+        }
+
+        @Override
+        public Uni<Void> save(SituationContext context) {
+            return delegate.save(context);
+        }
+
+        @Override
+        public Uni<Void> remove(String situationId, String correlationKey, String tenancyId) {
+            return delegate.remove(situationId, correlationKey, tenancyId);
+        }
+
+        @Override
+        public Uni<Void> removeExpired(Instant cutoff) {
+            return delegate.removeExpired(cutoff);
+        }
+
+        @Override
+        public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
+                                             String tenancyId) {
+            return delegate.tryClaimTrigger(situationId, correlationKey, tenancyId);
+        }
+
+        @Override
+        public Uni<Void> resetTriggerClaim(String situationId, String correlationKey,
+                                            String tenancyId) {
+            return delegate.resetTriggerClaim(situationId, correlationKey, tenancyId);
         }
     }
 }

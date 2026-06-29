@@ -147,16 +147,37 @@ public class SituationEvaluator {
                                      String tenancyId) {
         switch (decision) {
             case CREATE_CASE -> {
+                if (context.storeVersion().isPresent()) {
+                    boolean claimed = store.tryClaimTrigger(situationId, correlationKey, tenancyId)
+                            .await().indefinitely();
+                    if (!claimed) {
+                        return true;
+                    }
+                    try {
+                        store.save(context).await().indefinitely();
+                    } catch (SituationConflictException e) {
+                        store.resetTriggerClaim(situationId, correlationKey, tenancyId)
+                                .await().indefinitely();
+                        throw e;
+                    }
+                } else {
+                    store.save(context).await().indefinitely();
+                    boolean claimed = store.tryClaimTrigger(situationId, correlationKey, tenancyId)
+                            .await().indefinitely();
+                    if (!claimed) {
+                        return true;
+                    }
+                }
                 try {
                     caseTrigger.fire(definition.triggerConfig(), context).await().indefinitely();
                 } catch (RuntimeException ex) {
                     LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
                                + "': " + ex.getMessage());
-                    store.save(context).await().indefinitely();
+                    store.resetTriggerClaim(situationId, correlationKey, tenancyId)
+                            .await().indefinitely();
                     return false;
                 }
                 closeGanglia(definition, situationId, correlationKey, tenancyId);
-                store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
                 return true;
             }
             case CONTINUE_ACCUMULATING -> {

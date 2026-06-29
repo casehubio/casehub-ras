@@ -13,4 +13,14 @@ public interface SituationStore {
     Uni<Void> remove(String situationId, String correlationKey, String tenancyId);
 
     Uni<Void> removeExpired(Instant cutoff);
+
+    default Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
+                                          String tenancyId) {
+        return Uni.createFrom().item(true);
+    }
+
+    default Uni<Void> resetTriggerClaim(String situationId, String correlationKey,
+                                         String tenancyId) {
+        return Uni.createFrom().voidItem();
+    }
 }
