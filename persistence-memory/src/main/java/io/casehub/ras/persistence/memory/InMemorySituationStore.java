@@ -7,6 +7,8 @@ import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,7 +36,7 @@ public class InMemorySituationStore implements SituationStore {
         var withVersion = new SituationContext(
                 ctx.situationId(), ctx.correlationKey(), ctx.tenancyId(),
                 ctx.firstSignal(), ctx.lastSignal(), ctx.detections(),
-                OptionalLong.of(version), null, 0);
+                OptionalLong.of(version), ctx.lastTriggered(), ctx.triggerCount());
         return Uni.createFrom().item(Optional.of(withVersion));
     }
 
@@ -42,8 +44,20 @@ public class InMemorySituationStore implements SituationStore {
     public Uni<SituationContext> save(SituationContext context) {
         final var key = new SituationKey(context.situationId(), context.correlationKey(), context.tenancyId());
         long newVersion = versions.computeIfAbsent(key, k -> new AtomicLong(-1L)).incrementAndGet();
-        store.put(key, context);
-        return Uni.createFrom().item(context.withStoreVersion(newVersion));
+
+        // On update (existing key), preserve store-managed trigger metadata
+        SituationContext toStore = context;
+        SituationContext existing = store.get(key);
+        if (existing != null) {
+            // Preserve lastTriggered and triggerCount from the stored context
+            toStore = new SituationContext(
+                context.situationId(), context.correlationKey(), context.tenancyId(),
+                context.firstSignal(), context.lastSignal(), context.detections(),
+                context.storeVersion(), existing.lastTriggered(), existing.triggerCount());
+        }
+
+        store.put(key, toStore);
+        return Uni.createFrom().item(toStore.withStoreVersion(newVersion));
     }
 
     @Override
@@ -73,13 +87,63 @@ public class InMemorySituationStore implements SituationStore {
     public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
                                          String tenancyId, Instant triggerTime) {
         final var key = new SituationKey(situationId, correlationKey, tenancyId);
-        return Uni.createFrom().item(
-                claims.putIfAbsent(key, Boolean.TRUE) == null);
+
+        // Attempt to claim
+        if (claims.putIfAbsent(key, Boolean.TRUE) != null) {
+            return Uni.createFrom().item(false);
+        }
+
+        // Claim succeeded — stamp trigger metadata on the stored context
+        store.computeIfPresent(key, (k, ctx) ->
+            new SituationContext(
+                ctx.situationId(), ctx.correlationKey(), ctx.tenancyId(),
+                ctx.firstSignal(), ctx.lastSignal(), ctx.detections(),
+                ctx.storeVersion(), triggerTime, ctx.triggerCount() + 1)
+        );
+
+        return Uni.createFrom().item(true);
     }
 
     @Override
     public Uni<Void> resetTriggerClaim(String situationId, String correlationKey, String tenancyId) {
         claims.remove(new SituationKey(situationId, correlationKey, tenancyId));
         return Uni.createFrom().voidItem();
+    }
+
+    @Override
+    public Uni<Void> removeTriggeredBefore(Instant cutoff) {
+        store.entrySet().removeIf(entry -> {
+            final var key = entry.getKey();
+            final var ctx = entry.getValue();
+
+            // Remove if claimed AND lastTriggered <= cutoff
+            if (claims.containsKey(key) && ctx.lastTriggered() != null
+                    && !ctx.lastTriggered().isAfter(cutoff)) {
+                versions.remove(key);
+                claims.remove(key);
+                return true;
+            }
+            return false;
+        });
+        return Uni.createFrom().voidItem();
+    }
+
+    @Override
+    public Uni<List<SituationContext>> findActive(String tenancyId) {
+        List<SituationContext> active = new ArrayList<>();
+
+        store.forEach((key, ctx) -> {
+            // Include if matches tenancy AND not claimed
+            if (key.tenancyId().equals(tenancyId) && !claims.containsKey(key)) {
+                long version = versions.get(key).get();
+                var withVersion = new SituationContext(
+                    ctx.situationId(), ctx.correlationKey(), ctx.tenancyId(),
+                    ctx.firstSignal(), ctx.lastSignal(), ctx.detections(),
+                    OptionalLong.of(version), ctx.lastTriggered(), ctx.triggerCount());
+                active.add(withVersion);
+            }
+        });
+
+        return Uni.createFrom().item(active);
     }
 }

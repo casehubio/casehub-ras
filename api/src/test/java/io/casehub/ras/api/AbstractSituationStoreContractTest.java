@@ -162,4 +162,109 @@ public abstract class AbstractSituationStoreContractTest {
         assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
         assertThat(store.find("sit-2", "key-1", "tenant-b").await().indefinitely()).isEmpty();
     }
+
+    // --- Trigger metadata tests ---
+
+    @Test
+    void tryClaimTriggerStampsTriggerMetadata() {
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        store.save(ctx).await().indefinitely();
+        Instant triggerTime = T2;
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", triggerTime).await().indefinitely();
+        var found = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        assertThat(found.lastTriggered()).isEqualTo(triggerTime);
+        assertThat(found.triggerCount()).isEqualTo(1);
+    }
+
+    @Test
+    void tryClaimTriggerIncrementsCountOnSubsequentClaims() {
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        store.save(ctx).await().indefinitely();
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1).await().indefinitely();
+        store.resetTriggerClaim("sit-1", "key-1", "tenant-a").await().indefinitely();
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T2).await().indefinitely();
+        var found = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        assertThat(found.lastTriggered()).isEqualTo(T2);
+        assertThat(found.triggerCount()).isEqualTo(2);
+    }
+
+    @Test
+    void saveAfterClaimPreservesTriggerMetadata() {
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        var saved = store.save(ctx).await().indefinitely();
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1).await().indefinitely();
+        var modified = saved.withDetection(
+                new DetectionResult("g1", 0.9, DetectionSignal.DETECTED, Map.of()), T2);
+        store.save(modified).await().indefinitely();
+        var found = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        assertThat(found.lastTriggered()).isEqualTo(T1);
+        assertThat(found.triggerCount()).isEqualTo(1);
+        assertThat(found.detections()).hasSize(1);
+    }
+
+    @Test
+    void removeTriggeredBeforeRemovesOldTriggeredEntities() {
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        store.save(ctx).await().indefinitely();
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1).await().indefinitely();
+        store.removeTriggeredBefore(T2).await().indefinitely();
+        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+    }
+
+    @Test
+    void removeTriggeredBeforeKeepsRecentTriggeredEntities() {
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        store.save(ctx).await().indefinitely();
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T2).await().indefinitely();
+        store.removeTriggeredBefore(T1).await().indefinitely();
+        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
+    }
+
+    @Test
+    void removeTriggeredBeforeKeepsNonTriggeredEntities() {
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        store.save(ctx).await().indefinitely();
+        store.removeTriggeredBefore(T3).await().indefinitely();
+        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
+    }
+
+    @Test
+    void findActiveReturnsByTenancy() {
+        var ctxA = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        var ctxB = SituationContext.initial("sit-1", "key-1", "tenant-b", T1);
+        store.save(ctxA).await().indefinitely();
+        store.save(ctxB).await().indefinitely();
+        var active = store.findActive("tenant-a").await().indefinitely();
+        assertThat(active).hasSize(1);
+        assertThat(active.get(0).tenancyId()).isEqualTo("tenant-a");
+    }
+
+    @Test
+    void findActiveExcludesTriggeredEntities() {
+        var ctx1 = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        var ctx2 = SituationContext.initial("sit-2", "key-1", "tenant-a", T1);
+        store.save(ctx1).await().indefinitely();
+        store.save(ctx2).await().indefinitely();
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1).await().indefinitely();
+        var active = store.findActive("tenant-a").await().indefinitely();
+        assertThat(active).hasSize(1);
+        assertThat(active.get(0).situationId()).isEqualTo("sit-2");
+    }
+
+    @Test
+    void findActiveEmptyForUnknownTenant() {
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        store.save(ctx).await().indefinitely();
+        assertThat(store.findActive("tenant-x").await().indefinitely()).isEmpty();
+    }
+
+    @Test
+    void saveAndFindRoundTripWithTriggerFields() {
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
+        store.save(ctx).await().indefinitely();
+        var found = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        assertThat(found.lastTriggered()).isNull();
+        assertThat(found.triggerCount()).isZero();
+        assertThat(found.storeVersion()).isPresent();
+    }
 }
