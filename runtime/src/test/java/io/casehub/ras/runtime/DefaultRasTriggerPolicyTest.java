@@ -19,7 +19,11 @@ class DefaultRasTriggerPolicyTest {
     private static final CaseTriggerConfig TRIGGER = new CaseTriggerConfig("ns", "c", "1", Map.of());
 
     private SituationDefinition def(ChainMode mode) {
-        return new SituationDefinition("sit", Set.of("e"), Duration.ofMinutes(10), null, mode, TRIGGER, null);
+        return def(mode, null);
+    }
+
+    private SituationDefinition def(ChainMode mode, TriggerMode triggerMode) {
+        return new SituationDefinition("sit", Set.of("e"), Duration.ofMinutes(10), null, mode, TRIGGER, triggerMode);
     }
 
     private SituationContext ctx(TimestampedDetection... detections) {
@@ -33,6 +37,27 @@ class DefaultRasTriggerPolicyTest {
     private TimestampedDetection td(String ganglionId, DetectionSignal signal, double confidence, Instant time) {
         return new TimestampedDetection(
                 new DetectionResult(ganglionId, confidence, signal, Map.of()), time);
+    }
+
+    private SituationContext contextWithDetection(String ganglionId, double confidence) {
+        return ctx(td(ganglionId, DetectionSignal.DETECTED, confidence, T1));
+    }
+
+    private SituationContext contextWithDetectionAndTrigger(String ganglionId, double confidence,
+                                                             Instant lastTriggered, Instant lastSignal) {
+        var ctx = SituationContext.initial("sit", "key", "tenant", T1);
+        ctx = ctx.withDetection(new DetectionResult(ganglionId, confidence, DetectionSignal.DETECTED, Map.of()), lastSignal);
+        return new SituationContext(
+                ctx.situationId(),
+                ctx.correlationKey(),
+                ctx.tenancyId(),
+                ctx.firstSignal(),
+                ctx.lastSignal(),
+                ctx.detections(),
+                ctx.storeVersion(),
+                lastTriggered,
+                1
+        );
     }
 
     // --- AND ---
@@ -259,5 +284,44 @@ class DefaultRasTriggerPolicyTest {
         var result = policy.evaluate(ctx, def(new ChainMode.Or(Set.of("g1"))))
                 .await().indefinitely();
         assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    // --- TRIGGER MODE ---
+
+    @Test
+    void fireOnceReturnsCreateCase() {
+        var def = def(new ChainMode.Or(Set.of("g1")), new TriggerMode.FireOnce());
+        var ctx = contextWithDetection("g1", 0.9);
+        assertThat(policy.evaluate(ctx, def).await().indefinitely())
+                .isEqualTo(TriggerDecision.CREATE_CASE);
+    }
+
+    @Test
+    void repeatingReturnsCreateCaseAndContinueOnFirstTrigger() {
+        var def = def(new ChainMode.Or(Set.of("g1")),
+                new TriggerMode.Repeating(Duration.ofMinutes(5)));
+        var ctx = contextWithDetection("g1", 0.9);
+        assertThat(policy.evaluate(ctx, def).await().indefinitely())
+                .isEqualTo(TriggerDecision.CREATE_CASE_AND_CONTINUE);
+    }
+
+    @Test
+    void repeatingReturnsContinueAccumulatingDuringCooldown() {
+        var def = def(new ChainMode.Or(Set.of("g1")),
+                new TriggerMode.Repeating(Duration.ofMinutes(5)));
+        var ctx = contextWithDetectionAndTrigger("g1", 0.9,
+                T1, T1.plus(Duration.ofMinutes(1)));
+        assertThat(policy.evaluate(ctx, def).await().indefinitely())
+                .isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    @Test
+    void repeatingReturnsCreateCaseAndContinueAfterCooldown() {
+        var def = def(new ChainMode.Or(Set.of("g1")),
+                new TriggerMode.Repeating(Duration.ofMinutes(5)));
+        var ctx = contextWithDetectionAndTrigger("g1", 0.9,
+                T1, T1.plus(Duration.ofMinutes(10)));
+        assertThat(policy.evaluate(ctx, def).await().indefinitely())
+                .isEqualTo(TriggerDecision.CREATE_CASE_AND_CONTINUE);
     }
 }

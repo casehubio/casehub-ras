@@ -20,8 +20,36 @@ public class DefaultRasTriggerPolicy implements RasTriggerPolicy {
             case ChainMode.Sequence sequence -> evaluateSequence(context, sequence);
             case ChainMode.Count count -> evaluateCount(context, count);
         };
-        return Uni.createFrom().item(satisfied ? TriggerDecision.CREATE_CASE
-                                               : TriggerDecision.CONTINUE_ACCUMULATING);
+
+        if (!satisfied) {
+            return Uni.createFrom().item(TriggerDecision.CONTINUE_ACCUMULATING);
+        }
+
+        // Chain mode satisfied — map TriggerMode to decision
+        TriggerMode mode = definition.triggerMode() != null
+                ? definition.triggerMode()
+                : new TriggerMode.FireOnce();
+
+        return Uni.createFrom().item(switch (mode) {
+            case TriggerMode.FireOnce ignored -> TriggerDecision.CREATE_CASE;
+            case TriggerMode.Repeating repeating -> evaluateRepeating(context, repeating);
+        });
+    }
+
+    private TriggerDecision evaluateRepeating(SituationContext context, TriggerMode.Repeating repeating) {
+        if (context.lastTriggered() == null) {
+            // Never triggered before — cooldown elapsed
+            return TriggerDecision.CREATE_CASE_AND_CONTINUE;
+        }
+
+        var cooldownEnd = context.lastTriggered().plus(repeating.cooldown());
+        if (context.lastSignal().isAfter(cooldownEnd) || context.lastSignal().equals(cooldownEnd)) {
+            // Cooldown elapsed
+            return TriggerDecision.CREATE_CASE_AND_CONTINUE;
+        } else {
+            // Still in cooldown
+            return TriggerDecision.CONTINUE_ACCUMULATING;
+        }
     }
 
     private boolean evaluateAnd(SituationContext ctx, ChainMode.And and) {
