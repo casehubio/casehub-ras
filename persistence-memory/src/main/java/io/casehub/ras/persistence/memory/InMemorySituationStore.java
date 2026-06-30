@@ -34,7 +34,7 @@ public class InMemorySituationStore implements SituationStore {
         var withVersion = new SituationContext(
                 ctx.situationId(), ctx.correlationKey(), ctx.tenancyId(),
                 ctx.firstSignal(), ctx.lastSignal(), ctx.detections(),
-                OptionalLong.of(version));
+                OptionalLong.of(version), null, 0);
         return Uni.createFrom().item(Optional.of(withVersion));
     }
 

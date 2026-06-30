@@ -95,7 +95,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         CaseTriggerConfig triggerConfig = parseTriggerConfig(triggerMap);
         SituationDefinition def = new SituationDefinition(
                 situationId, new LinkedHashSet<>(eventTypeList),
-                correlationWindow, eventBufferDelay, chainMode, triggerConfig);
+                correlationWindow, eventBufferDelay, chainMode, triggerConfig, null);
         return new SituationRegistration(def);
     }
 

@@ -10,7 +10,8 @@ public record SituationDefinition(
         Duration correlationWindow,
         Duration eventBufferDelay,
         ChainMode chainMode,
-        CaseTriggerConfig triggerConfig
+        CaseTriggerConfig triggerConfig,
+        TriggerMode triggerMode
 ) {
     public SituationDefinition {
         Objects.requireNonNull(situationId, "situationId");
@@ -30,5 +31,6 @@ public record SituationDefinition(
             throw new IllegalArgumentException(
                     "eventBufferDelay must be positive when set, got: " + eventBufferDelay);
         }
+        triggerMode = triggerMode != null ? triggerMode : new TriggerMode.FireOnce();
     }
 }

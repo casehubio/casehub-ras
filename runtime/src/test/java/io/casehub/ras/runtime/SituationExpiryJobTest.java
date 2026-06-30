@@ -27,7 +27,7 @@ class SituationExpiryJobTest {
                 FixedDetectionResult.noise("g1"));
         var def = new SituationDefinition("sit-old", Set.of("e"), Duration.ofHours(1), null,
                 new ChainMode.Or(Set.of("g1")),
-                new CaseTriggerConfig("ns", "c", "1", Map.of()));
+                new CaseTriggerConfig("ns", "c", "1", Map.of()), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
         var job = new SituationExpiryJob(store, registry);
@@ -47,7 +47,7 @@ class SituationExpiryJobTest {
                 FixedDetectionResult.noise("g1"));
         var def = new SituationDefinition("sit-1", Set.of("e"), null, null,
                 new ChainMode.Or(Set.of("g1")),
-                new CaseTriggerConfig("ns", "c", "1", Map.of()));
+                new CaseTriggerConfig("ns", "c", "1", Map.of()), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
         var job = new SituationExpiryJob(store, registry);

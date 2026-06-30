@@ -62,7 +62,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -79,7 +79,7 @@ class SituationEvaluatorTest {
                 FixedDetectionResult.detected("g2", 0.8));
         var def = new SituationDefinition("sit-1",
                 Set.of("temp.reading", "vibration.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(g1, g2), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -96,7 +96,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.noise("g1"));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -110,7 +110,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(1), null, new ChainMode.Count("g1", 2), TRIGGER_CONFIG);
+                Duration.ofMinutes(1), null, new ChainMode.Count("g1", 2), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -134,7 +134,7 @@ class SituationEvaluatorTest {
                 FixedDetectionResult.detected("g2", 0.8));
         var def = new SituationDefinition("sit-1",
                 Set.of("temp.reading", "vibration.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(g1, g2), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -148,7 +148,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         CloudEvent noTime = CloudEventBuilder.v1()
@@ -164,7 +164,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
 
         var failOnceTrigger = new CaseTrigger() {
             private int callCount = 0;
@@ -212,14 +212,14 @@ class SituationEvaluatorTest {
                     return Uni.createFrom().item(new SituationContext(
                             context.situationId(), context.correlationKey(), context.tenancyId(),
                             context.firstSignal(), context.lastSignal(), List.of(latest),
-                            context.storeVersion()));
+                            context.storeVersion(), null, 0));
                 }
                 return Uni.createFrom().item(context);
             }
         };
         // null correlationWindow → persistent situation
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                null, null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG);
+                null, null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -244,7 +244,7 @@ class SituationEvaluatorTest {
             }
         };
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -261,7 +261,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -285,7 +285,7 @@ class SituationEvaluatorTest {
         // 5-second buffer, Count(g1, 3) so it accumulates
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
                 Duration.ofMinutes(5), Duration.ofSeconds(5),
-                new ChainMode.Count("g1", 3), TRIGGER_CONFIG);
+                new ChainMode.Count("g1", 3), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         var t10 = Instant.parse("2026-06-25T10:00:10Z");
@@ -311,7 +311,7 @@ class SituationEvaluatorTest {
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
                 Duration.ofMinutes(5), Duration.ofSeconds(5),
-                new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         CloudEvent noTime = CloudEventBuilder.v1()
@@ -340,7 +340,7 @@ class SituationEvaluatorTest {
         // Buffer with large delay so all events stay buffered until a late event releases them
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
                 Duration.ofMinutes(5), Duration.ofSeconds(2),
-                new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         var t1 = Instant.parse("2026-06-25T10:00:01Z");
@@ -365,7 +365,7 @@ class SituationEvaluatorTest {
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
                 Duration.ofMinutes(5), Duration.ofSeconds(5),
-                new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         // Event arrives, stays buffered (within delay window)
@@ -387,7 +387,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
 
         var conflictStore = new ConflictSimulatingStore(store, 1);
         var reg = new SituationRegistration(def);
@@ -405,7 +405,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.4));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 3), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 3), TRIGGER_CONFIG, null);
 
         var alwaysConflict = new ConflictSimulatingStore(store, Integer.MAX_VALUE);
         var reg = new SituationRegistration(def);
@@ -432,7 +432,7 @@ class SituationEvaluatorTest {
             }
         };
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 3), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 3), TRIGGER_CONFIG, null);
 
         var conflictStore = new ConflictSimulatingStore(store, 2);
         var reg = new SituationRegistration(def);
@@ -458,7 +458,7 @@ class SituationEvaluatorTest {
         };
         // null correlationWindow → persistent → compact invoked
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                null, null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG);
+                null, null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG, null);
 
         var conflictStore = new ConflictSimulatingStore(store, 1);
         var reg = new SituationRegistration(def);
@@ -478,7 +478,7 @@ class SituationEvaluatorTest {
                 FixedDetectionResult.detected("g1", 0.4));
         // Count mode — needs 3 detections, so a single event → CONTINUE_ACCUMULATING
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 3), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 3), TRIGGER_CONFIG, null);
 
         // Store that simulates: first save conflicts, AND winner removed the situation
         var conflictAndRemoveStore = new SituationStore() {
@@ -534,7 +534,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -552,7 +552,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
 
         var claimOnceStore = new ClaimTrackingStore(store);
         var reg = new SituationRegistration(def);
@@ -575,7 +575,7 @@ class SituationEvaluatorTest {
                 FixedDetectionResult.detected("g2", 0.8));
         var def = new SituationDefinition("sit-1",
                 Set.of("temp.reading", "vibration.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.And(Set.of("g1", "g2")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(g1, g2), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -596,7 +596,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
 
         var failingTrigger = new CaseTrigger() {
             @Override
@@ -625,7 +625,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
 
         var failOnceTrigger = new CaseTrigger() {
             @Override
@@ -654,7 +654,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
@@ -675,7 +675,7 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.4));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 2), TRIGGER_CONFIG);
+                Duration.ofMinutes(5), null, new ChainMode.Count("g1", 2), TRIGGER_CONFIG, null);
 
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
         store.save(ctx).await().indefinitely();

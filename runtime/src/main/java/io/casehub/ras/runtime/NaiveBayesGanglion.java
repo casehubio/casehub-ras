@@ -95,7 +95,8 @@ public class NaiveBayesGanglion implements Ganglion {
         kept.add(latest);
         return Uni.createFrom().item(new SituationContext(
                 context.situationId(), context.correlationKey(), context.tenancyId(),
-                context.firstSignal(), context.lastSignal(), kept, context.storeVersion()));
+                context.firstSignal(), context.lastSignal(), kept, context.storeVersion(),
+                null, 0));
     }
 
     @Override

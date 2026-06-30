@@ -19,7 +19,7 @@ class SituationDefinitionRegistryTest {
 
     private SituationDefinition definition(String sitId, Set<String> eventTypes, ChainMode mode) {
         return new SituationDefinition(sitId, eventTypes, Duration.ofMinutes(5), null, mode,
-                new CaseTriggerConfig("ns", "case", "1.0", Map.of()));
+                new CaseTriggerConfig("ns", "case", "1.0", Map.of()), null);
     }
 
     @Test

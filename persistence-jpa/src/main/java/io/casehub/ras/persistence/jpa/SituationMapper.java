@@ -28,7 +28,9 @@ class SituationMapper {
                 entity.getFirstSignal(),
                 entity.getLastSignal(),
                 detections,
-                OptionalLong.of(entity.getVersion()));
+                OptionalLong.of(entity.getVersion()),
+                null,
+                0);
     }
 
     SituationEntity toEntity(SituationContext context) {

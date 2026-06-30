@@ -100,7 +100,7 @@ class SituationContextTest {
         var td = new TimestampedDetection(RESULT_A, T1);
         var mutableDetections = new ArrayList<>(List.of(td));
         var ctx = new SituationContext("sit-1", "key", "tenant-a", T1, T1,
-                mutableDetections, OptionalLong.empty());
+                mutableDetections, OptionalLong.empty(), null, 0);
         mutableDetections.add(new TimestampedDetection(RESULT_B, T2));
         assertThat(ctx.detections()).hasSize(1);
     }
@@ -108,7 +108,7 @@ class SituationContextTest {
     @Test
     void nullDetectionsNormalisedToEmptyList() {
         var ctx = new SituationContext("sit-1", "key", "tenant-a", T1, T1,
-                null, OptionalLong.empty());
+                null, OptionalLong.empty(), null, 0);
         assertThat(ctx.detections()).isNotNull().isEmpty();
     }
 
@@ -121,7 +121,7 @@ class SituationContextTest {
     @Test
     void withDetectionPreservesStoreVersion() {
         var ctx = new SituationContext("sit-1", "key", "tenant-a", T1, T1,
-                List.of(), OptionalLong.of(5));
+                List.of(), OptionalLong.of(5), null, 0);
         var updated = ctx.withDetection(RESULT_A, T2);
         assertThat(updated.storeVersion()).hasValue(5);
     }
@@ -130,7 +130,16 @@ class SituationContextTest {
     void constructorWithNullStoreVersionIsRejected() {
         assertThatNullPointerException()
                 .isThrownBy(() -> new SituationContext("sit-1", "key", "tenant-a",
-                        T1, T1, List.of(), null))
+                        T1, T1, List.of(), null, null, 0))
                 .withMessage("storeVersion");
+    }
+
+    @Test
+    void triggerMetadataPreservedInConstruction() {
+        Instant triggerTime = Instant.parse("2026-06-25T10:01:00Z");
+        var ctx = new SituationContext("sit-1", "key-1", "tenant-a", T1, T1,
+                List.of(), OptionalLong.empty(), triggerTime, 3);
+        assertThat(ctx.lastTriggered()).isEqualTo(triggerTime);
+        assertThat(ctx.triggerCount()).isEqualTo(3);
     }
 }

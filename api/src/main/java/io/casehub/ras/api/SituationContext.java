@@ -13,7 +13,9 @@ public record SituationContext(
         Instant firstSignal,
         Instant lastSignal,
         List<TimestampedDetection> detections,
-        OptionalLong storeVersion
+        OptionalLong storeVersion,
+        Instant lastTriggered,
+        int triggerCount
 ) {
     public SituationContext {
         Objects.requireNonNull(situationId, "situationId");
@@ -22,6 +24,9 @@ public record SituationContext(
         Objects.requireNonNull(firstSignal, "firstSignal");
         Objects.requireNonNull(lastSignal, "lastSignal");
         Objects.requireNonNull(storeVersion, "storeVersion");
+        if (triggerCount < 0) {
+            throw new IllegalArgumentException("triggerCount must be non-negative, got: " + triggerCount);
+        }
         detections = detections != null ? List.copyOf(detections) : List.of();
     }
 
@@ -29,7 +34,8 @@ public record SituationContext(
                                            String tenancyId, Instant eventTime) {
         Objects.requireNonNull(eventTime, "eventTime");
         return new SituationContext(situationId, correlationKey, tenancyId,
-                                   eventTime, eventTime, List.of(), OptionalLong.empty());
+                                   eventTime, eventTime, List.of(), OptionalLong.empty(),
+                                   null, 0);
     }
 
     public SituationContext withDetection(DetectionResult result, Instant eventTime) {
@@ -41,6 +47,17 @@ public record SituationContext(
         Instant newFirst = eventTime.isBefore(firstSignal) ? eventTime : firstSignal;
         Instant newLast = eventTime.isAfter(lastSignal) ? eventTime : lastSignal;
         return new SituationContext(situationId, correlationKey, tenancyId,
-                                   newFirst, newLast, newDetections, storeVersion);
+                                   newFirst, newLast, newDetections, storeVersion,
+                                   lastTriggered, triggerCount);
     }
+
+    public SituationContext withStoreVersion(long version) {
+        return new SituationContext(situationId, correlationKey, tenancyId,
+                                   firstSignal, lastSignal, detections, OptionalLong.of(version),
+                                   lastTriggered, triggerCount);
+    }
+
+    // No withTrigger() — trigger metadata (lastTriggered, triggerCount) is stamped
+    // atomically by SituationStore.tryClaimTrigger(), not by the evaluator.
+    // The context carries these as read-only state for policy cooldown evaluation.
 }
