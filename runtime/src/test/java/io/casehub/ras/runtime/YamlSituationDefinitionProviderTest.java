@@ -329,4 +329,71 @@ class YamlSituationDefinitionProviderTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("triggerConfig");
     }
+
+    @Test
+    void parsesFireOnceTriggerMode() {
+        var regs = provider("""
+                situations:
+                  - situationId: sit1
+                    eventTypes: [e1]
+                    chainMode:
+                      type: or
+                      ganglia: [g1]
+                    triggerConfig:
+                      caseNamespace: ns
+                      caseName: c
+                      caseVersion: "1"
+                    triggerMode:
+                      type: fire-once
+                """).registrations();
+
+        assertThat(regs).hasSize(1);
+        var triggerMode = regs.get(0).definition().triggerMode();
+        assertThat(triggerMode).isInstanceOf(TriggerMode.FireOnce.class);
+    }
+
+    @Test
+    void parsesRepeatingTriggerMode() {
+        var regs = provider("""
+                situations:
+                  - situationId: sit1
+                    eventTypes: [e1]
+                    chainMode:
+                      type: or
+                      ganglia: [g1]
+                    triggerConfig:
+                      caseNamespace: ns
+                      caseName: c
+                      caseVersion: "1"
+                    triggerMode:
+                      type: repeating
+                      cooldown: PT5M
+                """).registrations();
+
+        assertThat(regs).hasSize(1);
+        var triggerMode = regs.get(0).definition().triggerMode();
+        assertThat(triggerMode).isInstanceOf(TriggerMode.Repeating.class);
+        var repeating = (TriggerMode.Repeating) triggerMode;
+        assertThat(repeating.cooldown()).isEqualTo(Duration.ofMinutes(5));
+    }
+
+    @Test
+    void defaultsToFireOnceWhenTriggerModeAbsent() {
+        var regs = provider("""
+                situations:
+                  - situationId: sit1
+                    eventTypes: [e1]
+                    chainMode:
+                      type: or
+                      ganglia: [g1]
+                    triggerConfig:
+                      caseNamespace: ns
+                      caseName: c
+                      caseVersion: "1"
+                """).registrations();
+
+        assertThat(regs).hasSize(1);
+        var triggerMode = regs.get(0).definition().triggerMode();
+        assertThat(triggerMode).isInstanceOf(TriggerMode.FireOnce.class);
+    }
 }

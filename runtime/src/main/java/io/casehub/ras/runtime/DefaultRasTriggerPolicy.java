@@ -26,9 +26,7 @@ public class DefaultRasTriggerPolicy implements RasTriggerPolicy {
         }
 
         // Chain mode satisfied — map TriggerMode to decision
-        TriggerMode mode = definition.triggerMode() != null
-                ? definition.triggerMode()
-                : new TriggerMode.FireOnce();
+        TriggerMode mode = definition.triggerMode();
 
         return Uni.createFrom().item(switch (mode) {
             case TriggerMode.FireOnce ignored -> TriggerDecision.CREATE_CASE;

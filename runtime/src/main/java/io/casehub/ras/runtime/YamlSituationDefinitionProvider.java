@@ -93,9 +93,15 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
 
         ChainMode chainMode = parseChainMode(chainModeMap, situationId);
         CaseTriggerConfig triggerConfig = parseTriggerConfig(triggerMap);
+
+        TriggerMode triggerMode = new TriggerMode.FireOnce();
+        if (map.containsKey("triggerMode")) {
+            triggerMode = parseTriggerMode((Map<String, Object>) map.get("triggerMode"));
+        }
+
         SituationDefinition def = new SituationDefinition(
                 situationId, new LinkedHashSet<>(eventTypeList),
-                correlationWindow, eventBufferDelay, chainMode, triggerConfig, null);
+                correlationWindow, eventBufferDelay, chainMode, triggerConfig, triggerMode);
         return new SituationRegistration(def);
     }
 
@@ -154,5 +160,24 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                     "Missing required field '" + key + "' in chainMode for situation '" + situationId + "'");
         }
         return (Number) value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static TriggerMode parseTriggerMode(Map<String, Object> map) {
+        String type = (String) map.getOrDefault("type", "fire-once");
+        return switch (type) {
+            case "fire-once" -> new TriggerMode.FireOnce();
+            case "repeating" -> {
+                Object cooldownValue = map.get("cooldown");
+                if (cooldownValue == null) {
+                    throw new IllegalArgumentException(
+                            "triggerMode type 'repeating' requires 'cooldown' field");
+                }
+                Duration cooldown = Duration.parse(cooldownValue.toString());
+                yield new TriggerMode.Repeating(cooldown);
+            }
+            default -> throw new IllegalArgumentException(
+                    "Unknown triggerMode type: '" + type + "'. Expected 'fire-once' or 'repeating'");
+        };
     }
 }
