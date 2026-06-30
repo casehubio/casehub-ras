@@ -105,7 +105,7 @@ class JpaSituationStoreTest extends AbstractSituationStoreContractTest {
 
     @Test
     void tryClaimTriggerReturnsFalseForMissingSituation() {
-        boolean claimed = store.tryClaimTrigger("nonexistent", "key-1", "tenant-a")
+        boolean claimed = store.tryClaimTrigger("nonexistent", "key-1", "tenant-a", T1)
                 .await().indefinitely();
         assertThat(claimed).isFalse();
     }

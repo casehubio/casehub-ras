@@ -121,7 +121,7 @@ public abstract class AbstractSituationStoreContractTest {
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
         store.save(ctx).await().indefinitely();
 
-        boolean claimed = store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+        boolean claimed = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
                 .await().indefinitely();
         assertThat(claimed).isTrue();
     }
@@ -131,8 +131,8 @@ public abstract class AbstractSituationStoreContractTest {
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
         store.save(ctx).await().indefinitely();
 
-        store.tryClaimTrigger("sit-1", "key-1", "tenant-a").await().indefinitely();
-        boolean second = store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1).await().indefinitely();
+        boolean second = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
                 .await().indefinitely();
         assertThat(second).isFalse();
     }
@@ -142,10 +142,10 @@ public abstract class AbstractSituationStoreContractTest {
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
         store.save(ctx).await().indefinitely();
 
-        store.tryClaimTrigger("sit-1", "key-1", "tenant-a").await().indefinitely();
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1).await().indefinitely();
         store.resetTriggerClaim("sit-1", "key-1", "tenant-a").await().indefinitely();
 
-        boolean reclaimed = store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+        boolean reclaimed = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
                 .await().indefinitely();
         assertThat(reclaimed).isTrue();
     }

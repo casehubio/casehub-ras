@@ -39,11 +39,11 @@ public class InMemorySituationStore implements SituationStore {
     }
 
     @Override
-    public Uni<Void> save(SituationContext context) {
+    public Uni<SituationContext> save(SituationContext context) {
         final var key = new SituationKey(context.situationId(), context.correlationKey(), context.tenancyId());
-        versions.computeIfAbsent(key, k -> new AtomicLong(-1L)).incrementAndGet();
+        long newVersion = versions.computeIfAbsent(key, k -> new AtomicLong(-1L)).incrementAndGet();
         store.put(key, context);
-        return Uni.createFrom().voidItem();
+        return Uni.createFrom().item(context.withStoreVersion(newVersion));
     }
 
     @Override
@@ -70,7 +70,8 @@ public class InMemorySituationStore implements SituationStore {
     }
 
     @Override
-    public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey, String tenancyId) {
+    public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
+                                         String tenancyId, Instant triggerTime) {
         final var key = new SituationKey(situationId, correlationKey, tenancyId);
         return Uni.createFrom().item(
                 claims.putIfAbsent(key, Boolean.TRUE) == null);

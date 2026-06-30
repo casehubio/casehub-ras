@@ -194,7 +194,7 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
         var afterRetry = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
         assertThat(afterRetry).isPresent();
-        boolean claimTaken = !store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+        boolean claimTaken = !store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T2)
                 .await().indefinitely();
         assertThat(claimTaken).isTrue();
     }
@@ -491,7 +491,7 @@ class SituationEvaluatorTest {
             }
 
             @Override
-            public Uni<Void> save(SituationContext context) {
+            public Uni<SituationContext> save(SituationContext context) {
                 if (!conflicted) {
                     conflicted = true;
                     // Simulate winner saving and then removing (CREATE_CASE path)
@@ -542,7 +542,7 @@ class SituationEvaluatorTest {
         assertThat(caseTrigger.firedCases()).hasSize(1);
         var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
         assertThat(saved).isPresent();
-        boolean secondClaim = store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+        boolean secondClaim = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
                 .await().indefinitely();
         assertThat(secondClaim).isFalse();
     }
@@ -582,7 +582,7 @@ class SituationEvaluatorTest {
         var afterFirst = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
         Instant firstLastSignal = afterFirst.lastSignal();
 
-        store.tryClaimTrigger("sit-1", "key-1", "tenant-a").await().indefinitely();
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1).await().indefinitely();
 
         evaluator.evaluate(event("vibration.reading", T2), def, "key-1", "tenant-a");
         assertThat(caseTrigger.firedCases()).isEmpty();
@@ -614,7 +614,7 @@ class SituationEvaluatorTest {
 
         var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
         assertThat(saved).isPresent();
-        boolean reclaimable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+        boolean reclaimable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
                 .await().indefinitely();
         assertThat(reclaimable).isTrue();
     }
@@ -683,7 +683,7 @@ class SituationEvaluatorTest {
         var conflictOnSecondSave = new ClaimTrackingStore(store) {
             private int saveCount = 0;
             @Override
-            public Uni<Void> save(SituationContext context) {
+            public Uni<SituationContext> save(SituationContext context) {
                 saveCount++;
                 if (saveCount == 2) {
                     throw new SituationConflictException("Simulated version conflict", null);
@@ -699,7 +699,7 @@ class SituationEvaluatorTest {
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
-        boolean claimAvailable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+        boolean claimAvailable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
                 .await().indefinitely();
         assertThat(claimAvailable).isTrue();
     }
@@ -720,7 +720,7 @@ class SituationEvaluatorTest {
         }
 
         @Override
-        public Uni<Void> save(SituationContext context) {
+        public Uni<SituationContext> save(SituationContext context) {
             if (conflictsRemaining > 0) {
                 conflictsRemaining--;
                 throw new SituationConflictException("Simulated conflict", null);
@@ -740,8 +740,8 @@ class SituationEvaluatorTest {
 
         @Override
         public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
-                                             String tenancyId) {
-            return delegate.tryClaimTrigger(situationId, correlationKey, tenancyId);
+                                             String tenancyId, Instant triggerTime) {
+            return delegate.tryClaimTrigger(situationId, correlationKey, tenancyId, triggerTime);
         }
 
         @Override
@@ -765,7 +765,7 @@ class SituationEvaluatorTest {
         }
 
         @Override
-        public Uni<Void> save(SituationContext context) {
+        public Uni<SituationContext> save(SituationContext context) {
             return delegate.save(context);
         }
 
@@ -781,8 +781,8 @@ class SituationEvaluatorTest {
 
         @Override
         public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
-                                             String tenancyId) {
-            return delegate.tryClaimTrigger(situationId, correlationKey, tenancyId);
+                                             String tenancyId, Instant triggerTime) {
+            return delegate.tryClaimTrigger(situationId, correlationKey, tenancyId, triggerTime);
         }
 
         @Override

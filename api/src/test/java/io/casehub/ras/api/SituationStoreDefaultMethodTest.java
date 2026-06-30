@@ -16,8 +16,8 @@ class SituationStoreDefaultMethodTest {
         }
 
         @Override
-        public Uni<Void> save(SituationContext context) {
-            return Uni.createFrom().voidItem();
+        public Uni<SituationContext> save(SituationContext context) {
+            return Uni.createFrom().item(context);
         }
 
         @Override
@@ -33,7 +33,8 @@ class SituationStoreDefaultMethodTest {
 
     @Test
     void tryClaimTriggerDefaultReturnsTrue() {
-        Boolean result = anonymous.tryClaimTrigger("sit-1", "key-1", "tenant-a")
+        Boolean result = anonymous.tryClaimTrigger("sit-1", "key-1", "tenant-a",
+                                                   Instant.now())
                 .await().indefinitely();
         assertThat(result).isTrue();
     }

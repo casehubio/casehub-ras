@@ -47,7 +47,7 @@ public class JpaSituationStore implements SituationStore {
 
     @Override
     @Transactional(TxType.REQUIRED)
-    public Uni<Void> save(SituationContext context) {
+    public Uni<SituationContext> save(SituationContext context) {
         SituationEntity existing = em.createQuery(
                         "SELECT s FROM SituationEntity s WHERE s.situationId = :sid " +
                         "AND s.correlationKey = :ck AND s.tenancyId = :tid",
@@ -79,10 +79,14 @@ public class JpaSituationStore implements SituationStore {
         try {
             if (existing != null) {
                 mapper.updateEntity(existing, context);
+                em.flush();
+                return Uni.createFrom().item(context.withStoreVersion(existing.getVersion()));
             } else {
-                em.persist(mapper.toEntity(context));
+                SituationEntity newEntity = mapper.toEntity(context);
+                em.persist(newEntity);
+                em.flush();
+                return Uni.createFrom().item(context.withStoreVersion(newEntity.getVersion()));
             }
-            em.flush();
         } catch (jakarta.persistence.OptimisticLockException e) {
             throw new SituationConflictException("Concurrent modification detected", e);
         } catch (jakarta.persistence.PersistenceException e) {
@@ -91,7 +95,6 @@ public class JpaSituationStore implements SituationStore {
             }
             throw e;
         }
-        return Uni.createFrom().voidItem();
     }
 
     private boolean isConstraintViolation(Throwable t) {
@@ -119,7 +122,7 @@ public class JpaSituationStore implements SituationStore {
     @Override
     @Transactional(TxType.REQUIRED)
     public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
-                                         String tenancyId) {
+                                         String tenancyId, Instant triggerTime) {
         int updated = em.createQuery(
                         "UPDATE SituationEntity s SET s.policyTriggered = true " +
                         "WHERE s.situationId = :sid AND s.correlationKey = :ck " +

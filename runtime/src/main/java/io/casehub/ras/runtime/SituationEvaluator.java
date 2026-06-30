@@ -100,7 +100,7 @@ public class SituationEvaluator {
 
             try {
                 return executeDecision(decision, context, definition,
-                                       situationId, correlationKey, tenancyId);
+                                       situationId, correlationKey, tenancyId, eventTime);
             } catch (SituationConflictException e) {
                 if (attempt == maxConflictRetries) {
                     LOG.severe("All retries exhausted for situation '" + situationId
@@ -144,11 +144,12 @@ public class SituationEvaluator {
     private boolean executeDecision(TriggerDecision decision, SituationContext context,
                                      SituationDefinition definition,
                                      String situationId, String correlationKey,
-                                     String tenancyId) {
+                                     String tenancyId, Instant triggerTime) {
         switch (decision) {
             case CREATE_CASE -> {
                 if (context.storeVersion().isPresent()) {
-                    boolean claimed = store.tryClaimTrigger(situationId, correlationKey, tenancyId)
+                    boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
+                                                           tenancyId, triggerTime)
                             .await().indefinitely();
                     if (!claimed) {
                         return true;
@@ -162,7 +163,8 @@ public class SituationEvaluator {
                     }
                 } else {
                     store.save(context).await().indefinitely();
-                    boolean claimed = store.tryClaimTrigger(situationId, correlationKey, tenancyId)
+                    boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
+                                                           tenancyId, triggerTime)
                             .await().indefinitely();
                     if (!claimed) {
                         return true;
