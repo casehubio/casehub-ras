@@ -41,6 +41,12 @@ public class SituationEntity {
     @Column(name = "policy_triggered", nullable = false)
     private boolean policyTriggered = false;
 
+    @Column(name = "last_triggered")
+    private Instant lastTriggered;
+
+    @Column(name = "trigger_count", nullable = false)
+    private int triggerCount = 0;
+
     protected SituationEntity() {}
 
     public SituationEntity(String situationId, String correlationKey, String tenancyId,
@@ -65,4 +71,8 @@ public class SituationEntity {
     public void setDetections(String detections) { this.detections = detections; }
     public Long getVersion() { return version; }
     public boolean isPolicyTriggered() { return policyTriggered; }
+    public Instant getLastTriggered() { return lastTriggered; }
+    public void setLastTriggered(Instant lastTriggered) { this.lastTriggered = lastTriggered; }
+    public int getTriggerCount() { return triggerCount; }
+    public void setTriggerCount(int triggerCount) { this.triggerCount = triggerCount; }
 }

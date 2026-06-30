@@ -29,8 +29,8 @@ class SituationMapper {
                 entity.getLastSignal(),
                 detections,
                 OptionalLong.of(entity.getVersion()),
-                null,
-                0);
+                entity.getLastTriggered(),
+                entity.getTriggerCount());
     }
 
     SituationEntity toEntity(SituationContext context) {

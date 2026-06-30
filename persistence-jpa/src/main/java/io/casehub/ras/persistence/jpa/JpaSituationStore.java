@@ -11,6 +11,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 @ApplicationScoped
@@ -124,9 +125,11 @@ public class JpaSituationStore implements SituationStore {
     public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
                                          String tenancyId, Instant triggerTime) {
         int updated = em.createQuery(
-                        "UPDATE SituationEntity s SET s.policyTriggered = true " +
+                        "UPDATE SituationEntity s SET s.policyTriggered = true, " +
+                        "s.lastTriggered = :triggerTime, s.triggerCount = s.triggerCount + 1 " +
                         "WHERE s.situationId = :sid AND s.correlationKey = :ck " +
                         "AND s.tenancyId = :tid AND s.policyTriggered = false")
+                .setParameter("triggerTime", triggerTime)
                 .setParameter("sid", situationId)
                 .setParameter("ck", correlationKey)
                 .setParameter("tid", tenancyId)
@@ -156,5 +159,29 @@ public class JpaSituationStore implements SituationStore {
                 .setParameter("cutoff", cutoff)
                 .executeUpdate();
         return Uni.createFrom().voidItem();
+    }
+
+    @Override
+    @Transactional(TxType.REQUIRED)
+    public Uni<Void> removeTriggeredBefore(Instant triggerCutoff) {
+        em.createQuery("DELETE FROM SituationEntity s WHERE s.policyTriggered = true " +
+                       "AND s.lastTriggered <= :cutoff")
+                .setParameter("cutoff", triggerCutoff)
+                .executeUpdate();
+        return Uni.createFrom().voidItem();
+    }
+
+    @Override
+    @Transactional(TxType.REQUIRED)
+    public Uni<List<SituationContext>> findActive(String tenancyId) {
+        List<SituationEntity> entities = em.createQuery(
+                        "SELECT s FROM SituationEntity s WHERE s.tenancyId = :tid " +
+                        "AND s.policyTriggered = false", SituationEntity.class)
+                .setParameter("tid", tenancyId)
+                .getResultList();
+        List<SituationContext> contexts = entities.stream()
+                .map(mapper::toContext)
+                .toList();
+        return Uni.createFrom().item(contexts);
     }
 }
