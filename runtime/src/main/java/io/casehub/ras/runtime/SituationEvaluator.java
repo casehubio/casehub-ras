@@ -3,6 +3,7 @@ package io.casehub.ras.runtime;
 import io.casehub.ras.api.*;
 import io.cloudevents.CloudEvent;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -26,6 +27,7 @@ public class SituationEvaluator {
     private final CaseTrigger caseTrigger;
     private final SituationDefinitionRegistry registry;
     private final int maxConflictRetries;
+    private final Event<SituationChangeEvent> changeEvent;
     private final ConcurrentHashMap<SituationInstanceKey, Object> locks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<SituationInstanceKey, EventReorderBuffer> buffers = new ConcurrentHashMap<>();
 
@@ -34,12 +36,14 @@ public class SituationEvaluator {
                               CaseTrigger caseTrigger, SituationDefinitionRegistry registry,
                               @ConfigProperty(name = "ras.evaluator.max-conflict-retries",
                                               defaultValue = "3")
-                              int maxConflictRetries) {
+                              int maxConflictRetries,
+                              Event<SituationChangeEvent> changeEvent) {
         this.store = store;
         this.triggerPolicy = triggerPolicy;
         this.caseTrigger = caseTrigger;
         this.registry = registry;
         this.maxConflictRetries = maxConflictRetries;
+        this.changeEvent = changeEvent;
     }
 
     public void evaluate(CloudEvent event, SituationDefinition definition,
@@ -155,14 +159,14 @@ public class SituationEvaluator {
                         return true;
                     }
                     try {
-                        store.save(context).await().indefinitely();
+                        context = store.save(context).await().indefinitely();
                     } catch (SituationConflictException e) {
                         store.resetTriggerClaim(situationId, correlationKey, tenancyId)
                                 .await().indefinitely();
                         throw e;
                     }
                 } else {
-                    store.save(context).await().indefinitely();
+                    context = store.save(context).await().indefinitely();
                     boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
                                                            tenancyId, triggerTime)
                             .await().indefinitely();
@@ -179,8 +183,44 @@ public class SituationEvaluator {
                             .await().indefinitely();
                     return false;
                 }
+                changeEvent.fireAsync(new SituationChangeEvent(
+                        tenancyId, situationId, correlationKey,
+                        SituationChangeEvent.ChangeType.TRIGGERED));
                 closeGanglia(definition, situationId, correlationKey, tenancyId);
                 return true;
+            }
+            case CREATE_CASE_AND_CONTINUE -> {
+                // Save-first flow — always persist detection before claiming
+                SituationContext savedContext = store.save(context).await().indefinitely();
+                boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
+                                                       tenancyId, triggerTime)
+                        .await().indefinitely();
+                if (!claimed) {
+                    // Loser continues accumulating — NOT terminated
+                    return false;
+                }
+                try {
+                    caseTrigger.fire(definition.triggerConfig(), savedContext).await().indefinitely();
+                } catch (RuntimeException ex) {
+                    LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
+                               + "': " + ex.getMessage());
+                    store.resetTriggerClaim(situationId, correlationKey, tenancyId)
+                            .await().indefinitely();
+                    return false;
+                }
+                changeEvent.fireAsync(new SituationChangeEvent(
+                        tenancyId, situationId, correlationKey,
+                        SituationChangeEvent.ChangeType.TRIGGERED));
+                // Reset claim for next trigger cycle
+                store.resetTriggerClaim(situationId, correlationKey, tenancyId)
+                        .await().indefinitely();
+                // Compact and save for continued accumulation
+                SituationContext postFireContext = savedContext;
+                if (definition.correlationWindow() == null) {
+                    postFireContext = compactGanglia(definition, savedContext);
+                }
+                store.save(postFireContext).await().indefinitely();
+                return false;
             }
             case CONTINUE_ACCUMULATING -> {
                 if (definition.correlationWindow() == null) {
@@ -192,6 +232,17 @@ public class SituationEvaluator {
             case DISCARD -> {
                 closeGanglia(definition, situationId, correlationKey, tenancyId);
                 store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
+                changeEvent.fireAsync(new SituationChangeEvent(
+                        tenancyId, situationId, correlationKey,
+                        SituationChangeEvent.ChangeType.DISCARDED));
+                return true;
+            }
+            case RESOLVE -> {
+                closeGanglia(definition, situationId, correlationKey, tenancyId);
+                store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
+                changeEvent.fireAsync(new SituationChangeEvent(
+                        tenancyId, situationId, correlationKey,
+                        SituationChangeEvent.ChangeType.RESOLVED));
                 return true;
             }
         }

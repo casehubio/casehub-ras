@@ -7,6 +7,12 @@ import io.casehub.ras.testing.MockCaseTrigger;
 import io.casehub.ras.testing.MockGanglion;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
+import jakarta.enterprise.event.Event;
+import jakarta.enterprise.event.NotificationOptions;
+import jakarta.enterprise.util.TypeLiteral;
+import java.lang.annotation.Annotation;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import org.junit.jupiter.api.Test;
 import java.net.URI;
 import java.time.Duration;
@@ -46,7 +52,7 @@ class RasEngineTest {
         var store = new InMemorySituationStore();
         var caseTrigger = new MockCaseTrigger();
         var evaluator = new SituationEvaluator(store, new DefaultRasTriggerPolicy(),
-                caseTrigger, registry, 3);
+                caseTrigger, registry, 3, new NoOpChangeEvent());
         var engine = new RasEngine(registry, evaluator);
 
         engine.onCloudEvent(event("temp.reading", "tenant-a"));
@@ -65,7 +71,7 @@ class RasEngineTest {
         var store = new InMemorySituationStore();
         var caseTrigger = new MockCaseTrigger();
         var evaluator = new SituationEvaluator(store, new DefaultRasTriggerPolicy(),
-                caseTrigger, registry, 3);
+                caseTrigger, registry, 3, new NoOpChangeEvent());
         var engine = new RasEngine(registry, evaluator);
 
         engine.onCloudEvent(event("temp.reading", null));
@@ -85,11 +91,20 @@ class RasEngineTest {
         var store = new InMemorySituationStore();
         var caseTrigger = new MockCaseTrigger();
         var evaluator = new SituationEvaluator(store, new DefaultRasTriggerPolicy(),
-                caseTrigger, registry, 3);
+                caseTrigger, registry, 3, new NoOpChangeEvent());
         var engine = new RasEngine(registry, evaluator);
 
         engine.onCloudEvent(event("unknown.type", "tenant-a"));
 
         assertThat(ganglion.callCount()).isEqualTo(0);
+    }
+
+    private static class NoOpChangeEvent implements Event<SituationChangeEvent> {
+        @Override public void fire(SituationChangeEvent event) {}
+        @Override public <U extends SituationChangeEvent> CompletionStage<U> fireAsync(U event) { return CompletableFuture.completedFuture(event); }
+        @Override public <U extends SituationChangeEvent> CompletionStage<U> fireAsync(U event, NotificationOptions options) { return CompletableFuture.completedFuture(event); }
+        @Override public Event<SituationChangeEvent> select(Annotation... qualifiers) { return this; }
+        @Override public <U extends SituationChangeEvent> Event<U> select(Class<U> subtype, Annotation... qualifiers) { throw new UnsupportedOperationException(); }
+        @Override public <U extends SituationChangeEvent> Event<U> select(TypeLiteral<U> subtype, Annotation... qualifiers) { throw new UnsupportedOperationException(); }
     }
 }

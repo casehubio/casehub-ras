@@ -8,6 +8,13 @@ import io.casehub.ras.testing.MockGanglion;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
 import io.smallrye.mutiny.Uni;
+import jakarta.enterprise.event.Event;
+import jakarta.enterprise.event.NotificationOptions;
+import jakarta.enterprise.util.TypeLiteral;
+import java.lang.annotation.Annotation;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import java.net.URI;
@@ -28,6 +35,7 @@ class SituationEvaluatorTest {
     private MockCaseTrigger caseTrigger;
     private DefaultRasTriggerPolicy policy;
     private SituationEvaluator evaluator;
+    private TestChangeEvent changeEvent;
 
     private static final Instant T1 = Instant.parse("2026-06-25T10:00:00Z");
     private static final Instant T2 = Instant.parse("2026-06-25T10:01:00Z");
@@ -39,13 +47,14 @@ class SituationEvaluatorTest {
         store = new InMemorySituationStore();
         caseTrigger = new MockCaseTrigger();
         policy = new DefaultRasTriggerPolicy();
+        changeEvent = new TestChangeEvent();
     }
 
     private void buildEvaluator(List<Ganglion> ganglia, SituationDefinition def) {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), ganglia);
-        evaluator = new SituationEvaluator(store, policy, caseTrigger, registry, 3);
+        evaluator = new SituationEvaluator(store, policy, caseTrigger, registry, 3, changeEvent);
     }
 
     private CloudEvent event(String type, Instant time) {
@@ -182,7 +191,7 @@ class SituationEvaluatorTest {
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))),
                 List.of(ganglion));
-        evaluator = new SituationEvaluator(store, policy, failOnceTrigger, registry, 3);
+        evaluator = new SituationEvaluator(store, policy, failOnceTrigger, registry, 3, changeEvent);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
@@ -380,6 +389,222 @@ class SituationEvaluatorTest {
         assertThat(caseTrigger.firedCases()).hasSize(1);
     }
 
+    // --- CREATE_CASE_AND_CONTINUE tests ---
+
+    @Test
+    void repeatingModeFiresAndContinues() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG,
+                new TriggerMode.Repeating(Duration.ofMinutes(1)));
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+        // Situation retained for continued accumulation
+        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        assertThat(saved).isPresent();
+        // Claim reset — reclaimable after cooldown
+        boolean reclaimable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T2)
+                .await().indefinitely();
+        assertThat(reclaimable).isTrue();
+    }
+
+    @Test
+    void repeatingModeCooldownSuppressesTrigger() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG,
+                new TriggerMode.Repeating(Duration.ofMinutes(10)));
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+
+        // T2 is within cooldown (1 minute < 10 minute cooldown)
+        evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+    }
+
+    @Test
+    void repeatingModeLoserContinuesAccumulating() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG,
+                new TriggerMode.Repeating(Duration.ofMinutes(1)));
+
+        // ClaimTrackingStore: first claim succeeds, subsequent claims fail
+        var claimOnceStore = new ClaimTrackingStore(store);
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(claimOnceStore, policy, caseTrigger, registry, 3, changeEvent);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+
+        // Second event: claim fails (loser), but NOT terminated — continues accumulating
+        evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
+        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        assertThat(saved).isPresent();
+        assertThat(saved.get().detections()).hasSizeGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void repeatingModeCompactsAfterFire() {
+        var compactCalls = new AtomicInteger();
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9)) {
+            @Override
+            public Uni<SituationContext> compact(SituationContext context) {
+                compactCalls.incrementAndGet();
+                if (context.detections().size() > 1) {
+                    var latest = context.detections().get(context.detections().size() - 1);
+                    return Uni.createFrom().item(new SituationContext(
+                            context.situationId(), context.correlationKey(), context.tenancyId(),
+                            context.firstSignal(), context.lastSignal(), List.of(latest),
+                            context.storeVersion(), null, 0));
+                }
+                return Uni.createFrom().item(context);
+            }
+        };
+        // Persistent situation (null window) with repeating trigger
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                null, null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG,
+                new TriggerMode.Repeating(Duration.ofMinutes(1)));
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        // Compact called after fire for persistent situations
+        assertThat(compactCalls.get()).isGreaterThanOrEqualTo(1);
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+    }
+
+    // --- RESOLVE tests ---
+
+    @Test
+    void resolveRemovesSituation() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.4));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                null, null, new ChainMode.Count("g1", 5), TRIGGER_CONFIG, null);
+
+        var resolvingPolicy = new RasTriggerPolicy() {
+            private int calls = 0;
+            @Override
+            public Uni<TriggerDecision> evaluate(SituationContext ctx, SituationDefinition d) {
+                return Uni.createFrom().item(++calls >= 3
+                        ? TriggerDecision.RESOLVE : TriggerDecision.CONTINUE_ACCUMULATING);
+            }
+        };
+
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(store, resolvingPolicy, caseTrigger, registry, 3, changeEvent);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(caseTrigger.firedCases()).isEmpty();
+    }
+
+    // --- CDI event emission tests ---
+
+    @Test
+    void createCaseEmitsTriggeredEvent() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(changeEvent.firedEvents()).hasSize(1);
+        var evt = changeEvent.firedEvents().get(0);
+        assertThat(evt.tenancyId()).isEqualTo("tenant-a");
+        assertThat(evt.situationId()).isEqualTo("sit-1");
+        assertThat(evt.correlationKey()).isEqualTo("key-1");
+        assertThat(evt.changeType()).isEqualTo(SituationChangeEvent.ChangeType.TRIGGERED);
+    }
+
+    @Test
+    void resolveEmitsResolvedEvent() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                null, null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
+
+        var resolvingPolicy = new RasTriggerPolicy() {
+            @Override
+            public Uni<TriggerDecision> evaluate(SituationContext ctx, SituationDefinition d) {
+                return Uni.createFrom().item(TriggerDecision.RESOLVE);
+            }
+        };
+
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(store, resolvingPolicy, caseTrigger, registry, 3, changeEvent);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(changeEvent.firedEvents()).hasSize(1);
+        var evt = changeEvent.firedEvents().get(0);
+        assertThat(evt.changeType()).isEqualTo(SituationChangeEvent.ChangeType.RESOLVED);
+    }
+
+    @Test
+    void discardEmitsDiscardedEvent() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                null, null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG, null);
+
+        var discardingPolicy = new RasTriggerPolicy() {
+            @Override
+            public Uni<TriggerDecision> evaluate(SituationContext ctx, SituationDefinition d) {
+                return Uni.createFrom().item(TriggerDecision.DISCARD);
+            }
+        };
+
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        evaluator = new SituationEvaluator(store, discardingPolicy, caseTrigger, registry, 3, changeEvent);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(changeEvent.firedEvents()).hasSize(1);
+        var evt = changeEvent.firedEvents().get(0);
+        assertThat(evt.changeType()).isEqualTo(SituationChangeEvent.ChangeType.DISCARDED);
+    }
+
+    @Test
+    void createCaseAndContinueEmitsTriggeredEvent() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER_CONFIG,
+                new TriggerMode.Repeating(Duration.ofMinutes(1)));
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(changeEvent.firedEvents()).hasSize(1);
+        var evt = changeEvent.firedEvents().get(0);
+        assertThat(evt.changeType()).isEqualTo(SituationChangeEvent.ChangeType.TRIGGERED);
+    }
+
     // --- Conflict retry tests ---
 
     @Test
@@ -393,7 +618,7 @@ class SituationEvaluatorTest {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
-        evaluator = new SituationEvaluator(conflictStore, policy, caseTrigger, registry, 3);
+        evaluator = new SituationEvaluator(conflictStore, policy, caseTrigger, registry, 3, changeEvent);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
@@ -411,7 +636,7 @@ class SituationEvaluatorTest {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
-        evaluator = new SituationEvaluator(alwaysConflict, policy, caseTrigger, registry, 3);
+        evaluator = new SituationEvaluator(alwaysConflict, policy, caseTrigger, registry, 3, changeEvent);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
@@ -438,7 +663,7 @@ class SituationEvaluatorTest {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
-        evaluator = new SituationEvaluator(conflictStore, policy, caseTrigger, registry, 3);
+        evaluator = new SituationEvaluator(conflictStore, policy, caseTrigger, registry, 3, changeEvent);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
@@ -464,7 +689,7 @@ class SituationEvaluatorTest {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
-        evaluator = new SituationEvaluator(conflictStore, policy, caseTrigger, registry, 3);
+        evaluator = new SituationEvaluator(conflictStore, policy, caseTrigger, registry, 3, changeEvent);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
@@ -516,7 +741,7 @@ class SituationEvaluatorTest {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
-        evaluator = new SituationEvaluator(conflictAndRemoveStore, policy, caseTrigger, registry, 3);
+        evaluator = new SituationEvaluator(conflictAndRemoveStore, policy, caseTrigger, registry, 3, changeEvent);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
@@ -558,7 +783,7 @@ class SituationEvaluatorTest {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
-        evaluator = new SituationEvaluator(claimOnceStore, policy, caseTrigger, registry, 3);
+        evaluator = new SituationEvaluator(claimOnceStore, policy, caseTrigger, registry, 3, changeEvent);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
         assertThat(caseTrigger.firedCases()).hasSize(1);
@@ -608,7 +833,7 @@ class SituationEvaluatorTest {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
-        evaluator = new SituationEvaluator(store, policy, failingTrigger, registry, 3);
+        evaluator = new SituationEvaluator(store, policy, failingTrigger, registry, 3, changeEvent);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
@@ -640,7 +865,7 @@ class SituationEvaluatorTest {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
-        evaluator = new SituationEvaluator(store, policy, failOnceTrigger, registry, 3);
+        evaluator = new SituationEvaluator(store, policy, failOnceTrigger, registry, 3, changeEvent);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
         assertThat(callCount.get()).isEqualTo(1);
@@ -695,7 +920,7 @@ class SituationEvaluatorTest {
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
-        evaluator = new SituationEvaluator(conflictOnSecondSave, policy, caseTrigger, registry, 3);
+        evaluator = new SituationEvaluator(conflictOnSecondSave, policy, caseTrigger, registry, 3, changeEvent);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
@@ -790,5 +1015,32 @@ class SituationEvaluatorTest {
                                             String tenancyId) {
             return delegate.resetTriggerClaim(situationId, correlationKey, tenancyId);
         }
+    }
+
+    private static class TestChangeEvent implements Event<SituationChangeEvent> {
+        private final CopyOnWriteArrayList<SituationChangeEvent> fired = new CopyOnWriteArrayList<>();
+
+        List<SituationChangeEvent> firedEvents() { return List.copyOf(fired); }
+
+        @Override
+        public void fire(SituationChangeEvent event) {
+            fired.add(event);
+        }
+
+        @Override
+        public <U extends SituationChangeEvent> CompletionStage<U> fireAsync(U event) {
+            fired.add(event);
+            return CompletableFuture.completedFuture(event);
+        }
+
+        @Override
+        public <U extends SituationChangeEvent> CompletionStage<U> fireAsync(U event, NotificationOptions options) {
+            fired.add(event);
+            return CompletableFuture.completedFuture(event);
+        }
+
+        @Override public Event<SituationChangeEvent> select(Annotation... qualifiers) { return this; }
+        @Override public <U extends SituationChangeEvent> Event<U> select(Class<U> subtype, Annotation... qualifiers) { throw new UnsupportedOperationException(); }
+        @Override public <U extends SituationChangeEvent> Event<U> select(TypeLiteral<U> subtype, Annotation... qualifiers) { throw new UnsupportedOperationException(); }
     }
 }
