@@ -8,7 +8,7 @@
         <artifactId>casehub-ras-parent</artifactId>
         <version>0.2-SNAPSHOT</version>
     </parent>
-    <artifactId>casehub-ras-jpa</artifactId>
+    <artifactId>casehub-ras-persistence-jpa</artifactId>
     <name>CaseHub RAS :: Persistence JPA</name>
     <description>JPA-backed SituationStore. @ApplicationScoped — displaces InMemorySituationStore
         when on the classpath. Consumers must add classpath:db/ras/migration to

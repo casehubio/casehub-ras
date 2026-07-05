@@ -8,7 +8,7 @@
         <artifactId>casehub-ras-parent</artifactId>
         <version>0.2-SNAPSHOT</version>
     </parent>
-    <artifactId>casehub-ras-memory</artifactId>
+    <artifactId>casehub-ras-persistence-memory</artifactId>
     <name>CaseHub RAS :: Persistence Memory</name>
     <description>In-memory SituationStore — ConcurrentHashMap-backed, zero-config default.</description>
     <dependencies>

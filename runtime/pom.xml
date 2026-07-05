@@ -25,7 +25,7 @@
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-platform-testing</artifactId><scope>test</scope></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-api</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-testing</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-memory</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-persistence-memory</artifactId><scope>test</scope></dependency>
     </dependencies>
     <build>
         <plugins>
