@@ -13,6 +13,8 @@ public sealed interface ChainMode {
             case Threshold t -> t.ganglia();
             case Sequence s -> Set.copyOf(s.orderedGanglia());
             case Count c -> Set.of(c.ganglionId());
+            case Streak s -> Set.of(s.ganglionId());
+            case Rate r -> r.ganglia();
         };
     }
 
@@ -62,6 +64,33 @@ public sealed interface ChainMode {
             if (requiredCount < 1) {
                 throw new IllegalArgumentException(
                         "requiredCount must be >= 1, got: " + requiredCount);
+            }
+        }
+    }
+
+    record Streak(String ganglionId, int requiredCount) implements ChainMode {
+        public Streak {
+            Objects.requireNonNull(ganglionId, "ganglionId");
+            if (requiredCount < 1) {
+                throw new IllegalArgumentException(
+                        "requiredCount must be >= 1, got: " + requiredCount);
+            }
+        }
+    }
+
+    record Rate(Set<String> ganglia, double minRate, int windowSize) implements ChainMode {
+        public Rate {
+            if (ganglia == null || ganglia.isEmpty()) {
+                throw new IllegalArgumentException("ganglia must not be empty");
+            }
+            ganglia = Set.copyOf(ganglia);
+            if (minRate <= 0.0 || minRate > 1.0) {
+                throw new IllegalArgumentException(
+                        "minRate must be in (0.0, 1.0], got: " + minRate);
+            }
+            if (windowSize < 1) {
+                throw new IllegalArgumentException(
+                        "windowSize must be >= 1, got: " + windowSize);
             }
         }
     }

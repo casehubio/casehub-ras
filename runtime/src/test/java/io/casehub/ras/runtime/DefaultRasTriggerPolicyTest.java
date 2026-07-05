@@ -16,6 +16,8 @@ class DefaultRasTriggerPolicyTest {
     private static final Instant T1 = Instant.parse("2026-06-25T10:00:00Z");
     private static final Instant T2 = Instant.parse("2026-06-25T10:01:00Z");
     private static final Instant T3 = Instant.parse("2026-06-25T10:02:00Z");
+    private static final Instant T4 = Instant.parse("2026-06-25T10:03:00Z");
+    private static final Instant T5 = Instant.parse("2026-06-25T10:04:00Z");
     private static final CaseTriggerConfig TRIGGER = new CaseTriggerConfig("ns", "c", "1", Map.of());
 
     private SituationDefinition def(ChainMode mode) {
@@ -192,6 +194,174 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Sequence(List.of("g1", "g2")))
         ).await().indefinitely();
         assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    // --- STREAK ---
+
+    @Test
+    void streakSatisfiedWithConsecutiveDetections() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T2),
+                    td("g1", DetectionSignal.WEAK, 0.5, T3)),
+                def(new ChainMode.Streak("g1", 3))
+        ).await().indefinitely();
+        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+    }
+
+    @Test
+    void streakResetByAnti() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g1", DetectionSignal.ANTI, 0.7, T2),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T3)),
+                def(new ChainMode.Streak("g1", 2))
+        ).await().indefinitely();
+        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    @Test
+    void streakIgnoresNoise() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g1", DetectionSignal.NOISE, 0.0, T2),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T3)),
+                def(new ChainMode.Streak("g1", 2))
+        ).await().indefinitely();
+        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+    }
+
+    @Test
+    void streakIgnoresOtherGanglia() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g2", DetectionSignal.ANTI, 0.7, T2),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T3)),
+                def(new ChainMode.Streak("g1", 2))
+        ).await().indefinitely();
+        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+    }
+
+    @Test
+    void streakNotSatisfiedBelowRequired() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1)),
+                def(new ChainMode.Streak("g1", 2))
+        ).await().indefinitely();
+        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    @Test
+    void streakSortsByEventTimeNotArrivalOrder() {
+        // Arrival order: ANTI@T2, DETECTED@T1, DETECTED@T3
+        // Event-time order: DETECTED@T1, ANTI@T2, DETECTED@T3 → streak=1, not 2
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.ANTI, 0.7, T2),
+                    td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T3)),
+                def(new ChainMode.Streak("g1", 2))
+        ).await().indefinitely();
+        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    // --- RATE ---
+
+    @Test
+    void rateSatisfiedWhenRatioMet() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T2),
+                    td("g1", DetectionSignal.ANTI, 0.5, T3)),
+                def(new ChainMode.Rate(Set.of("g1"), 0.6, 3))
+        ).await().indefinitely();
+        // 2 qualifying / 3 total = 0.67 >= 0.6
+        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+    }
+
+    @Test
+    void rateNotSatisfiedBelowMinRate() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g1", DetectionSignal.ANTI, 0.5, T2),
+                    td("g1", DetectionSignal.ANTI, 0.5, T3)),
+                def(new ChainMode.Rate(Set.of("g1"), 0.6, 3))
+        ).await().indefinitely();
+        // 1 qualifying / 3 total = 0.33 < 0.6
+        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    @Test
+    void rateNotSatisfiedWhenWindowNotFull() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T2)),
+                def(new ChainMode.Rate(Set.of("g1"), 0.5, 3))
+        ).await().indefinitely();
+        // Only 2 scoreable signals, window needs 3
+        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    @Test
+    void rateExcludesNoiseFromWindow() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g1", DetectionSignal.NOISE, 0.0, T2),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T3)),
+                def(new ChainMode.Rate(Set.of("g1"), 0.5, 3))
+        ).await().indefinitely();
+        // Only 2 scoreable (NOISE excluded), window needs 3
+        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+    }
+
+    @Test
+    void rateUsesLastWindowSizeSignals() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g1", DetectionSignal.ANTI, 0.5, T2),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T3),
+                    td("g1", DetectionSignal.DETECTED, 0.7, T4)),
+                def(new ChainMode.Rate(Set.of("g1"), 0.6, 3))
+        ).await().indefinitely();
+        // Last 3 scoreable: ANTI@T2, DETECTED@T3, DETECTED@T4 → 2/3 = 0.67 >= 0.6
+        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+    }
+
+    @Test
+    void rateAcrossMultipleGanglia() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g2", DetectionSignal.ANTI, 0.5, T2),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T3)),
+                def(new ChainMode.Rate(Set.of("g1", "g2"), 0.6, 3))
+        ).await().indefinitely();
+        // 2 qualifying / 3 total = 0.67 >= 0.6
+        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+    }
+
+    @Test
+    void rateIgnoresNonParticipatingGanglia() {
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1),
+                    td("g3", DetectionSignal.ANTI, 0.5, T2),
+                    td("g1", DetectionSignal.DETECTED, 0.8, T3)),
+                def(new ChainMode.Rate(Set.of("g1"), 0.5, 2))
+        ).await().indefinitely();
+        // g3 not in ganglia → ignored; 2 qualifying / 2 total = 1.0 >= 0.5
+        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+    }
+
+    @Test
+    void rateSortsByEventTimeNotArrivalOrder() {
+        // Arrival order: DETECTED@T3, ANTI@T1, DETECTED@T2
+        // Event-time order: ANTI@T1, DETECTED@T2, DETECTED@T3
+        // Last 2: DETECTED@T2, DETECTED@T3 → 2/2 = 1.0 >= 0.5
+        var result = policy.evaluate(
+                ctx(td("g1", DetectionSignal.DETECTED, 0.8, T3),
+                    td("g1", DetectionSignal.ANTI, 0.5, T1),
+                    td("g1", DetectionSignal.DETECTED, 0.9, T2)),
+                def(new ChainMode.Rate(Set.of("g1"), 0.5, 2))
+        ).await().indefinitely();
+        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
     }
 
     // --- COUNT ---

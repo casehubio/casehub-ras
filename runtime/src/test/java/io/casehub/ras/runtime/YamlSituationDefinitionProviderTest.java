@@ -396,4 +396,48 @@ class YamlSituationDefinitionProviderTest {
         var triggerMode = regs.get(0).definition().triggerMode();
         assertThat(triggerMode).isInstanceOf(TriggerMode.FireOnce.class);
     }
+
+    @Test
+    void parsesStreakChainMode() {
+        var regs = provider("""
+                situations:
+                  - situationId: sit1
+                    eventTypes: [e1]
+                    chainMode:
+                      type: streak
+                      ganglionId: g1
+                      requiredCount: 3
+                    triggerConfig:
+                      caseNamespace: ns
+                      caseName: c
+                      caseVersion: "1"
+                """).registrations();
+
+        var streak = (ChainMode.Streak) regs.get(0).definition().chainMode();
+        assertThat(streak.ganglionId()).isEqualTo("g1");
+        assertThat(streak.requiredCount()).isEqualTo(3);
+    }
+
+    @Test
+    void parsesRateChainMode() {
+        var regs = provider("""
+                situations:
+                  - situationId: sit1
+                    eventTypes: [e1]
+                    chainMode:
+                      type: rate
+                      ganglia: [g1, g2]
+                      minRate: 0.6
+                      windowSize: 10
+                    triggerConfig:
+                      caseNamespace: ns
+                      caseName: c
+                      caseVersion: "1"
+                """).registrations();
+
+        var rate = (ChainMode.Rate) regs.get(0).definition().chainMode();
+        assertThat(rate.ganglia()).containsExactlyInAnyOrder("g1", "g2");
+        assertThat(rate.minRate()).isEqualTo(0.6);
+        assertThat(rate.windowSize()).isEqualTo(10);
+    }
 }

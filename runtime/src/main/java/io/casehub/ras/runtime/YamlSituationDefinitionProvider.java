@@ -121,6 +121,13 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
             case "count" -> new ChainMode.Count(
                     requireString(map, "ganglionId"),
                     requireNumber(map, "requiredCount", situationId).intValue());
+            case "streak" -> new ChainMode.Streak(
+                    requireString(map, "ganglionId"),
+                    requireNumber(map, "requiredCount", situationId).intValue());
+            case "rate" -> new ChainMode.Rate(
+                    new LinkedHashSet<>(requireList(map, "ganglia", situationId)),
+                    requireNumber(map, "minRate", situationId).doubleValue(),
+                    requireNumber(map, "windowSize", situationId).intValue());
             default -> throw new IllegalArgumentException(
                     "Unknown chainMode type '" + type + "' in situation '" + situationId + "'");
         };
