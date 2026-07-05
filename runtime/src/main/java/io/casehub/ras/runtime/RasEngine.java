@@ -1,5 +1,6 @@
 package io.casehub.ras.runtime;
 
+import io.casehub.ras.api.SituationRegistration;
 import io.cloudevents.CloudEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.ObservesAsync;

@@ -1,7 +1,6 @@
 package io.casehub.ras.runtime;
 
-import io.casehub.ras.api.Ganglion;
-import io.casehub.ras.api.SituationDefinition;
+import io.casehub.ras.api.*;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;

@@ -1,4 +1,4 @@
-package io.casehub.ras.runtime;
+package io.casehub.ras.api;
 
 import io.cloudevents.CloudEvent;
 

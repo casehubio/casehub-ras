@@ -1,6 +1,5 @@
-package io.casehub.ras.runtime;
+package io.casehub.ras.api;
 
-import io.casehub.ras.api.*;
 import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.Map;

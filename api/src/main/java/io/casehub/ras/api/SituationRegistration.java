@@ -1,6 +1,5 @@
-package io.casehub.ras.runtime;
+package io.casehub.ras.api;
 
-import io.casehub.ras.api.SituationDefinition;
 import java.util.Objects;
 
 public record SituationRegistration(

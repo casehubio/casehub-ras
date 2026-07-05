@@ -47,8 +47,8 @@ mvn --batch-mode deploy -DskipTests   # CI only
 | Module | Artifact | Root package | Purpose |
 |--------|----------|-------------|---------|
 | `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. Depends on `casehub-platform-api` (for `CloudEvent`). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest. |
-| `persistence-memory/` | `casehub-ras-memory` | `io.casehub.ras.persistence.memory` | InMemorySituationStore — `@Alternative @Priority(100)`, ConcurrentHashMap-backed. Dev/test only. |
-| `persistence-jpa/` | `casehub-ras-jpa` | `io.casehub.ras.persistence.jpa` | JpaSituationStore — `@ApplicationScoped`, Hibernate ORM + JSONB detections. Consumers add `classpath:db/ras/migration` to `quarkus.flyway.locations`. |
+| `persistence-memory/` | `casehub-ras-persistence-memory` | `io.casehub.ras.persistence.memory` | InMemorySituationStore — `@Alternative @Priority(100)`, ConcurrentHashMap-backed. Dev/test only. |
+| `persistence-jpa/` | `casehub-ras-persistence-jpa` | `io.casehub.ras.persistence.jpa` | JpaSituationStore — `@ApplicationScoped`, Hibernate ORM + JSONB detections. Consumers add `classpath:db/ras/migration` to `quarkus.flyway.locations`. |
 | `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, EventBufferFlushJob, EventReorderBuffer, YamlSituationDefinitionProvider, NaiveBayesGanglion, DefaultSituationSource, RasEndpointRegistration. Quarkus extension. |
 | `ras-drools/` | `casehub-ras-drools` | `io.casehub.ras.drools` | DroolsGanglion — Drools CEP (KieSession, sliding windows, temporal correlation). Optional. |
 | `ras-llm/` | `casehub-ras-llm` | `io.casehub.ras.llm` | LlmGanglion — narrative detection via casehub-platform-agent-api. Optional, slow path. |
@@ -105,6 +105,39 @@ Concrete class in `runtime/`, configured via `NaiveBayesConfig`. Incrementally a
 running posteriors into a single detection — necessary for correct Threshold ChainMode interaction. Config types:
 `NaiveBayesConfig`, `FeatureLikelihood`, `NaiveBayesFeatureExtractor`, `NaiveBayesSignalMapping` (with optional ANTI threshold).
 
+### CorrelationKeyExtractor — custom correlation key extraction (api/)
+
+```java
+@FunctionalInterface
+interface CorrelationKeyExtractor {
+    String extract(CloudEvent event);
+}
+```
+
+Domain adapters implement `CorrelationKeyExtractor` to provide custom correlation logic. Used by `SituationRegistration` to bundle situation definition with its correlation strategy.
+
+### DefaultCorrelationKeyExtractor — default correlation (api/)
+
+Default `CorrelationKeyExtractor` implementation in `api/`. Returns `CloudEvent.getSubject()` when non-null, otherwise `"_singleton"`. Sufficient for most use cases — custom extractors needed only when correlation key is derived from event data.
+
+### SituationDefinitionProvider — situation registration SPI (api/)
+
+```java
+interface SituationDefinitionProvider {
+    List<SituationRegistration> registrations();
+}
+```
+
+SPI for registering situation definitions. Implementations return a list of `SituationRegistration` records. Multiple providers can coexist — the runtime aggregates all definitions at startup. `YamlSituationDefinitionProvider` in `runtime/` is the default classpath-based implementation.
+
+### SituationRegistration — situation + correlation bundle (api/)
+
+```java
+record SituationRegistration(SituationDefinition definition, CorrelationKeyExtractor correlationKeyExtractor) {}
+```
+
+Bundles a `SituationDefinition` with its `CorrelationKeyExtractor`. Returned by `SituationDefinitionProvider` implementations. The runtime registers both the situation and its correlation strategy atomically.
+
 ## Core Types (api/)
 
 | Type | Purpose |
@@ -116,7 +149,7 @@ running posteriors into a single detection — necessary for correct Threshold C
 | `SituationContext` | Accumulated state — `situationId`, `correlationKey`, `tenancyId`, `firstSignal`, `lastSignal`, `List<TimestampedDetection>`, `OptionalLong storeVersion`, `Instant lastTriggered` (@Nullable), `int triggerCount` |
 | `SituationConflictException` | Thrown by `SituationStore.save()` on concurrent modification — evaluator catches and retries |
 | `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `eventBufferDelay` (@Nullable), `ChainMode`, `CaseTriggerConfig`, `TriggerMode triggerMode` |
-| `ChainMode` | Sealed interface — And, Or, Threshold, Sequence, Count. All variants carry explicit ganglion references. `referencedGanglia()` default method extracts IDs. |
+| `ChainMode` | Sealed interface — And, Or, Threshold, Sequence, Count, Streak, Rate. All variants carry explicit ganglion references. `referencedGanglia()` default method extracts IDs. |
 | `CaseTriggerConfig` | Case creation parameters — `caseNamespace`, `caseName`, `caseVersion`, `baseCaseData`. String identifiers, no engine-api dependency. |
 | `CaseTrigger` | SPI for case creation — `fire(CaseTriggerConfig, SituationContext) → Uni<UUID>`. Default impl in runtime/ bridges to CaseHub. |
 | `TriggerDecision` | Trigger outcome — CREATE_CASE, CREATE_CASE_AND_CONTINUE, CONTINUE_ACCUMULATING, DISCARD, RESOLVE |
@@ -124,6 +157,8 @@ running posteriors into a single detection — necessary for correct Threshold C
 | `ActiveSituation` | Read-only projection — `situationId`, `correlationKey`, `tenancyId`, `confidence`, `evidence`, `since`, `lastSignal`, `triggerCount`. For external consumers querying active situations. |
 | `SituationSource` | Query SPI — `Uni<List<ActiveSituation>> activeSituations(String tenancyId)`. Implemented by DefaultSituationSource in runtime/. |
 | `SituationChangeEvent` | CDI event — `tenancyId`, `situationId`, `correlationKey`, `ChangeType` (TRIGGERED/RESOLVED/DISCARDED). Fired by evaluator after state transitions. |
+| `CorrelationKeyExtractor` | Function interface — `String extract(CloudEvent event)`. Domain adapters implement for custom correlation key derivation. |
+| `SituationRegistration` | Record bundling `SituationDefinition` + `CorrelationKeyExtractor`. Returned by `SituationDefinitionProvider`. |
 
 ## Routing Model — Definition-Driven (Model B)
 
@@ -135,14 +170,15 @@ validation only. A situation instance is identified by the tuple `(situationId, 
 
 Chain modes: AND (all named ganglia must fire), OR (any single firing), THRESHOLD (min confidence sum,
 no upper bound — ANTI detections subtract from the sum), SEQUENCE (ordered arrival), COUNT (same
-ganglion fires N times).
+ganglion fires N times), STREAK (same ganglion fires N times consecutively — ANTI resets), RATE
+(ratio of qualifying signals in a sliding window of scoreable signals).
 
 ## YAML Situation Definitions (runtime/)
 
 `YamlSituationDefinitionProvider` reads `SituationDefinition` entries from a classpath YAML resource
 (default `META-INF/ras-situations.yaml`, configurable via `ras.situations.yaml`). Returns empty list
-when the resource is absent — coexists with programmatic providers. Supports all five ChainMode variants
-via a `type` discriminator (`and`, `or`, `threshold`, `sequence`, `count`). Optional `eventBufferDelay`
+when the resource is absent — coexists with programmatic providers. Supports all seven ChainMode variants
+via a `type` discriminator (`and`, `or`, `threshold`, `sequence`, `count`, `streak`, `rate`). Optional `eventBufferDelay`
 field (ISO-8601 Duration) enables per-situation event reordering for pseudo clock mode. Optional
 `triggerMode` field: `type: fire-once` (default when absent) or `type: repeating` with `cooldown`
 (ISO-8601 Duration).
