@@ -2,46 +2,52 @@ package io.casehub.ras.drools;
 
 import io.quarkus.arc.DefaultBean;
 import jakarta.enterprise.context.ApplicationScoped;
+import org.kie.api.KieBase;
 import org.kie.api.runtime.KieSession;
-import java.util.Optional;
+import org.kie.api.runtime.KieSessionConfiguration;
 import java.util.concurrent.ConcurrentHashMap;
 
 @ApplicationScoped
 @DefaultBean
 public class InMemoryDroolsSessionStore implements DroolsSessionStore {
 
-    private record SessionKey(String ganglionId, String situationId, String correlationKey, String tenancyId) {}
+    private record StampedSession(KieSession session, long generation) {}
 
-    private final ConcurrentHashMap<SessionKey, KieSession> sessions = new ConcurrentHashMap<>();
-
-    @Override
-    public Optional<KieSession> get(String ganglionId, String situationId, String correlationKey, String tenancyId) {
-        return Optional.ofNullable(sessions.get(new SessionKey(ganglionId, situationId, correlationKey, tenancyId)));
-    }
+    private final ConcurrentHashMap<DroolsSessionKey, StampedSession> cache = new ConcurrentHashMap<>();
 
     @Override
-    public void put(String ganglionId, String situationId, String correlationKey, String tenancyId, KieSession session) {
-        var key = new SessionKey(ganglionId, situationId, correlationKey, tenancyId);
-        KieSession old = sessions.put(key, session);
-        if (old != null && old != session) {
-            old.dispose();
+    public KieSession computeIfAbsent(DroolsSessionKey key,
+                                      KieBase kieBase,
+                                      KieSessionConfiguration config,
+                                      long generation) {
+        StampedSession cached = cache.get(key);
+        if (cached != null) {
+            if (cached.generation < generation) {
+                cached.session.dispose();
+                cache.remove(key);
+            } else {
+                return cached.session;
+            }
         }
+        KieSession session = kieBase.newKieSession(config, null);
+        cache.put(key, new StampedSession(session, generation));
+        return session;
     }
 
     @Override
-    public void remove(String ganglionId, String situationId, String correlationKey, String tenancyId) {
-        KieSession removed = sessions.remove(new SessionKey(ganglionId, situationId, correlationKey, tenancyId));
+    public void remove(DroolsSessionKey key) {
+        StampedSession removed = cache.remove(key);
         if (removed != null) {
-            removed.dispose();
+            removed.session.dispose();
         }
     }
 
     public void removeAll(String ganglionId) {
-        var iterator = sessions.entrySet().iterator();
+        var iterator = cache.entrySet().iterator();
         while (iterator.hasNext()) {
             var entry = iterator.next();
             if (entry.getKey().ganglionId().equals(ganglionId)) {
-                entry.getValue().dispose();
+                entry.getValue().session.dispose();
                 iterator.remove();
             }
         }

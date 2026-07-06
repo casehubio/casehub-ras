@@ -8,86 +8,98 @@ import org.kie.api.KieServices;
 import org.kie.api.builder.KieBuilder;
 import org.kie.api.builder.KieFileSystem;
 import org.kie.api.runtime.KieSession;
+import org.kie.api.runtime.KieSessionConfiguration;
 import static org.assertj.core.api.Assertions.*;
 
 class InMemoryDroolsSessionStoreTest {
 
     private InMemoryDroolsSessionStore store;
     private KieBase kieBase;
+    private KieSessionConfiguration config;
 
     @BeforeEach
     void setUp() {
         store = new InMemoryDroolsSessionStore();
-        KieServices kieServices = KieServices.Factory.get();
-        KieFileSystem kfs = kieServices.newKieFileSystem();
-        KieBuilder kieBuilder = kieServices.newKieBuilder(kfs);
-        kieBuilder.buildAll(ExecutableModelProject.class);
-        kieBase = kieServices.newKieContainer(kieBuilder.getKieModule().getReleaseId()).getKieBase();
+        KieServices ks = KieServices.Factory.get();
+        KieFileSystem kfs = ks.newKieFileSystem();
+        KieBuilder kb = ks.newKieBuilder(kfs);
+        kb.buildAll(ExecutableModelProject.class);
+        kieBase = ks.newKieContainer(kb.getKieModule().getReleaseId()).getKieBase();
+        config = ks.newKieSessionConfiguration();
     }
 
-    private KieSession freshSession() {
-        return kieBase.newKieSession();
-    }
-
-    @Test
-    void getReturnsEmptyForUnknownKey() {
-        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).isEmpty();
+    private DroolsSessionKey key(String ganglionId, String situationId) {
+        return new DroolsSessionKey(ganglionId, situationId, "key-1", "tenant-a");
     }
 
     @Test
-    void putThenGetReturnsSameSession() {
-        var session = freshSession();
-        store.put("g1", "sit-1", "key-1", "tenant-a", session);
-        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).containsSame(session);
+    void computeIfAbsentCreatesOnFirstCall() {
+        KieSession session = store.computeIfAbsent(key("g1", "sit-1"), kieBase, config, 0);
+        assertThat(session).isNotNull();
     }
 
     @Test
-    void differentGanglionIdsSameKeysAreIndependent() {
-        var session1 = freshSession();
-        var session2 = freshSession();
-        store.put("g1", "sit-1", "key-1", "tenant-a", session1);
-        store.put("g2", "sit-1", "key-1", "tenant-a", session2);
-        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).containsSame(session1);
-        assertThat(store.get("g2", "sit-1", "key-1", "tenant-a")).containsSame(session2);
+    void computeIfAbsentReturnsSameOnSecondCall() {
+        var k = key("g1", "sit-1");
+        KieSession s1 = store.computeIfAbsent(k, kieBase, config, 0);
+        KieSession s2 = store.computeIfAbsent(k, kieBase, config, 0);
+        assertThat(s2).isSameAs(s1);
     }
 
     @Test
-    void removeDisposesAndEvictsSession() {
-        var session = freshSession();
-        store.put("g1", "sit-1", "key-1", "tenant-a", session);
-        store.remove("g1", "sit-1", "key-1", "tenant-a");
-        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).isEmpty();
+    void differentKeysAreIndependent() {
+        KieSession s1 = store.computeIfAbsent(key("g1", "sit-1"), kieBase, config, 0);
+        KieSession s2 = store.computeIfAbsent(key("g2", "sit-1"), kieBase, config, 0);
+        assertThat(s2).isNotSameAs(s1);
+    }
+
+    @Test
+    void generationMismatchDisposesOldAndCreatesNew() {
+        var k = key("g1", "sit-1");
+        KieSession old = store.computeIfAbsent(k, kieBase, config, 0);
+        KieSession fresh = store.computeIfAbsent(k, kieBase, config, 1);
+        assertThat(fresh).isNotSameAs(old);
+    }
+
+    @Test
+    void sameGenerationReturnsCached() {
+        var k = key("g1", "sit-1");
+        KieSession s1 = store.computeIfAbsent(k, kieBase, config, 5);
+        KieSession s2 = store.computeIfAbsent(k, kieBase, config, 5);
+        assertThat(s2).isSameAs(s1);
+    }
+
+    @Test
+    void removeEvictsSession() {
+        var k = key("g1", "sit-1");
+        store.computeIfAbsent(k, kieBase, config, 0);
+        store.remove(k);
+        KieSession fresh = store.computeIfAbsent(k, kieBase, config, 0);
+        assertThat(fresh).isNotNull();
     }
 
     @Test
     void removeNonExistentKeyIsNoOp() {
-        assertThatNoException().isThrownBy(
-                () -> store.remove("g1", "no-such", "key-1", "tenant-a"));
+        assertThatNoException().isThrownBy(() -> store.remove(key("g1", "no-such")));
     }
 
     @Test
-    void putUpsertDisposesOldSession() {
-        var session1 = freshSession();
-        var session2 = freshSession();
-        store.put("g1", "sit-1", "key-1", "tenant-a", session1);
-        store.put("g1", "sit-1", "key-1", "tenant-a", session2);
-        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).containsSame(session2);
-    }
-
-    @Test
-    void removeAllDisposesAllSessionsForGanglion() {
-        var s1 = freshSession();
-        var s2 = freshSession();
-        var s3 = freshSession();
-        store.put("g1", "sit-1", "key-1", "tenant-a", s1);
-        store.put("g1", "sit-2", "key-2", "tenant-a", s2);
-        store.put("g2", "sit-1", "key-1", "tenant-a", s3);
+    void removeAllScopedToGanglion() {
+        var k1 = key("g1", "sit-1");
+        var k2 = new DroolsSessionKey("g1", "sit-2", "key-2", "tenant-a");
+        var k3 = key("g2", "sit-1");
+        KieSession s1 = store.computeIfAbsent(k1, kieBase, config, 0);
+        KieSession s2 = store.computeIfAbsent(k2, kieBase, config, 0);
+        KieSession s3 = store.computeIfAbsent(k3, kieBase, config, 0);
 
         store.removeAll("g1");
 
-        assertThat(store.get("g1", "sit-1", "key-1", "tenant-a")).isEmpty();
-        assertThat(store.get("g1", "sit-2", "key-2", "tenant-a")).isEmpty();
-        assertThat(store.get("g2", "sit-1", "key-1", "tenant-a")).containsSame(s3);
+        // g1 sessions gone — computeIfAbsent creates fresh
+        KieSession s1b = store.computeIfAbsent(k1, kieBase, config, 0);
+        assertThat(s1b).isNotSameAs(s1);
+        // g2 session survives
+        KieSession s3b = store.computeIfAbsent(k3, kieBase, config, 0);
+        assertThat(s3b).isSameAs(s3);
     }
 
     @Test

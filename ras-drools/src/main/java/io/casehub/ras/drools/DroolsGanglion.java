@@ -20,7 +20,6 @@ import org.kie.api.time.SessionPseudoClock;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public class DroolsGanglion implements Ganglion {
@@ -37,9 +36,6 @@ public class DroolsGanglion implements Ganglion {
     private volatile KieBase kieBase;
     private volatile long reloadGeneration = 0;
     private ReleaseId currentReleaseId;
-    private final ConcurrentHashMap<SessionGenKey, Long> sessionGenerations = new ConcurrentHashMap<>();
-
-    private record SessionGenKey(String situationId, String correlationKey, String tenancyId) {}
 
     public DroolsGanglion(DroolsGanglionConfig config,
                           DroolsSessionStore sessionStore,
@@ -68,25 +64,13 @@ public class DroolsGanglion implements Ganglion {
         String situationId = context.situationId();
         String correlationKey = context.correlationKey();
         String tenancyId = context.tenancyId();
-        boolean isNewSession = false;
 
         KieSession session;
         if (sessionMode == SessionMode.LONG_LIVED) {
-            var genKey = new SessionGenKey(situationId, correlationKey, tenancyId);
-            session = sessionStore.get(ganglionId, situationId, correlationKey, tenancyId)
-                    .orElse(null);
-            Long storedGen = sessionGenerations.get(genKey);
-            if (session != null && (storedGen == null || storedGen < currentGen)) {
-                sessionStore.remove(ganglionId, situationId, correlationKey, tenancyId);
-                session = null;
-            }
-            if (session == null) {
-                session = createSession(currentBase);
-                isNewSession = true;
-            }
+            var key = new DroolsSessionKey(ganglionId, situationId, correlationKey, tenancyId);
+            session = sessionStore.computeIfAbsent(key, currentBase, buildSessionConfig(), currentGen);
         } else {
             session = createSession(currentBase);
-            isNewSession = true;
         }
 
         var collector = new ResultCollectorChannel();
@@ -103,10 +87,10 @@ public class DroolsGanglion implements Ganglion {
             session.delete(ceHandle);
         } catch (RuntimeException ex) {
             session.unregisterChannel(RESULT_CHANNEL);
-            if (isNewSession) {
+            if (sessionMode == SessionMode.EPHEMERAL) {
                 session.dispose();
             } else {
-                sessionStore.remove(ganglionId, situationId, correlationKey, tenancyId);
+                sessionStore.remove(new DroolsSessionKey(ganglionId, situationId, correlationKey, tenancyId));
             }
             throw ex;
         }
@@ -115,10 +99,7 @@ public class DroolsGanglion implements Ganglion {
                 .resolve(collector.results(), ganglionId);
 
         session.unregisterChannel(RESULT_CHANNEL);
-        if (sessionMode == SessionMode.LONG_LIVED) {
-            sessionStore.put(ganglionId, situationId, correlationKey, tenancyId, session);
-            sessionGenerations.put(new SessionGenKey(situationId, correlationKey, tenancyId), currentGen);
-        } else {
+        if (sessionMode == SessionMode.EPHEMERAL) {
             session.dispose();
         }
 
@@ -127,8 +108,7 @@ public class DroolsGanglion implements Ganglion {
 
     @Override
     public Uni<Void> close(String situationId, String correlationKey, String tenancyId) {
-        sessionStore.remove(ganglionId, situationId, correlationKey, tenancyId);
-        sessionGenerations.remove(new SessionGenKey(situationId, correlationKey, tenancyId));
+        sessionStore.remove(new DroolsSessionKey(ganglionId, situationId, correlationKey, tenancyId));
         return Uni.createFrom().voidItem();
     }
 
@@ -139,6 +119,18 @@ public class DroolsGanglion implements Ganglion {
         KieBase newBase = buildKieBase(classpathRules, programmaticRules);
         this.kieBase = newBase;
         this.reloadGeneration++;
+    }
+
+    private KieSessionConfiguration buildSessionConfig() {
+        KieSessionConfiguration ksc = KieServices.Factory.get().newKieSessionConfiguration();
+        if (clockMode == ClockMode.PSEUDO) {
+            ksc.setOption(ClockTypeOption.PSEUDO);
+        }
+        return ksc;
+    }
+
+    private KieSession createSession(KieBase base) {
+        return base.newKieSession(buildSessionConfig(), null);
     }
 
     private void advanceClock(KieSession session, CloudEvent event) {
@@ -161,15 +153,6 @@ public class DroolsGanglion implements Ganglion {
         if (delta > 0) {
             clock.advanceTime(delta, TimeUnit.MILLISECONDS);
         }
-    }
-
-    private KieSession createSession(KieBase base) {
-        KieSessionConfiguration ksc = KieServices.Factory.get()
-                .newKieSessionConfiguration();
-        if (clockMode == ClockMode.PSEUDO) {
-            ksc.setOption(ClockTypeOption.PSEUDO);
-        }
-        return base.newKieSession(ksc, null);
     }
 
     private KieBase buildKieBase(List<String> classpathRules, List<String> programmaticRules) {

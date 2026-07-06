@@ -1,13 +1,15 @@
 package io.casehub.ras.drools;
 
+import org.kie.api.KieBase;
 import org.kie.api.runtime.KieSession;
-import java.util.Optional;
+import org.kie.api.runtime.KieSessionConfiguration;
 
 public interface DroolsSessionStore {
 
-    Optional<KieSession> get(String ganglionId, String situationId, String correlationKey, String tenancyId);
+    KieSession computeIfAbsent(DroolsSessionKey key,
+                               KieBase kieBase,
+                               KieSessionConfiguration config,
+                               long generation);
 
-    void put(String ganglionId, String situationId, String correlationKey, String tenancyId, KieSession session);
-
-    void remove(String ganglionId, String situationId, String correlationKey, String tenancyId);
+    void remove(DroolsSessionKey key);
 }
