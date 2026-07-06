@@ -49,5 +49,8 @@ buildNumber.properties
 *.tar.gz
 *.rar
 
+# Drools reliability (H2MVStore test artifacts)
+h2mvstore.db
+
 # JVM crash logs
 hs_err_pid*

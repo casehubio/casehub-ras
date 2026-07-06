@@ -27,6 +27,7 @@
         <module>api</module>
         <module>runtime</module>
         <module>ras-drools</module>
+        <module>drools-reliability</module>
         <module>ras-llm</module>
         <module>persistence-memory</module>
         <module>persistence-jpa</module>
@@ -86,6 +87,12 @@
                 <scope>test</scope>
             </dependency>
 
+            <dependency>
+                <groupId>io.casehub</groupId>
+                <artifactId>casehub-ras-drools-reliability</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
             <!-- Drools CEP -->
             <dependency>
                 <groupId>org.drools</groupId>
@@ -101,6 +108,16 @@
             <dependency>
                 <groupId>org.drools</groupId>
                 <artifactId>drools-wiring-dynamic</artifactId>
+                <version>${version.drools}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.drools</groupId>
+                <artifactId>drools-reliability-core</artifactId>
+                <version>${version.drools}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.drools</groupId>
+                <artifactId>drools-reliability-h2mvstore</artifactId>
                 <version>${version.drools}</version>
             </dependency>
         </dependencies>
