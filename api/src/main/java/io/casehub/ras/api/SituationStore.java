@@ -32,4 +32,6 @@ public interface SituationStore {
     default Uni<List<SituationContext>> findActive(String tenancyId) {
         return Uni.createFrom().item(List.of());
     }
+
+    Uni<Void> removeAllForSituation(String situationId);
 }

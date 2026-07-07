@@ -31,7 +31,7 @@ public class DefaultRasTriggerPolicy implements RasTriggerPolicy {
         TriggerMode mode = definition.triggerMode();
 
         return Uni.createFrom().item(switch (mode) {
-            case TriggerMode.FireOnce ignored -> TriggerDecision.CREATE_CASE;
+            case TriggerMode.FireOnce ignored -> TriggerDecision.TRIGGER;
             case TriggerMode.Repeating repeating -> evaluateRepeating(context, repeating);
         });
     }
@@ -39,13 +39,13 @@ public class DefaultRasTriggerPolicy implements RasTriggerPolicy {
     private TriggerDecision evaluateRepeating(SituationContext context, TriggerMode.Repeating repeating) {
         if (context.lastTriggered() == null) {
             // Never triggered before — cooldown elapsed
-            return TriggerDecision.CREATE_CASE_AND_CONTINUE;
+            return TriggerDecision.TRIGGER_AND_CONTINUE;
         }
 
         var cooldownEnd = context.lastTriggered().plus(repeating.cooldown());
         if (context.lastSignal().isAfter(cooldownEnd) || context.lastSignal().equals(cooldownEnd)) {
             // Cooldown elapsed
-            return TriggerDecision.CREATE_CASE_AND_CONTINUE;
+            return TriggerDecision.TRIGGER_AND_CONTINUE;
         } else {
             // Still in cooldown
             return TriggerDecision.CONTINUE_ACCUMULATING;

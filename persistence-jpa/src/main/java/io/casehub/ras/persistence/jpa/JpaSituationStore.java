@@ -184,4 +184,13 @@ public class JpaSituationStore implements SituationStore {
                 .toList();
         return Uni.createFrom().item(contexts);
     }
+
+    @Override
+    @Transactional(TxType.REQUIRED)
+    public Uni<Void> removeAllForSituation(String situationId) {
+        em.createQuery("DELETE FROM SituationEntity e WHERE e.situationId = :situationId")
+                .setParameter("situationId", situationId)
+                .executeUpdate();
+        return Uni.createFrom().voidItem();
+    }
 }

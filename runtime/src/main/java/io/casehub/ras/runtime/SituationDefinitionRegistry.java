@@ -13,9 +13,14 @@ import java.util.Objects;
 @ApplicationScoped
 public class SituationDefinitionRegistry {
 
-    private final Map<String, List<SituationRegistration>> byEventType;
+    private record RegistrySnapshot(
+        Map<String, List<SituationRegistration>> byEventType,
+        Set<String> situationIds,
+        Duration maxCorrelationWindow
+    ) {}
+
+    private volatile RegistrySnapshot snapshot;
     private final Map<String, Ganglion> gangliaById;
-    private final Duration maxCorrelationWindow;
 
     @Inject
     public SituationDefinitionRegistry(Instance<SituationDefinitionProvider> providers,
@@ -50,25 +55,11 @@ public class SituationDefinitionRegistry {
             }
         }
 
-        Map<String, List<SituationRegistration>> index = new HashMap<>();
-        for (var reg : allRegistrations) {
-            for (String eventType : reg.definition().eventTypes()) {
-                index.computeIfAbsent(eventType, k -> new ArrayList<>()).add(reg);
-            }
-        }
-        this.byEventType = Map.copyOf(
-                index.entrySet().stream()
-                        .collect(Collectors.toMap(Map.Entry::getKey, e -> List.copyOf(e.getValue()))));
-
-        this.maxCorrelationWindow = allRegistrations.stream()
-                .map(r -> r.definition().correlationWindow())
-                .filter(Objects::nonNull)
-                .max(Comparator.naturalOrder())
-                .orElse(null);
+        this.snapshot = buildSnapshot(allRegistrations);
     }
 
     public List<SituationRegistration> findByEventType(String eventType) {
-        return byEventType.getOrDefault(eventType, List.of());
+        return snapshot.byEventType().getOrDefault(eventType, List.of());
     }
 
     public Ganglion ganglion(String ganglionId) {
@@ -80,7 +71,57 @@ public class SituationDefinitionRegistry {
     }
 
     public Duration maxCorrelationWindow() {
-        return maxCorrelationWindow;
+        return snapshot.maxCorrelationWindow();
+    }
+
+    public synchronized void register(SituationRegistration registration) {
+        String sitId = registration.definition().situationId();
+        if (snapshot.situationIds().contains(sitId)) {
+            throw new IllegalStateException("Duplicate situationId: " + sitId);
+        }
+        validate(registration.definition());
+
+        List<SituationRegistration> all = new ArrayList<>();
+        snapshot.byEventType().values().stream()
+                .flatMap(List::stream)
+                .distinct()
+                .forEach(all::add);
+        all.add(registration);
+        this.snapshot = buildSnapshot(all);
+    }
+
+    public synchronized void deregister(String situationId) {
+        if (!snapshot.situationIds().contains(situationId)) {
+            return;
+        }
+        List<SituationRegistration> remaining = snapshot.byEventType().values().stream()
+                .flatMap(List::stream)
+                .distinct()
+                .filter(reg -> !reg.definition().situationId().equals(situationId))
+                .toList();
+        this.snapshot = buildSnapshot(remaining);
+    }
+
+    private static RegistrySnapshot buildSnapshot(List<SituationRegistration> registrations) {
+        Map<String, List<SituationRegistration>> index = new HashMap<>();
+        Set<String> ids = new HashSet<>();
+        for (var reg : registrations) {
+            ids.add(reg.definition().situationId());
+            for (String eventType : reg.definition().eventTypes()) {
+                index.computeIfAbsent(eventType, k -> new ArrayList<>()).add(reg);
+            }
+        }
+        Duration maxWindow = registrations.stream()
+                .map(r -> r.definition().correlationWindow())
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+
+        return new RegistrySnapshot(
+                Map.copyOf(index.entrySet().stream()
+                        .collect(Collectors.toMap(Map.Entry::getKey, e -> List.copyOf(e.getValue())))),
+                Set.copyOf(ids),
+                maxWindow);
     }
 
     private void validate(SituationDefinition def) {

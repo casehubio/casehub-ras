@@ -27,7 +27,7 @@ class SituationExpiryJobTest {
                 FixedDetectionResult.noise("g1"));
         var def = new SituationDefinition("sit-old", Set.of("e"), Duration.ofHours(1), null,
                 new ChainMode.Or(Set.of("g1")),
-                new CaseTriggerConfig("ns", "c", "1", Map.of()), null);
+                new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
         var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1));
@@ -47,7 +47,7 @@ class SituationExpiryJobTest {
                 FixedDetectionResult.noise("g1"));
         var def = new SituationDefinition("sit-1", Set.of("e"), null, null,
                 new ChainMode.Or(Set.of("g1")),
-                new CaseTriggerConfig("ns", "c", "1", Map.of()), null);
+                new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
         var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1));
@@ -63,7 +63,7 @@ class SituationExpiryJobTest {
         var g = new MockGanglion("g1", Set.of("e"), FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("e"), null, null,
                 new ChainMode.Or(Set.of("g1")),
-                new CaseTriggerConfig("ns", "c", "1", Map.of()), null);
+                new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(g));
@@ -88,7 +88,7 @@ class SituationExpiryJobTest {
         var g = new MockGanglion("g1", Set.of("e"), FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("e"), null, null,
                 new ChainMode.Or(Set.of("g1")),
-                new CaseTriggerConfig("ns", "c", "1", Map.of()), null);
+                new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(g));

@@ -85,14 +85,14 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                     "chainMode required for situation '" + situationId + "'");
         }
 
-        Map<String, Object> triggerMap = (Map<String, Object>) map.get("triggerConfig");
-        if (triggerMap == null) {
+        Map<String, Object> triggerActionMap = (Map<String, Object>) map.get("triggerAction");
+        if (triggerActionMap == null) {
             throw new IllegalArgumentException(
-                    "triggerConfig required for situation '" + situationId + "'");
+                    "triggerAction required for situation '" + situationId + "'");
         }
 
         ChainMode chainMode = parseChainMode(chainModeMap, situationId);
-        CaseTriggerConfig triggerConfig = parseTriggerConfig(triggerMap);
+        TriggerAction triggerAction = parseTriggerAction(triggerActionMap, situationId);
 
         TriggerMode triggerMode = new TriggerMode.FireOnce();
         if (map.containsKey("triggerMode")) {
@@ -101,7 +101,8 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
 
         SituationDefinition def = new SituationDefinition(
                 situationId, new LinkedHashSet<>(eventTypeList),
-                correlationWindow, eventBufferDelay, chainMode, triggerConfig, triggerMode);
+                correlationWindow, eventBufferDelay, chainMode,
+                triggerAction, triggerMode);
         return new SituationRegistration(def);
     }
 
@@ -134,12 +135,19 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
     }
 
     @SuppressWarnings("unchecked")
-    private static CaseTriggerConfig parseTriggerConfig(Map<String, Object> map) {
-        return new CaseTriggerConfig(
-                requireString(map, "caseNamespace"),
-                requireString(map, "caseName"),
-                requireString(map, "caseVersion"),
-                (Map<String, Object>) map.getOrDefault("baseCaseData", Map.of()));
+    private static TriggerAction parseTriggerAction(Map<String, Object> map, String situationId) {
+        String type = requireString(map, "type");
+        return switch (type) {
+            case "create-case" -> new TriggerAction.CreateCase(new CaseTriggerConfig(
+                    requireString(map, "caseNamespace"),
+                    requireString(map, "caseName"),
+                    requireString(map, "caseVersion"),
+                    (Map<String, Object>) map.getOrDefault("baseCaseData", Map.of())));
+            case "notify-only" -> new TriggerAction.NotifyOnly();
+            default -> throw new IllegalArgumentException(
+                    "Unknown triggerAction type '" + type + "' in situation '" + situationId
+                    + "'. Expected 'create-case' or 'notify-only'");
+        };
     }
 
     private static String requireString(Map<String, Object> map, String key) {

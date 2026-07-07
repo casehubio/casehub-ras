@@ -54,3 +54,4 @@ h2mvstore.db
 
 # JVM crash logs
 hs_err_pid*
+**/\${project.build.directory}/

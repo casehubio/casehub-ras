@@ -45,7 +45,7 @@ class RasEngineTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER, null);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), new TriggerAction.CreateCase(TRIGGER), null);
         var reg = new SituationRegistration(def);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
@@ -65,7 +65,7 @@ class RasEngineTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER, null);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), new TriggerAction.CreateCase(TRIGGER), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
         var store = new InMemorySituationStore();
@@ -85,7 +85,7 @@ class RasEngineTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9));
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER, null);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), new TriggerAction.CreateCase(TRIGGER), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
         var store = new InMemorySituationStore();

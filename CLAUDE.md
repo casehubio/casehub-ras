@@ -34,6 +34,7 @@ Multiple ganglia, one RAS per deployment context.
 - JPA SituationStore: `docs/superpowers/specs/2026-06-28-jpa-situation-store-design.md`
 - Clustered retry logic: `docs/superpowers/specs/2026-06-29-clustered-retry-logic-design.md`
 - Trigger lifecycle + situation query: `docs/superpowers/specs/2026-06-30-trigger-lifecycle-and-situation-query-design.md`
+- Service lifecycle RAS integration: `docs/superpowers/specs/2026-07-07-service-lifecycle-ras-integration-design.md`
 
 ## Build Commands
 
@@ -69,12 +70,12 @@ interface Ganglion {
 }
 ```
 
-### RasTriggerPolicy — when to create a case
+### RasTriggerPolicy — when to trigger
 
 ```java
 interface RasTriggerPolicy {
     Uni<TriggerDecision> evaluate(SituationContext context, SituationDefinition definition);
-    // TriggerDecision: CREATE_CASE / CREATE_CASE_AND_CONTINUE / CONTINUE_ACCUMULATING / DISCARD / RESOLVE
+    // TriggerDecision: TRIGGER / TRIGGER_AND_CONTINUE / CONTINUE_ACCUMULATING / DISCARD / RESOLVE
 }
 ```
 
@@ -86,6 +87,7 @@ interface SituationStore {
     Uni<SituationContext> save(SituationContext context);
     Uni<Void> remove(String situationId, String correlationKey, String tenancyId);
     Uni<Void> removeExpired(Instant cutoff);
+    Uni<Void> removeAllForSituation(String situationId);
     default Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey, String tenancyId, Instant triggerTime) { ... }
     default Uni<Void> resetTriggerClaim(String situationId, String correlationKey, String tenancyId) { ... }
     default Uni<Void> removeTriggeredBefore(Instant triggerCutoff) { ... }
@@ -149,15 +151,16 @@ Bundles a `SituationDefinition` with its `CorrelationKeyExtractor`. Returned by 
 | `TimestampedDetection` | Wraps `DetectionResult` + `Instant eventTime` — runtime adds event timestamp at accumulation boundary |
 | `SituationContext` | Accumulated state — `situationId`, `correlationKey`, `tenancyId`, `firstSignal`, `lastSignal`, `List<TimestampedDetection>`, `OptionalLong storeVersion`, `Instant lastTriggered` (@Nullable), `int triggerCount` |
 | `SituationConflictException` | Thrown by `SituationStore.save()` on concurrent modification — evaluator catches and retries |
-| `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `eventBufferDelay` (@Nullable), `ChainMode`, `CaseTriggerConfig`, `TriggerMode triggerMode` |
+| `TriggerAction` | Sealed interface — `CreateCase(CaseTriggerConfig)`, `NotifyOnly()`. Declares what happens when a situation triggers. `CreateCase` starts a new case via `CaseTrigger`. `NotifyOnly` fires enriched `SituationChangeEvent` only — for signaling existing cases via consumer bridge. |
+| `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `eventBufferDelay` (@Nullable), `ChainMode`, `TriggerAction`, `TriggerMode triggerMode` |
 | `ChainMode` | Sealed interface — And, Or, Threshold, Sequence, Count, Streak, Rate. All variants carry explicit ganglion references. `referencedGanglia()` default method extracts IDs. |
 | `CaseTriggerConfig` | Case creation parameters — `caseNamespace`, `caseName`, `caseVersion`, `baseCaseData`. String identifiers, no engine-api dependency. |
 | `CaseTrigger` | SPI for case creation — `fire(CaseTriggerConfig, SituationContext) → Uni<UUID>`. Default impl in runtime/ bridges to CaseHub. |
-| `TriggerDecision` | Trigger outcome — CREATE_CASE, CREATE_CASE_AND_CONTINUE, CONTINUE_ACCUMULATING, DISCARD, RESOLVE |
+| `TriggerDecision` | Trigger outcome — TRIGGER, TRIGGER_AND_CONTINUE, CONTINUE_ACCUMULATING, DISCARD, RESOLVE |
 | `TriggerMode` | Sealed interface — FireOnce, Repeating(Duration cooldown). Declares post-trigger lifecycle on SituationDefinition. DefaultRasTriggerPolicy maps to TriggerDecision. |
 | `ActiveSituation` | Read-only projection — `situationId`, `correlationKey`, `tenancyId`, `confidence`, `evidence`, `since`, `lastSignal`, `triggerCount`. For external consumers querying active situations. |
 | `SituationSource` | Query SPI — `Uni<List<ActiveSituation>> activeSituations(String tenancyId)`. Implemented by DefaultSituationSource in runtime/. |
-| `SituationChangeEvent` | CDI event — `tenancyId`, `situationId`, `correlationKey`, `ChangeType` (TRIGGERED/RESOLVED/DISCARDED). Fired by evaluator after state transitions. |
+| `SituationChangeEvent` | CDI event — `tenancyId`, `situationId`, `correlationKey`, `ChangeType` (TRIGGERED/RESOLVED/DISCARDED), `SituationContext context`. Fired by evaluator after state transitions. Context carries detection results for consumer bridges. |
 | `CorrelationKeyExtractor` | Function interface — `String extract(CloudEvent event)`. Domain adapters implement for custom correlation key derivation. |
 | `SituationRegistration` | Record bundling `SituationDefinition` + `CorrelationKeyExtractor`. Returned by `SituationDefinitionProvider`. |
 
@@ -179,10 +182,21 @@ ganglion fires N times), STREAK (same ganglion fires N times consecutively — A
 `YamlSituationDefinitionProvider` reads `SituationDefinition` entries from a classpath YAML resource
 (default `META-INF/ras-situations.yaml`, configurable via `ras.situations.yaml`). Returns empty list
 when the resource is absent — coexists with programmatic providers. Supports all seven ChainMode variants
-via a `type` discriminator (`and`, `or`, `threshold`, `sequence`, `count`, `streak`, `rate`). Optional `eventBufferDelay`
-field (ISO-8601 Duration) enables per-situation event reordering for pseudo clock mode. Optional
-`triggerMode` field: `type: fire-once` (default when absent) or `type: repeating` with `cooldown`
-(ISO-8601 Duration).
+via a `type` discriminator (`and`, `or`, `threshold`, `sequence`, `count`, `streak`, `rate`). `triggerAction`
+field uses a `type` discriminator: `type: create-case` (with `caseNamespace`, `caseName`, `caseVersion`,
+optional `baseCaseData`) or `type: notify-only`. Optional `eventBufferDelay` field (ISO-8601 Duration)
+enables per-situation event reordering for pseudo clock mode. Optional `triggerMode` field: `type: fire-once`
+(default when absent) or `type: repeating` with `cooldown` (ISO-8601 Duration).
+
+## Dynamic Situation Registration (runtime/)
+
+`SituationDefinitionRegistry` supports runtime registration and deregistration of situation definitions
+via `register(SituationRegistration)` and `deregister(String situationId)`. Thread-safe via copy-on-write
+`RegistrySnapshot` — one `volatile` swap per mutation, lock-free reads on `findByEventType()`. Ganglia
+remain static (CDI beans at startup); only situation definitions are dynamic. Used by consuming apps to
+register monitoring situations at deploy time and deregister at decommission time. `deregister()` is
+idempotent. For persistent situations (`correlationWindow=null`), consuming apps must call
+`SituationStore.removeAllForSituation()` before deregistering to avoid orphaned context entries.
 
 ## Persistent Situation Compaction (runtime/)
 
@@ -201,11 +215,11 @@ via `ras.evaluator.max-conflict-retries` (default 3). `InMemorySituationStore` i
 
 ## Duplicate Trigger Prevention (runtime/)
 
-CREATE_CASE path uses `SituationStore.tryClaimTrigger()` for exactly-once case creation across
+TRIGGER path uses `SituationStore.tryClaimTrigger()` for exactly-once trigger execution across
 clustered JVMs. `tryClaimTrigger` atomically stamps `lastTriggered` and increments `triggerCount`
 alongside the `policyTriggered` CAS — trigger metadata is store-managed, not written by `save()`.
-Bifurcated claim path for CREATE_CASE: new entities use save-before-claim, existing entities use
-claim-before-save. CREATE_CASE_AND_CONTINUE uses save-first flow (no bifurcation) — detection is
+Bifurcated claim path for TRIGGER: new entities use save-before-claim, existing entities use
+claim-before-save. TRIGGER_AND_CONTINUE uses save-first flow (no bifurcation) — detection is
 always persisted before claiming. Entity removal is deferred after successful trigger — the
 `policyTriggered=true` entity guards against duplicate triggers from retrying losers, cleaned up
 by `SituationExpiryJob` after a configurable guard period (`ras.evaluator.trigger-guard-period`,

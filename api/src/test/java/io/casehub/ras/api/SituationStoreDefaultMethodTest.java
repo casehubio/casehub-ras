@@ -29,6 +29,11 @@ class SituationStoreDefaultMethodTest {
         public Uni<Void> removeExpired(Instant cutoff) {
             return Uni.createFrom().voidItem();
         }
+
+        @Override
+        public Uni<Void> removeAllForSituation(String situationId) {
+            return Uni.createFrom().voidItem();
+        }
     };
 
     @Test

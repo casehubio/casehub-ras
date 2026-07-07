@@ -15,7 +15,8 @@ class SituationDefinitionTest {
     @Test
     void validDefinitionIsCreated() {
         var def = new SituationDefinition("equipment-failure",
-                Set.of("iot.temperature"), Duration.ofMinutes(10), null, CHAIN, TRIGGER, null);
+                Set.of("iot.temperature"), Duration.ofMinutes(10), null, CHAIN,
+                new TriggerAction.CreateCase(TRIGGER), null);
 
         assertThat(def.situationId()).isEqualTo("equipment-failure");
         assertThat(def.eventTypes()).containsExactly("iot.temperature");
@@ -25,7 +26,7 @@ class SituationDefinitionTest {
     @Test
     void nullCorrelationWindowMeansPersistent() {
         var def = new SituationDefinition("persistent-sit",
-                Set.of("iot.temperature"), null, null, CHAIN, TRIGGER, null);
+                Set.of("iot.temperature"), null, null, CHAIN, new TriggerAction.CreateCase(TRIGGER), null);
         assertThat(def.correlationWindow()).isNull();
     }
 
@@ -33,7 +34,7 @@ class SituationDefinitionTest {
     void emptyEventTypesRejected() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of(), null, null, CHAIN, TRIGGER, null))
+                        Set.of(), null, null, CHAIN, new TriggerAction.CreateCase(TRIGGER), null))
                 .withMessageContaining("must not be empty");
     }
 
@@ -41,7 +42,7 @@ class SituationDefinitionTest {
     void nullEventTypesRejected() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        null, null, null, CHAIN, TRIGGER, null))
+                        null, null, null, CHAIN, new TriggerAction.CreateCase(TRIGGER), null))
                 .withMessageContaining("must not be empty");
     }
 
@@ -49,7 +50,7 @@ class SituationDefinitionTest {
     void zeroCorrelationWindowRejected() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of("type"), Duration.ZERO, null, CHAIN, TRIGGER, null))
+                        Set.of("type"), Duration.ZERO, null, CHAIN, new TriggerAction.CreateCase(TRIGGER), null))
                 .withMessageContaining("positive");
     }
 
@@ -57,7 +58,7 @@ class SituationDefinitionTest {
     void negativeCorrelationWindowRejected() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of("type"), Duration.ofMinutes(-5), null, CHAIN, TRIGGER, null))
+                        Set.of("type"), Duration.ofMinutes(-5), null, CHAIN, new TriggerAction.CreateCase(TRIGGER), null))
                 .withMessageContaining("positive");
     }
 
@@ -65,7 +66,7 @@ class SituationDefinitionTest {
     void nullChainModeRejected() {
         assertThatNullPointerException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of("type"), null, null, null, TRIGGER, null))
+                        Set.of("type"), null, null, null, new TriggerAction.CreateCase(TRIGGER), null))
                 .withMessage("chainMode");
     }
 
@@ -74,20 +75,20 @@ class SituationDefinitionTest {
         assertThatNullPointerException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
                         Set.of("type"), null, null, CHAIN, null, null))
-                .withMessage("triggerConfig");
+                .withMessage("triggerAction");
     }
 
     @Test
     void nullEventBufferDelayIsAllowed() {
         var def = new SituationDefinition("sit-1",
-                Set.of("type"), null, null, CHAIN, TRIGGER, null);
+                Set.of("type"), null, null, CHAIN, new TriggerAction.CreateCase(TRIGGER), null);
         assertThat(def.eventBufferDelay()).isNull();
     }
 
     @Test
     void validEventBufferDelay() {
         var def = new SituationDefinition("sit-1",
-                Set.of("type"), null, Duration.ofSeconds(5), CHAIN, TRIGGER, null);
+                Set.of("type"), null, Duration.ofSeconds(5), CHAIN, new TriggerAction.CreateCase(TRIGGER), null);
         assertThat(def.eventBufferDelay()).isEqualTo(Duration.ofSeconds(5));
     }
 
@@ -95,7 +96,7 @@ class SituationDefinitionTest {
     void zeroEventBufferDelayRejected() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of("type"), null, Duration.ZERO, CHAIN, TRIGGER, null))
+                        Set.of("type"), null, Duration.ZERO, CHAIN, new TriggerAction.CreateCase(TRIGGER), null))
                 .withMessageContaining("positive");
     }
 
@@ -103,14 +104,15 @@ class SituationDefinitionTest {
     void negativeEventBufferDelayRejected() {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new SituationDefinition("sit-1",
-                        Set.of("type"), null, Duration.ofSeconds(-1), CHAIN, TRIGGER, null))
+                        Set.of("type"), null, Duration.ofSeconds(-1), CHAIN, new TriggerAction.CreateCase(TRIGGER), null))
                 .withMessageContaining("positive");
     }
 
     @Test
     void nullTriggerModeDefaultsToFireOnce() {
         var def = new SituationDefinition("sit-1", Set.of("e"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER, null);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                new TriggerAction.CreateCase(TRIGGER), null);
         assertThat(def.triggerMode()).isInstanceOf(TriggerMode.FireOnce.class);
     }
 
@@ -118,7 +120,8 @@ class SituationDefinitionTest {
     void explicitTriggerModeIsPreserved() {
         var mode = new TriggerMode.Repeating(Duration.ofMinutes(5));
         var def = new SituationDefinition("sit-1", Set.of("e"),
-                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")), TRIGGER, mode);
+                Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                new TriggerAction.CreateCase(TRIGGER), mode);
         assertThat(def.triggerMode()).isEqualTo(mode);
     }
 }

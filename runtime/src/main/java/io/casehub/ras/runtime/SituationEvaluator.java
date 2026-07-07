@@ -150,7 +150,7 @@ public class SituationEvaluator {
                                      String situationId, String correlationKey,
                                      String tenancyId, Instant triggerTime) {
         switch (decision) {
-            case CREATE_CASE -> {
+            case TRIGGER -> {
                 if (context.storeVersion().isPresent()) {
                     boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
                                                            tenancyId, triggerTime)
@@ -174,22 +174,39 @@ public class SituationEvaluator {
                         return true;
                     }
                 }
-                try {
-                    caseTrigger.fire(definition.triggerConfig(), context).await().indefinitely();
-                } catch (RuntimeException ex) {
-                    LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
-                               + "': " + ex.getMessage());
-                    store.resetTriggerClaim(situationId, correlationKey, tenancyId)
-                            .await().indefinitely();
-                    return false;
+
+                if (definition.triggerAction() instanceof TriggerAction.CreateCase createCase) {
+                    try {
+                        caseTrigger.fire(createCase.config(), context).await().indefinitely();
+                    } catch (RuntimeException ex) {
+                        LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
+                                   + "': " + ex.getMessage());
+                        store.resetTriggerClaim(situationId, correlationKey, tenancyId)
+                                .await().indefinitely();
+                        return false;
+                    }
+                    changeEvent.fireAsync(new SituationChangeEvent(
+                            tenancyId, situationId, correlationKey,
+                            SituationChangeEvent.ChangeType.TRIGGERED, context));
+                } else {
+                    try {
+                        changeEvent.fireAsync(new SituationChangeEvent(
+                                tenancyId, situationId, correlationKey,
+                                SituationChangeEvent.ChangeType.TRIGGERED, context))
+                                .toCompletableFuture().join();
+                    } catch (Exception ex) {
+                        LOG.severe("SituationChangeEvent delivery failed for situation '"
+                                   + situationId + "': " + ex.getMessage());
+                        store.resetTriggerClaim(situationId, correlationKey, tenancyId)
+                                .await().indefinitely();
+                        return false;
+                    }
                 }
-                changeEvent.fireAsync(new SituationChangeEvent(
-                        tenancyId, situationId, correlationKey,
-                        SituationChangeEvent.ChangeType.TRIGGERED));
+
                 closeGanglia(definition, situationId, correlationKey, tenancyId);
                 return true;
             }
-            case CREATE_CASE_AND_CONTINUE -> {
+            case TRIGGER_AND_CONTINUE -> {
                 // Save-first flow — always persist detection before claiming
                 SituationContext savedContext = store.save(context).await().indefinitely();
                 boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
@@ -199,18 +216,35 @@ public class SituationEvaluator {
                     // Loser continues accumulating — NOT terminated
                     return false;
                 }
-                try {
-                    caseTrigger.fire(definition.triggerConfig(), savedContext).await().indefinitely();
-                } catch (RuntimeException ex) {
-                    LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
-                               + "': " + ex.getMessage());
-                    store.resetTriggerClaim(situationId, correlationKey, tenancyId)
-                            .await().indefinitely();
-                    return false;
+
+                if (definition.triggerAction() instanceof TriggerAction.CreateCase createCase) {
+                    try {
+                        caseTrigger.fire(createCase.config(), savedContext).await().indefinitely();
+                    } catch (RuntimeException ex) {
+                        LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
+                                   + "': " + ex.getMessage());
+                        store.resetTriggerClaim(situationId, correlationKey, tenancyId)
+                                .await().indefinitely();
+                        return false;
+                    }
+                    changeEvent.fireAsync(new SituationChangeEvent(
+                            tenancyId, situationId, correlationKey,
+                            SituationChangeEvent.ChangeType.TRIGGERED, savedContext));
+                } else {
+                    try {
+                        changeEvent.fireAsync(new SituationChangeEvent(
+                                tenancyId, situationId, correlationKey,
+                                SituationChangeEvent.ChangeType.TRIGGERED, savedContext))
+                                .toCompletableFuture().join();
+                    } catch (Exception ex) {
+                        LOG.severe("SituationChangeEvent delivery failed for situation '"
+                                   + situationId + "': " + ex.getMessage());
+                        store.resetTriggerClaim(situationId, correlationKey, tenancyId)
+                                .await().indefinitely();
+                        return false;
+                    }
                 }
-                changeEvent.fireAsync(new SituationChangeEvent(
-                        tenancyId, situationId, correlationKey,
-                        SituationChangeEvent.ChangeType.TRIGGERED));
+
                 // Reset claim for next trigger cycle
                 store.resetTriggerClaim(situationId, correlationKey, tenancyId)
                         .await().indefinitely();
@@ -234,7 +268,7 @@ public class SituationEvaluator {
                 store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
                 changeEvent.fireAsync(new SituationChangeEvent(
                         tenancyId, situationId, correlationKey,
-                        SituationChangeEvent.ChangeType.DISCARDED));
+                        SituationChangeEvent.ChangeType.DISCARDED, context));
                 return true;
             }
             case RESOLVE -> {
@@ -242,7 +276,7 @@ public class SituationEvaluator {
                 store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
                 changeEvent.fireAsync(new SituationChangeEvent(
                         tenancyId, situationId, correlationKey,
-                        SituationChangeEvent.ChangeType.RESOLVED));
+                        SituationChangeEvent.ChangeType.RESOLVED, context));
                 return true;
             }
         }

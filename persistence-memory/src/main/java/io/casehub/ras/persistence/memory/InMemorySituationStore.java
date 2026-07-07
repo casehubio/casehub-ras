@@ -146,4 +146,12 @@ public class InMemorySituationStore implements SituationStore {
 
         return Uni.createFrom().item(active);
     }
+
+    @Override
+    public Uni<Void> removeAllForSituation(String situationId) {
+        store.keySet().removeIf(key -> key.situationId().equals(situationId));
+        versions.keySet().removeIf(key -> key.situationId().equals(situationId));
+        claims.keySet().removeIf(key -> key.situationId().equals(situationId));
+        return Uni.createFrom().voidItem();
+    }
 }

@@ -25,7 +25,8 @@ class DefaultRasTriggerPolicyTest {
     }
 
     private SituationDefinition def(ChainMode mode, TriggerMode triggerMode) {
-        return new SituationDefinition("sit", Set.of("e"), Duration.ofMinutes(10), null, mode, TRIGGER, triggerMode);
+        return new SituationDefinition("sit", Set.of("e"), Duration.ofMinutes(10), null, mode,
+                new TriggerAction.CreateCase(TRIGGER), triggerMode);
     }
 
     private SituationContext ctx(TimestampedDetection... detections) {
@@ -71,7 +72,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g2", DetectionSignal.WEAK, 0.5, T2)),
                 def(new ChainMode.And(Set.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -111,7 +112,7 @@ class DefaultRasTriggerPolicyTest {
                 ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1)),
                 def(new ChainMode.Or(Set.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -132,7 +133,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g2", DetectionSignal.WEAK, 0.4, T2)),
                 def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -163,7 +164,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g2", DetectionSignal.DETECTED, 0.8, T2)),
                 def(new ChainMode.Sequence(List.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -184,7 +185,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.9, T1)),
                 def(new ChainMode.Sequence(List.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -206,7 +207,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.WEAK, 0.5, T3)),
                 def(new ChainMode.Streak("g1", 3))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -228,7 +229,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.8, T3)),
                 def(new ChainMode.Streak("g1", 2))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -239,7 +240,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.8, T3)),
                 def(new ChainMode.Streak("g1", 2))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -275,7 +276,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1"), 0.6, 3))
         ).await().indefinitely();
         // 2 qualifying / 3 total = 0.67 >= 0.6
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -323,7 +324,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1"), 0.6, 3))
         ).await().indefinitely();
         // Last 3 scoreable: ANTI@T2, DETECTED@T3, DETECTED@T4 → 2/3 = 0.67 >= 0.6
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -335,7 +336,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1", "g2"), 0.6, 3))
         ).await().indefinitely();
         // 2 qualifying / 3 total = 0.67 >= 0.6
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -347,7 +348,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1"), 0.5, 2))
         ).await().indefinitely();
         // g3 not in ganglia → ignored; 2 qualifying / 2 total = 1.0 >= 0.5
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -361,7 +362,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.9, T2)),
                 def(new ChainMode.Rate(Set.of("g1"), 0.5, 2))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     // --- COUNT ---
@@ -374,7 +375,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.8, T3)),
                 def(new ChainMode.Count("g1", 3))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -432,7 +433,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
         ).await().indefinitely();
         // 0.9 + 0.5 - 0.3 = 1.1, above 0.8
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -443,7 +444,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
         ).await().indefinitely();
         // g3 not in threshold ganglia → ignored; 0.9 >= 0.8
-        assertThat(result).isEqualTo(TriggerDecision.CREATE_CASE);
+        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     // --- EMPTY CONTEXT ---
@@ -463,7 +464,7 @@ class DefaultRasTriggerPolicyTest {
         var def = def(new ChainMode.Or(Set.of("g1")), new TriggerMode.FireOnce());
         var ctx = contextWithDetection("g1", 0.9);
         assertThat(policy.evaluate(ctx, def).await().indefinitely())
-                .isEqualTo(TriggerDecision.CREATE_CASE);
+                .isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -472,7 +473,7 @@ class DefaultRasTriggerPolicyTest {
                 new TriggerMode.Repeating(Duration.ofMinutes(5)));
         var ctx = contextWithDetection("g1", 0.9);
         assertThat(policy.evaluate(ctx, def).await().indefinitely())
-                .isEqualTo(TriggerDecision.CREATE_CASE_AND_CONTINUE);
+                .isEqualTo(TriggerDecision.TRIGGER_AND_CONTINUE);
     }
 
     @Test
@@ -492,6 +493,6 @@ class DefaultRasTriggerPolicyTest {
         var ctx = contextWithDetectionAndTrigger("g1", 0.9,
                 T1, T1.plus(Duration.ofMinutes(10)));
         assertThat(policy.evaluate(ctx, def).await().indefinitely())
-                .isEqualTo(TriggerDecision.CREATE_CASE_AND_CONTINUE);
+                .isEqualTo(TriggerDecision.TRIGGER_AND_CONTINUE);
     }
 }

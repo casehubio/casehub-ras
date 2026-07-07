@@ -3,7 +3,9 @@ package io.casehub.ras.api;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import static org.assertj.core.api.Assertions.*;
 
 public abstract class AbstractSituationStoreContractTest {
@@ -266,5 +268,57 @@ public abstract class AbstractSituationStoreContractTest {
         assertThat(found.lastTriggered()).isNull();
         assertThat(found.triggerCount()).isZero();
         assertThat(found.storeVersion()).isPresent();
+    }
+
+    // --- removeAllForSituation tests ---
+
+    @Test
+    void removeAllForSituation_removes_all_matching_entries() {
+        var ctx1 = new SituationContext("sit-A", "key-1", "tenant-a",
+                T1, T1, List.of(), OptionalLong.empty(), null, 0);
+        var ctx2 = new SituationContext("sit-A", "key-2", "tenant-a",
+                T1, T1, List.of(), OptionalLong.empty(), null, 0);
+        var ctx3 = new SituationContext("sit-B", "key-1", "tenant-a",
+                T1, T1, List.of(), OptionalLong.empty(), null, 0);
+
+        store.save(ctx1).await().indefinitely();
+        store.save(ctx2).await().indefinitely();
+        store.save(ctx3).await().indefinitely();
+
+        store.removeAllForSituation("sit-A").await().indefinitely();
+
+        assertThat(store.find("sit-A", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(store.find("sit-A", "key-2", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(store.find("sit-B", "key-1", "tenant-a").await().indefinitely()).isPresent();
+    }
+
+    @Test
+    void removeAllForSituation_noop_when_no_matches() {
+        store.removeAllForSituation("nonexistent").await().indefinitely();
+        // no exception
+    }
+
+    @Test
+    void removeAllForSituation_removes_across_correlation_keys_and_tenants() {
+        var ctx1 = new SituationContext("sit-X", "key-1", "tenant-a",
+                T1, T1, List.of(), OptionalLong.empty(), null, 0);
+        var ctx2 = new SituationContext("sit-X", "key-2", "tenant-a",
+                T1, T1, List.of(), OptionalLong.empty(), null, 0);
+        var ctx3 = new SituationContext("sit-X", "key-1", "tenant-b",
+                T1, T1, List.of(), OptionalLong.empty(), null, 0);
+        var ctx4 = new SituationContext("sit-Y", "key-1", "tenant-a",
+                T1, T1, List.of(), OptionalLong.empty(), null, 0);
+
+        store.save(ctx1).await().indefinitely();
+        store.save(ctx2).await().indefinitely();
+        store.save(ctx3).await().indefinitely();
+        store.save(ctx4).await().indefinitely();
+
+        store.removeAllForSituation("sit-X").await().indefinitely();
+
+        assertThat(store.find("sit-X", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(store.find("sit-X", "key-2", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(store.find("sit-X", "key-1", "tenant-b").await().indefinitely()).isEmpty();
+        assertThat(store.find("sit-Y", "key-1", "tenant-a").await().indefinitely()).isPresent();
     }
 }

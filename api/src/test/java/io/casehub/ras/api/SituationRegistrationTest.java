@@ -11,7 +11,7 @@ class SituationRegistrationTest {
     private static final SituationDefinition DEF = new SituationDefinition(
             "sit-1", Set.of("test.event"), Duration.ofMinutes(5), null,
             new ChainMode.Or(Set.of("g1")),
-            new CaseTriggerConfig("ns", "name", "1.0", Map.of()), null);
+            new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "name", "1.0", Map.of())), null);
 
     @Test
     void convenienceConstructorUsesDefaultExtractor() {

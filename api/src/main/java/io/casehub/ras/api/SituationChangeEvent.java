@@ -6,7 +6,8 @@ public record SituationChangeEvent(
         String tenancyId,
         String situationId,
         String correlationKey,
-        ChangeType changeType
+        ChangeType changeType,
+        SituationContext context
 ) {
     public enum ChangeType { TRIGGERED, RESOLVED, DISCARDED }
 
@@ -15,5 +16,6 @@ public record SituationChangeEvent(
         Objects.requireNonNull(situationId, "situationId");
         Objects.requireNonNull(correlationKey, "correlationKey");
         Objects.requireNonNull(changeType, "changeType");
+        Objects.requireNonNull(context, "context");
     }
 }

@@ -26,7 +26,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: and
                       ganglia: [g1, g2]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: case1
                       caseVersion: "1.0"
@@ -51,7 +52,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1, g2]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -74,7 +76,8 @@ class YamlSituationDefinitionProviderTest {
                       type: threshold
                       ganglia: [g1, g2]
                       minConfidence: 0.8
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -94,7 +97,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: sequence
                       ganglia: [g1, g2, g3]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -114,7 +118,8 @@ class YamlSituationDefinitionProviderTest {
                       type: count
                       ganglionId: g1
                       requiredCount: 5
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -134,7 +139,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -143,7 +149,7 @@ class YamlSituationDefinitionProviderTest {
                         severity: 5
                 """).registrations();
 
-        var config = regs.get(0).definition().triggerConfig();
+        var config = ((TriggerAction.CreateCase) regs.get(0).definition().triggerAction()).config();
         assertThat(config.caseNamespace()).isEqualTo("ns");
         assertThat(config.baseCaseData()).containsEntry("priority", "HIGH");
         assertThat(config.baseCaseData()).containsEntry("severity", 5);
@@ -158,13 +164,14 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: 2.0
                 """).registrations();
 
-        assertThat(regs.get(0).definition().triggerConfig().caseVersion()).isEqualTo("2.0");
+        assertThat(((TriggerAction.CreateCase) regs.get(0).definition().triggerAction()).config().caseVersion()).isEqualTo("2.0");
     }
 
     @Test
@@ -176,7 +183,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c1
                       caseVersion: "1"
@@ -185,7 +193,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g2]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c2
                       caseVersion: "1"
@@ -217,7 +226,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -236,7 +246,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: unknown
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -253,7 +264,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -273,7 +285,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: case
                       caseVersion: "1.0"
@@ -292,7 +305,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: case
                       caseVersion: "1.0"
@@ -307,7 +321,8 @@ class YamlSituationDefinitionProviderTest {
                 situations:
                   - situationId: sit1
                     eventTypes: [e1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -317,7 +332,7 @@ class YamlSituationDefinitionProviderTest {
     }
 
     @Test
-    void missingTriggerConfigThrows() {
+    void missingTriggerActionThrows() {
         assertThatThrownBy(() -> provider("""
                 situations:
                   - situationId: sit1
@@ -327,7 +342,7 @@ class YamlSituationDefinitionProviderTest {
                       ganglia: [g1]
                 """).registrations())
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("triggerConfig");
+                .hasMessageContaining("triggerAction");
     }
 
     @Test
@@ -339,7 +354,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -361,7 +377,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -386,7 +403,8 @@ class YamlSituationDefinitionProviderTest {
                     chainMode:
                       type: or
                       ganglia: [g1]
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -407,7 +425,8 @@ class YamlSituationDefinitionProviderTest {
                       type: streak
                       ganglionId: g1
                       requiredCount: 3
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -429,7 +448,8 @@ class YamlSituationDefinitionProviderTest {
                       ganglia: [g1, g2]
                       minRate: 0.6
                       windowSize: 10
-                    triggerConfig:
+                    triggerAction:
+                      type: create-case
                       caseNamespace: ns
                       caseName: c
                       caseVersion: "1"
@@ -439,5 +459,79 @@ class YamlSituationDefinitionProviderTest {
         assertThat(rate.ganglia()).containsExactlyInAnyOrder("g1", "g2");
         assertThat(rate.minRate()).isEqualTo(0.6);
         assertThat(rate.windowSize()).isEqualTo(10);
+    }
+
+    @Test
+    void parses_triggerAction_createCase() {
+        String yaml = """
+                situations:
+                  - situationId: test-sit
+                    eventTypes: [io.test.event]
+                    chainMode:
+                      type: or
+                      ganglia: [g1]
+                    triggerAction:
+                      type: create-case
+                      caseNamespace: ns
+                      caseName: name
+                      caseVersion: "1.0"
+                """;
+        var provider = new YamlSituationDefinitionProvider(
+                new ByteArrayInputStream(yaml.getBytes()));
+        var def = provider.registrations().getFirst().definition();
+        assertThat(def.triggerAction()).isInstanceOf(TriggerAction.CreateCase.class);
+        var createCase = (TriggerAction.CreateCase) def.triggerAction();
+        assertThat(createCase.config().caseNamespace()).isEqualTo("ns");
+    }
+
+    @Test
+    void parses_triggerAction_notifyOnly() {
+        String yaml = """
+                situations:
+                  - situationId: test-sit
+                    eventTypes: [io.test.event]
+                    chainMode:
+                      type: or
+                      ganglia: [g1]
+                    triggerAction:
+                      type: notify-only
+                """;
+        var provider = new YamlSituationDefinitionProvider(
+                new ByteArrayInputStream(yaml.getBytes()));
+        var def = provider.registrations().getFirst().definition();
+        assertThat(def.triggerAction()).isInstanceOf(TriggerAction.NotifyOnly.class);
+    }
+
+    @Test
+    void rejects_missing_triggerAction() {
+        String yaml = """
+                situations:
+                  - situationId: test-sit
+                    eventTypes: [io.test.event]
+                    chainMode:
+                      type: or
+                      ganglia: [g1]
+                """;
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new YamlSituationDefinitionProvider(
+                        new ByteArrayInputStream(yaml.getBytes())))
+                .withMessageContaining("triggerAction");
+    }
+
+    @Test
+    void rejects_unknown_triggerAction_type() {
+        String yaml = """
+                situations:
+                  - situationId: test-sit
+                    eventTypes: [io.test.event]
+                    chainMode:
+                      type: or
+                      ganglia: [g1]
+                    triggerAction:
+                      type: explode
+                """;
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new YamlSituationDefinitionProvider(
+                        new ByteArrayInputStream(yaml.getBytes())));
     }
 }

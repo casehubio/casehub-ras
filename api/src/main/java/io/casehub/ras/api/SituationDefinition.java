@@ -10,13 +10,13 @@ public record SituationDefinition(
         Duration correlationWindow,
         Duration eventBufferDelay,
         ChainMode chainMode,
-        CaseTriggerConfig triggerConfig,
+        TriggerAction triggerAction,
         TriggerMode triggerMode
 ) {
     public SituationDefinition {
         Objects.requireNonNull(situationId, "situationId");
         Objects.requireNonNull(chainMode, "chainMode");
-        Objects.requireNonNull(triggerConfig, "triggerConfig");
+        Objects.requireNonNull(triggerAction, "triggerAction");
         if (eventTypes == null || eventTypes.isEmpty()) {
             throw new IllegalArgumentException("eventTypes must not be empty");
         }

@@ -20,7 +20,7 @@ class EventReorderBufferTest {
     private static final SituationDefinition DEF = new SituationDefinition(
             "sit-1", Set.of("test.event"), null, BUFFER_DELAY,
             new ChainMode.Or(Set.of("g1")),
-            new CaseTriggerConfig("ns", "case", "1.0", Map.of()), null);
+            new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())), null);
 
     private static final Instant NOW = Instant.parse("2026-06-27T10:00:00Z");
 
