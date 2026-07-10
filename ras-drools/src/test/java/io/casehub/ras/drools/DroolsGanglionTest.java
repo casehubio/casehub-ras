@@ -11,6 +11,9 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
+import org.kie.api.KieBase;
+import org.kie.api.runtime.KieSession;
+import org.kie.api.runtime.KieSessionConfiguration;
 import static org.assertj.core.api.Assertions.*;
 
 class DroolsGanglionTest {
@@ -365,5 +368,36 @@ class DroolsGanglionTest {
         var event2 = testEvent("test.event", Instant.parse("2026-06-21T10:01:00Z"));
         var r2 = ganglion.detect(event2, ctx).await().indefinitely();
         assertThat(r2.confidence()).isEqualTo(0.95);
+    }
+
+    @Test
+    void storeExceptionCausesDefensiveCleanupAndRethrow() {
+        var failingStore = new DroolsSessionStore() {
+            @Override
+            public KieSession computeIfAbsent(DroolsSessionKey key, KieBase kieBase,
+                                               KieSessionConfiguration config, long generation) {
+                throw new DroolsSessionStoreException("storage read failed");
+            }
+            @Override
+            public void remove(DroolsSessionKey key) {
+                throw new RuntimeException("remove also fails");
+            }
+        };
+
+        var drl = "package test; rule \"noop\" when then end";
+        var config = new DroolsGanglionConfig("g1", Set.of("test.event"),
+                SessionMode.LONG_LIVED, ClockMode.PSEUDO,
+                List.of(), List.of(drl));
+        var ganglion = new DroolsGanglion(config, failingStore, List.of());
+
+        var context = SituationContext.initial("sit-1", "key-1", "tenant-a",
+                Instant.parse("2026-07-09T10:00:00Z"));
+
+        assertThatThrownBy(() -> ganglion.detect(testEvent("test.event",
+                Instant.parse("2026-07-09T10:00:00Z")), context)
+                .await().indefinitely())
+                .isInstanceOf(DroolsSessionStoreException.class)
+                .hasMessageContaining("storage read failed")
+                .satisfies(ex -> assertThat(ex.getSuppressed()).hasSize(1));
     }
 }

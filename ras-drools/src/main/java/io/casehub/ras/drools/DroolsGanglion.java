@@ -68,7 +68,16 @@ public class DroolsGanglion implements Ganglion {
         KieSession session;
         if (sessionMode == SessionMode.LONG_LIVED) {
             var key = new DroolsSessionKey(ganglionId, situationId, correlationKey, tenancyId);
-            session = sessionStore.computeIfAbsent(key, currentBase, buildSessionConfig(), currentGen);
+            try {
+                session = sessionStore.computeIfAbsent(key, currentBase, buildSessionConfig(), currentGen);
+            } catch (DroolsSessionStoreException ex) {
+                try {
+                    sessionStore.remove(key);
+                } catch (RuntimeException suppressed) {
+                    ex.addSuppressed(suppressed);
+                }
+                throw ex;
+            }
         } else {
             session = createSession(currentBase);
         }

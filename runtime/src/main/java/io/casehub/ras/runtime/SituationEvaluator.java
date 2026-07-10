@@ -138,9 +138,13 @@ public class SituationEvaluator {
         Set<String> gangliaForEvent = gangliaHandlingEventType(definition, event.getType());
         List<DetectionResult> results = new ArrayList<>();
         for (String ganglionId : gangliaForEvent) {
-            Ganglion ganglion = registry.ganglion(ganglionId);
-            DetectionResult result = ganglion.detect(event, context).await().indefinitely();
-            results.add(result);
+            try {
+                Ganglion ganglion = registry.ganglion(ganglionId);
+                DetectionResult result = ganglion.detect(event, context).await().indefinitely();
+                results.add(result);
+            } catch (RuntimeException ex) {
+                LOG.warning("Ganglion '" + ganglionId + "' detect() failed, skipping: " + ex.getMessage());
+            }
         }
         return results;
     }

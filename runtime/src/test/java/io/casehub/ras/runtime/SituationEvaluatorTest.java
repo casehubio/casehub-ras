@@ -1199,4 +1199,27 @@ class SituationEvaluatorTest {
         @Override public <U extends SituationChangeEvent> Event<U> select(Class<U> subtype, Annotation... qualifiers) { throw new UnsupportedOperationException(); }
         @Override public <U extends SituationChangeEvent> Event<U> select(TypeLiteral<U> subtype, Annotation... qualifiers) { throw new UnsupportedOperationException(); }
     }
+
+    @Test
+    void evaluatorContinuesWhenOneGanglionFails() {
+        var failingGanglion = new Ganglion() {
+            @Override public String ganglionId() { return "g-fail"; }
+            @Override public Set<String> handledEventTypes() { return Set.of("test.event"); }
+            @Override public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
+                return Uni.createFrom().failure(new RuntimeException("ganglion failed"));
+            }
+        };
+        var workingGanglion = new MockGanglion("g-ok", Set.of("test.event"),
+                FixedDetectionResult.detected("g-ok", 0.9));
+
+        var def = new SituationDefinition("sit-1", Set.of("test.event"),
+                Duration.ofMinutes(5), null,
+                new ChainMode.Or(Set.of("g-fail", "g-ok")),
+                new TriggerAction.CreateCase(TRIGGER_CONFIG), null);
+        buildEvaluator(List.of(failingGanglion, workingGanglion), def);
+
+        evaluator.evaluate(event("test.event", T1), def, "key-1", "tenant-a");
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+    }
 }

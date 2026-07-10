@@ -35,6 +35,7 @@ Multiple ganglia, one RAS per deployment context.
 - Clustered retry logic: `docs/superpowers/specs/2026-06-29-clustered-retry-logic-design.md`
 - Trigger lifecycle + situation query: `docs/superpowers/specs/2026-06-30-trigger-lifecycle-and-situation-query-design.md`
 - Service lifecycle RAS integration: `docs/superpowers/specs/2026-07-07-service-lifecycle-ras-integration-design.md`
+- DroolsSessionStore hardening: `docs/superpowers/specs/2026-07-09-drools-session-store-hardening-design.md`
 
 ## Build Commands
 
@@ -52,7 +53,7 @@ mvn --batch-mode deploy -DskipTests   # CI only
 | `persistence-jpa/` | `casehub-ras-persistence-jpa` | `io.casehub.ras.persistence.jpa` | JpaSituationStore — `@ApplicationScoped`, Hibernate ORM + JSONB detections. Consumers add `classpath:db/ras/migration` to `quarkus.flyway.locations`. |
 | `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, EventBufferFlushJob, EventReorderBuffer, YamlSituationDefinitionProvider, NaiveBayesGanglion, DefaultSituationSource, RasEndpointRegistration. Quarkus extension. |
 | `ras-drools/` | `casehub-ras-drools` | `io.casehub.ras.drools` | DroolsGanglion — Drools CEP (KieSession, sliding windows, temporal correlation). Optional. |
-| `drools-reliability/` | `casehub-ras-drools-reliability` | `io.casehub.ras.drools.reliability` | ReliableDroolsSessionStore — persistent DroolsSessionStore backed by drools-reliability + H2MVStore. Experimental. |
+| `drools-reliability/` | `casehub-ras-drools-reliability` | `io.casehub.ras.drools.reliability` | ReliableDroolsSessionStore — persistent DroolsSessionStore backed by drools-reliability + H2MVStore. ReliableDroolsSessionStoreHealthCheck (`@Readiness`). Micrometer metrics (optional, via `Instance<MeterRegistry>`). Experimental. |
 | `ras-llm/` | `casehub-ras-llm` | `io.casehub.ras.llm` | LlmGanglion — narrative detection via casehub-platform-agent-api. Optional, slow path. |
 | `testing/` | `casehub-ras-testing` | `io.casehub.ras.testing` | MockGanglion, FixedDetectionResult, MockCaseTrigger. **Test scope only.** |
 
@@ -163,6 +164,7 @@ Bundles a `SituationDefinition` with its `CorrelationKeyExtractor`. Returned by 
 | `SituationChangeEvent` | CDI event — `tenancyId`, `situationId`, `correlationKey`, `ChangeType` (TRIGGERED/RESOLVED/DISCARDED), `SituationContext context`. Fired by evaluator after state transitions. Context carries detection results for consumer bridges. |
 | `CorrelationKeyExtractor` | Function interface — `String extract(CloudEvent event)`. Domain adapters implement for custom correlation key derivation. |
 | `SituationRegistration` | Record bundling `SituationDefinition` + `CorrelationKeyExtractor`. Returned by `SituationDefinitionProvider`. |
+| `DroolsSessionStoreException` | Unchecked exception in `ras-drools/` — thrown by `DroolsSessionStore` implementations on storage read failure. Part of the SPI contract. |
 
 ## Routing Model — Definition-Driven (Model B)
 
@@ -212,6 +214,14 @@ conflict detection: application-level `storeVersion` comparison (non-overlapping
 Hibernate `@Version` OLE/constraint violation (overlapping transactions). Max retries configurable
 via `ras.evaluator.max-conflict-retries` (default 3). `InMemorySituationStore` is unaffected — per-key
 `synchronized` locks prevent concurrent access within a single JVM.
+
+## Ganglion Error Isolation (runtime/)
+
+`SituationEvaluator.runDetection()` wraps each `ganglion.detect()` call in a per-ganglion try-catch.
+One ganglion's failure (storage error, rule engine crash) is logged and skipped — remaining ganglia
+still evaluate and produce partial results. `DroolsGanglion.detect()` catches
+`DroolsSessionStoreException` from `computeIfAbsent`, attempts defensive session key cleanup
+(suppressed if it also fails), and rethrows.
 
 ## Duplicate Trigger Prevention (runtime/)
 

@@ -18,6 +18,7 @@ import org.kie.api.runtime.KieSessionConfiguration;
 import org.kie.api.runtime.conf.ClockTypeOption;
 import org.kie.api.time.SessionPseudoClock;
 import java.util.concurrent.TimeUnit;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import static org.assertj.core.api.Assertions.*;
 
 class ReliableDroolsSessionStoreTest {
@@ -183,6 +184,111 @@ class ReliableDroolsSessionStoreTest {
         KieSession second = store.computeIfAbsent(k, kieBase, config, 0);
         assertThat(second).isNotNull();
         assertThat(second).isSameAs(recovered);
+    }
+
+
+    @Test
+    void storageWriteFailureLogsButSessionStillReturned() {
+        var k = key("g1", "sit-1");
+        KieSession session = store.computeIfAbsent(k, kieBase, config, 0);
+        assertThat(session).isNotNull();
+    }
+
+    @Test
+    void gracefulRestartPreservesSessions() {
+        var k = key("g1", "sit-1");
+        KieSession session = store.computeIfAbsent(k, kieBase, config, 0);
+        session.insert("survive-restart");
+        session.fireAllRules();
+        store.destroy();
+        store = new ReliableDroolsSessionStore();
+        store.init();
+        KieSession recovered = store.computeIfAbsent(k, kieBase, config, 0);
+        assertThat(recovered).isNotSameAs(session);
+        assertThat(recovered.getObjects()).anyMatch(o -> "survive-restart".equals(o));
+    }
+
+
+    private ReliableDroolsSessionStore createStoreWithMetrics(SimpleMeterRegistry registry) {
+        var metricsStore = new ReliableDroolsSessionStore();
+        metricsStore.setMeterRegistry(registry);
+        metricsStore.init();
+        return metricsStore;
+    }
+
+    @Test
+    void createdCounterIncrements() {
+        var registry = new SimpleMeterRegistry();
+        store = createStoreWithMetrics(registry);
+        store.computeIfAbsent(key("g1", "sit-1"), kieBase, config, 0);
+        assertThat(registry.counter("ras.drools.session.created", "ganglion_id", "g1").count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
+    void hotCacheHitRecordsTimerWithHitOutcome() {
+        var registry = new SimpleMeterRegistry();
+        store = createStoreWithMetrics(registry);
+        var k = key("g1", "sit-1");
+        store.computeIfAbsent(k, kieBase, config, 0);
+        store.computeIfAbsent(k, kieBase, config, 0);
+        assertThat(registry.timer("ras.drools.session.compute_time",
+                "ganglion_id", "g1", "outcome", "hit").count()).isEqualTo(1);
+    }
+
+    @Test
+    void recoveryIncrementsRecoveredCounter() {
+        var registry = new SimpleMeterRegistry();
+        store = createStoreWithMetrics(registry);
+        var k = key("g1", "sit-1");
+        store.computeIfAbsent(k, kieBase, config, 0);
+        store.clearHotCacheForTest();
+        ((TestableStorageManager) StorageManagerFactory.get().getStorageManager()).restart();
+        ReliableRuntimeComponentFactoryImpl.refreshCounterUsingStorage();
+        store = createStoreWithMetrics(registry);
+        store.computeIfAbsent(k, kieBase, config, 0);
+        assertThat(registry.counter("ras.drools.session.recovered", "ganglion_id", "g1").count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
+    void evictionIncrementsEvictedCounter() {
+        var registry = new SimpleMeterRegistry();
+        store = createStoreWithMetrics(registry);
+        var k = key("g1", "sit-1");
+        store.computeIfAbsent(k, kieBase, config, 0);
+        store.computeIfAbsent(k, kieBase, config, 1);
+        assertThat(registry.counter("ras.drools.session.evicted", "ganglion_id", "g1").count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
+    void removeIncrementsRemovedCounter() {
+        var registry = new SimpleMeterRegistry();
+        store = createStoreWithMetrics(registry);
+        var k = key("g1", "sit-1");
+        store.computeIfAbsent(k, kieBase, config, 0);
+        store.remove(k);
+        assertThat(registry.counter("ras.drools.session.removed", "ganglion_id", "g1").count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
+    void activeSessionGaugeReflectsHotCacheSize() {
+        var registry = new SimpleMeterRegistry();
+        store = createStoreWithMetrics(registry);
+        assertThat(registry.get("ras.drools.session.active").gauge().value()).isEqualTo(0.0);
+        store.computeIfAbsent(key("g1", "sit-1"), kieBase, config, 0);
+        assertThat(registry.get("ras.drools.session.active").gauge().value()).isEqualTo(1.0);
+        store.computeIfAbsent(key("g2", "sit-2"), kieBase, config, 0);
+        assertThat(registry.get("ras.drools.session.active").gauge().value()).isEqualTo(2.0);
+    }
+
+    @Test
+    void worksWithoutMetrics() {
+        var k = key("g1", "sit-1");
+        assertThatNoException().isThrownBy(() -> store.computeIfAbsent(k, kieBase, config, 0));
+        assertThatNoException().isThrownBy(() -> store.remove(k));
     }
 
     private void simulateRestart() {
