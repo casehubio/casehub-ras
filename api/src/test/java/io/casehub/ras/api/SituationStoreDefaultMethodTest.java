@@ -2,9 +2,12 @@ package io.casehub.ras.api;
 
 import io.smallrye.mutiny.Uni;
 import org.junit.jupiter.api.Test;
+
 import java.time.Instant;
 import java.util.Optional;
-import static org.assertj.core.api.Assertions.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 
 class SituationStoreDefaultMethodTest {
 
@@ -26,8 +29,8 @@ class SituationStoreDefaultMethodTest {
         }
 
         @Override
-        public Uni<Void> removeExpired(Instant cutoff) {
-            return Uni.createFrom().voidItem();
+        public Uni<Integer> removeExpired(Instant cutoff) {
+            return Uni.createFrom().item(0);
         }
 
         @Override
@@ -50,4 +53,12 @@ class SituationStoreDefaultMethodTest {
                 () -> anonymous.resetTriggerClaim("sit-1", "key-1", "tenant-a")
                         .await().indefinitely());
     }
+
+    @Test
+    void removeTriggeredBeforeDefaultReturnsZero() {
+        int result = anonymous.removeTriggeredBefore(Instant.now())
+                              .await().indefinitely();
+        assertThat(result).isZero();
+    }
+
 }

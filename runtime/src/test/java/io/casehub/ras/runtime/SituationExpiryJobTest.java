@@ -1,18 +1,28 @@
 package io.casehub.ras.runtime;
 
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.CaseTriggerConfig;
+import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.SituationContext;
+import io.casehub.ras.api.SituationDefinition;
+import io.casehub.ras.api.SituationRegistration;
+import io.casehub.ras.api.TriggerAction;
 import io.casehub.ras.persistence.memory.InMemorySituationStore;
 import io.casehub.ras.testing.FixedDetectionResult;
 import io.casehub.ras.testing.MockGanglion;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import static org.assertj.core.api.Assertions.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class SituationExpiryJobTest {
+
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     private static final Instant OLD = Instant.now().minus(Duration.ofHours(2));
     private static final Instant RECENT = Instant.now().minus(Duration.ofMinutes(30));
@@ -30,7 +40,7 @@ class SituationExpiryJobTest {
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1));
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
 
         job.cleanup();
 
@@ -50,7 +60,7 @@ class SituationExpiryJobTest {
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1));
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
 
         job.cleanup();
 
@@ -74,7 +84,7 @@ class SituationExpiryJobTest {
         store.tryClaimTrigger("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-25T10:00:00Z")).await().indefinitely();
 
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1));
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
 
         assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
 
@@ -93,9 +103,55 @@ class SituationExpiryJobTest {
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(g));
         var store = new InMemorySituationStore();
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1));
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
 
         // Should not throw — previously returned early when maxWindow was null
         job.cleanup();
     }
+
+    private RasMetrics initMetrics(SituationDefinitionRegistry registry) {
+        var metrics = new RasMetrics(registry);
+        metrics.setMeterRegistry(meterRegistry);
+        metrics.init();
+        return metrics;
+    }
+
+    @Test
+    void expiredCleanedCounterReflectsRemovedCount() {
+        var store = new InMemorySituationStore();
+        store.save(SituationContext.initial("sit-old", "k", "t", OLD)).await().indefinitely();
+        store.save(SituationContext.initial("sit-new", "k", "t", RECENT)).await().indefinitely();
+
+        var ganglion = new MockGanglion("g1", Set.of("e"),
+                                        FixedDetectionResult.noise("g1"));
+        var def = new SituationDefinition("sit-old", Set.of("e"), Duration.ofHours(1), null,
+                                          new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
+
+        job.cleanup();
+
+        assertThat(meterRegistry.counter("ras.expiry.expired_cleaned").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void expiredCleanedNotIncrementedWhenNoWindowedDefinitions() {
+        var store = new InMemorySituationStore();
+        var ganglion = new MockGanglion("g1", Set.of("e"),
+                                        FixedDetectionResult.noise("g1"));
+        var def = new SituationDefinition("sit-1", Set.of("e"), null, null,
+                                          new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
+
+        job.cleanup();
+
+        assertThat(meterRegistry.find("ras.expiry.expired_cleaned").counter()).isNull();
+        assertThat(meterRegistry.counter("ras.expiry.triggered_cleaned").count()).isEqualTo(0.0);
+    }
+
 }

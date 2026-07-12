@@ -22,9 +22,12 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import static org.assertj.core.api.Assertions.*;
 
 class RasEngineTest {
+
+    private SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     private static final Instant T1 = Instant.parse("2026-06-25T10:00:00Z");
     private static final CaseTriggerConfig TRIGGER =
@@ -51,13 +54,20 @@ class RasEngineTest {
                 List.of(() -> List.of(reg)), List.of(ganglion));
         var store = new InMemorySituationStore();
         var caseTrigger = new MockCaseTrigger();
+        var metrics = new RasMetrics(registry);
+        metrics.setMeterRegistry(meterRegistry);
+        metrics.init();
         var evaluator = new SituationEvaluator(store, new DefaultRasTriggerPolicy(),
-                caseTrigger, registry, 3, new NoOpChangeEvent());
-        var engine = new RasEngine(registry, evaluator);
+                caseTrigger, registry, 3, new NoOpChangeEvent(), metrics);
+        var engine = new RasEngine(registry, evaluator, metrics);
 
         engine.onCloudEvent(event("temp.reading", "tenant-a"));
 
         assertThat(caseTrigger.firedCases()).hasSize(1);
+        assertThat(meterRegistry.counter("ras.engine.events.received",
+                "event_type", "temp.reading").count()).isEqualTo(1.0);
+        assertThat(meterRegistry.counter("ras.engine.events.routed",
+                "situation_id", "sit-1", "tenancy_id", "tenant-a").count()).isEqualTo(1.0);
     }
 
     @Test
@@ -70,14 +80,21 @@ class RasEngineTest {
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
         var store = new InMemorySituationStore();
         var caseTrigger = new MockCaseTrigger();
+        var metrics = new RasMetrics(registry);
+        metrics.setMeterRegistry(meterRegistry);
+        metrics.init();
         var evaluator = new SituationEvaluator(store, new DefaultRasTriggerPolicy(),
-                caseTrigger, registry, 3, new NoOpChangeEvent());
-        var engine = new RasEngine(registry, evaluator);
+                caseTrigger, registry, 3, new NoOpChangeEvent(), metrics);
+        var engine = new RasEngine(registry, evaluator, metrics);
 
         engine.onCloudEvent(event("temp.reading", null));
 
         assertThat(ganglion.callCount()).isEqualTo(0);
         assertThat(caseTrigger.firedCases()).isEmpty();
+        assertThat(meterRegistry.counter("ras.engine.events.received",
+                "event_type", "temp.reading").count()).isEqualTo(1.0);
+        assertThat(meterRegistry.counter("ras.engine.events.skipped",
+                "reason", "no_tenancy_id").count()).isEqualTo(1.0);
     }
 
     @Test
@@ -90,13 +107,20 @@ class RasEngineTest {
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
         var store = new InMemorySituationStore();
         var caseTrigger = new MockCaseTrigger();
+        var metrics = new RasMetrics(registry);
+        metrics.setMeterRegistry(meterRegistry);
+        metrics.init();
         var evaluator = new SituationEvaluator(store, new DefaultRasTriggerPolicy(),
-                caseTrigger, registry, 3, new NoOpChangeEvent());
-        var engine = new RasEngine(registry, evaluator);
+                caseTrigger, registry, 3, new NoOpChangeEvent(), metrics);
+        var engine = new RasEngine(registry, evaluator, metrics);
 
         engine.onCloudEvent(event("unknown.type", "tenant-a"));
 
         assertThat(ganglion.callCount()).isEqualTo(0);
+        assertThat(meterRegistry.counter("ras.engine.events.received",
+                "event_type", "unknown.type").count()).isEqualTo(1.0);
+        assertThat(meterRegistry.counter("ras.engine.events.skipped",
+                "reason", "no_matching_situation").count()).isEqualTo(1.0);
     }
 
     private static class NoOpChangeEvent implements Event<SituationChangeEvent> {

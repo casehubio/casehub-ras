@@ -70,17 +70,19 @@ public class InMemorySituationStore implements SituationStore {
     }
 
     @Override
-    public Uni<Void> removeExpired(Instant cutoff) {
+    public Uni<Integer> removeExpired(Instant cutoff) {
+        int[] count = {0};
         store.entrySet().removeIf(entry -> {
             if (!entry.getValue().lastSignal().isAfter(cutoff)) {
                 final var key = entry.getKey();
                 versions.remove(key);
                 claims.remove(key);
+                count[0]++;
                 return true;
             }
             return false;
         });
-        return Uni.createFrom().voidItem();
+        return Uni.createFrom().item(count[0]);
     }
 
     @Override
@@ -111,21 +113,22 @@ public class InMemorySituationStore implements SituationStore {
     }
 
     @Override
-    public Uni<Void> removeTriggeredBefore(Instant cutoff) {
+    public Uni<Integer> removeTriggeredBefore(Instant cutoff) {
+        int[] count = {0};
         store.entrySet().removeIf(entry -> {
             final var key = entry.getKey();
             final var ctx = entry.getValue();
 
-            // Remove if claimed AND lastTriggered <= cutoff
             if (claims.containsKey(key) && ctx.lastTriggered() != null
                     && !ctx.lastTriggered().isAfter(cutoff)) {
                 versions.remove(key);
                 claims.remove(key);
+                count[0]++;
                 return true;
             }
             return false;
         });
-        return Uni.createFrom().voidItem();
+        return Uni.createFrom().item(count[0]);
     }
 
     @Override

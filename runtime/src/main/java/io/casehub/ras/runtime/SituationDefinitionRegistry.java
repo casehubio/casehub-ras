@@ -1,14 +1,23 @@
 package io.casehub.ras.runtime;
 
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.Ganglion;
+import io.casehub.ras.api.SituationDefinition;
+import io.casehub.ras.api.SituationDefinitionProvider;
+import io.casehub.ras.api.SituationRegistration;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+
 import java.time.Duration;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class SituationDefinitionRegistry {
@@ -73,6 +82,11 @@ public class SituationDefinitionRegistry {
     public Duration maxCorrelationWindow() {
         return snapshot.maxCorrelationWindow();
     }
+
+    public int definitionCount() {
+        return snapshot.situationIds().size();
+    }
+
 
     public synchronized void register(SituationRegistration registration) {
         String sitId = registration.definition().situationId();

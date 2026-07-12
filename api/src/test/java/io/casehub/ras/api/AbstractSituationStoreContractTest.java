@@ -2,11 +2,14 @@ package io.casehub.ras.api;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
-import static org.assertj.core.api.Assertions.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 
 public abstract class AbstractSituationStoreContractTest {
 
@@ -164,6 +167,30 @@ public abstract class AbstractSituationStoreContractTest {
         assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
         assertThat(store.find("sit-2", "key-1", "tenant-b").await().indefinitely()).isEmpty();
     }
+
+    @Test
+    void removeExpiredReturnsCountOfRemovedEntries() {
+        var old    = SituationContext.initial("sit-old", "k1", "t", T1);
+        var recent = SituationContext.initial("sit-recent", "k2", "t", T3);
+        store.save(old).await().indefinitely();
+        store.save(recent).await().indefinitely();
+
+        int removed = store.removeExpired(T2).await().indefinitely();
+
+        assertThat(removed).isEqualTo(1);
+    }
+
+    @Test
+    void removeTriggeredBeforeReturnsCountOfRemovedEntries() {
+        var ctx = SituationContext.initial("sit-1", "k1", "t", T1);
+        store.save(ctx).await().indefinitely();
+        store.tryClaimTrigger("sit-1", "k1", "t", T1).await().indefinitely();
+
+        int removed = store.removeTriggeredBefore(T2).await().indefinitely();
+
+        assertThat(removed).isEqualTo(1);
+    }
+
 
     // --- Trigger metadata tests ---
 

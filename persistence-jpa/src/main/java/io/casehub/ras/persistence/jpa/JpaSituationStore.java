@@ -154,21 +154,21 @@ public class JpaSituationStore implements SituationStore {
 
     @Override
     @Transactional(TxType.REQUIRED)
-    public Uni<Void> removeExpired(Instant cutoff) {
-        em.createQuery("DELETE FROM SituationEntity s WHERE s.lastSignal <= :cutoff")
+    public Uni<Integer> removeExpired(Instant cutoff) {
+        int removed = em.createQuery("DELETE FROM SituationEntity s WHERE s.lastSignal <= :cutoff")
                 .setParameter("cutoff", cutoff)
                 .executeUpdate();
-        return Uni.createFrom().voidItem();
+        return Uni.createFrom().item(removed);
     }
 
     @Override
     @Transactional(TxType.REQUIRED)
-    public Uni<Void> removeTriggeredBefore(Instant triggerCutoff) {
-        em.createQuery("DELETE FROM SituationEntity s WHERE s.policyTriggered = true " +
-                       "AND s.lastTriggered <= :cutoff")
-                .setParameter("cutoff", triggerCutoff)
-                .executeUpdate();
-        return Uni.createFrom().voidItem();
+    public Uni<Integer> removeTriggeredBefore(Instant triggerCutoff) {
+        int removed = em.createQuery("DELETE FROM SituationEntity s WHERE s.policyTriggered = true " +
+                                     "AND s.lastTriggered <= :cutoff")
+                        .setParameter("cutoff", triggerCutoff)
+                        .executeUpdate();
+        return Uni.createFrom().item(removed);
     }
 
     @Override

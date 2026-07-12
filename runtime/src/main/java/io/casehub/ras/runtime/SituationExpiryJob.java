@@ -14,29 +14,32 @@ public class SituationExpiryJob {
     private final SituationStore store;
     private final SituationDefinitionRegistry registry;
     private final Duration triggerGuardPeriod;
+    private final RasMetrics metrics;
 
     @Inject
     public SituationExpiryJob(
             SituationStore store,
             SituationDefinitionRegistry registry,
             @ConfigProperty(name = "ras.evaluator.trigger-guard-period", defaultValue = "PT1M")
-            Duration triggerGuardPeriod) {
+            Duration triggerGuardPeriod,
+            RasMetrics metrics) {
         this.store = store;
         this.registry = registry;
         this.triggerGuardPeriod = triggerGuardPeriod;
+        this.metrics = metrics;
     }
 
     @Scheduled(every = "PT5M")
     void cleanup() {
-        // Guard cleanup — runs every time regardless of windowed situations
         Instant guardCutoff = Instant.now().minus(triggerGuardPeriod);
-        store.removeTriggeredBefore(guardCutoff).await().indefinitely();
+        int triggeredRemoved = store.removeTriggeredBefore(guardCutoff).await().indefinitely();
+        metrics.triggeredCleaned(triggeredRemoved);
 
-        // Windowed situation cleanup — only when windowed definitions exist
         Duration maxWindow = registry.maxCorrelationWindow();
         if (maxWindow != null) {
             Instant cutoff = Instant.now().minus(maxWindow);
-            store.removeExpired(cutoff).await().indefinitely();
+            int expiredRemoved = store.removeExpired(cutoff).await().indefinitely();
+            metrics.expiredCleaned(expiredRemoved);
         }
     }
 }

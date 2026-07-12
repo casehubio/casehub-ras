@@ -26,6 +26,8 @@
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-api</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-testing</artifactId><scope>test</scope></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-ras-persistence-memory</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-core</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>io.micrometer</groupId><artifactId>micrometer-test</artifactId><scope>test</scope></dependency>
     </dependencies>
     <build>
         <plugins>

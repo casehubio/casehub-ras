@@ -13,7 +13,7 @@ public interface SituationStore {
 
     Uni<Void> remove(String situationId, String correlationKey, String tenancyId);
 
-    Uni<Void> removeExpired(Instant cutoff);
+    Uni<Integer> removeExpired(Instant cutoff);
 
     default Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
                                           String tenancyId, Instant triggerTime) {
@@ -25,8 +25,8 @@ public interface SituationStore {
         return Uni.createFrom().voidItem();
     }
 
-    default Uni<Void> removeTriggeredBefore(Instant triggerCutoff) {
-        return Uni.createFrom().voidItem();
+    default Uni<Integer> removeTriggeredBefore(Instant triggerCutoff) {
+        return Uni.createFrom().item(0);
     }
 
     default Uni<List<SituationContext>> findActive(String tenancyId) {
@@ -35,3 +35,4 @@ public interface SituationStore {
 
     Uni<Void> removeAllForSituation(String situationId);
 }
+
