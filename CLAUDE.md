@@ -49,12 +49,12 @@ mvn --batch-mode deploy -DskipTests   # CI only
 
 | Module | Artifact | Root package | Purpose |
 |--------|----------|-------------|---------|
-| `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. Depends on `casehub-platform-api` (for `CloudEvent`). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest. |
+| `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. Depends on `casehub-platform-api` (for `CloudEvent`). Jackson annotations provided (polymorphic serde for sealed types). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest. |
 | `persistence-memory/` | `casehub-ras-persistence-memory` | `io.casehub.ras.persistence.memory` | InMemorySituationStore — `@Alternative @Priority(100)`, ConcurrentHashMap-backed. Dev/test only. |
 | `persistence-jpa/` | `casehub-ras-persistence-jpa` | `io.casehub.ras.persistence.jpa` | JpaSituationStore — `@ApplicationScoped`, Hibernate ORM + JSONB detections. Consumers add `classpath:db/ras/migration` to `quarkus.flyway.locations`. |
 | `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, EventBufferFlushJob, EventReorderBuffer, YamlSituationDefinitionProvider, NaiveBayesGanglion, DefaultSituationSource, RasEndpointRegistration, RasMetrics. Micrometer metrics (optional, via `Instance<MeterRegistry>`). Quarkus extension. |
 | `ras-drools/` | `casehub-ras-drools` | `io.casehub.ras.drools` | DroolsGanglion — Drools CEP (KieSession, sliding windows, temporal correlation). Optional. |
-| `drools-reliability/` | `casehub-ras-drools-reliability` | `io.casehub.ras.drools.reliability` | ReliableDroolsSessionStore — persistent DroolsSessionStore backed by drools-reliability + H2MVStore. ReliableDroolsSessionStoreHealthCheck (`@Readiness`). Micrometer metrics (optional, via `Instance<MeterRegistry>`). Experimental. |
+| `drools-reliability/` | `casehub-ras-drools-reliability` | `io.casehub.ras.drools.reliability` | ReliableDroolsSessionStore — persistent DroolsSessionStore backed by drools-reliability + H2MVStore. DroolsReliabilityMetrics (centralised, optional via `Instance<MeterRegistry>`). ReliableDroolsSessionStoreHealthCheck (`@Readiness`). H2MVStore corruption auto-recovery at startup. Experimental. |
 | `ras-llm/` | `casehub-ras-llm` | `io.casehub.ras.llm` | LlmGanglion — narrative detection via casehub-platform-agent-api. Optional, slow path. |
 | `testing/` | `casehub-ras-testing` | `io.casehub.ras.testing` | MockGanglion, FixedDetectionResult, MockCaseTrigger. **Test scope only.** |
 
@@ -88,11 +88,11 @@ interface SituationStore {
     Uni<Optional<SituationContext>> find(String situationId, String correlationKey, String tenancyId);
     Uni<SituationContext> save(SituationContext context);
     Uni<Void> remove(String situationId, String correlationKey, String tenancyId);
-    Uni<Void> removeExpired(Instant cutoff);
+    Uni<Integer> removeExpired(Instant cutoff);
     Uni<Void> removeAllForSituation(String situationId);
     default Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey, String tenancyId, Instant triggerTime) { ... }
     default Uni<Void> resetTriggerClaim(String situationId, String correlationKey, String tenancyId) { ... }
-    default Uni<Void> removeTriggeredBefore(Instant triggerCutoff) { ... }
+    default Uni<Integer> removeTriggeredBefore(Instant triggerCutoff) { ... }
     default Uni<List<SituationContext>> findActive(String tenancyId) { ... }
 }
 ```
@@ -153,13 +153,13 @@ Bundles a `SituationDefinition` with its `CorrelationKeyExtractor`. Returned by 
 | `TimestampedDetection` | Wraps `DetectionResult` + `Instant eventTime` — runtime adds event timestamp at accumulation boundary |
 | `SituationContext` | Accumulated state — `situationId`, `correlationKey`, `tenancyId`, `firstSignal`, `lastSignal`, `List<TimestampedDetection>`, `OptionalLong storeVersion`, `Instant lastTriggered` (@Nullable), `int triggerCount` |
 | `SituationConflictException` | Thrown by `SituationStore.save()` on concurrent modification — evaluator catches and retries |
-| `TriggerAction` | Sealed interface — `CreateCase(CaseTriggerConfig)`, `NotifyOnly()`. Declares what happens when a situation triggers. `CreateCase` starts a new case via `CaseTrigger`. `NotifyOnly` fires enriched `SituationChangeEvent` only — for signaling existing cases via consumer bridge. |
+| `TriggerAction` | Sealed interface — `CreateCase(CaseTriggerConfig)`, `NotifyOnly()`. Jackson `@JsonTypeInfo(property="type")` with names `create-case`, `notify-only`. Declares what happens when a situation triggers. `CreateCase` starts a new case via `CaseTrigger`. `NotifyOnly` fires enriched `SituationChangeEvent` only — for signaling existing cases via consumer bridge. |
 | `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `eventBufferDelay` (@Nullable), `ChainMode`, `TriggerAction`, `TriggerMode triggerMode` |
-| `ChainMode` | Sealed interface — And, Or, Threshold, Sequence, Count, Streak, Rate. All variants carry explicit ganglion references. `referencedGanglia()` default method extracts IDs. |
+| `ChainMode` | Sealed interface — And, Or, Threshold, Sequence, Count, Streak, Rate. Jackson `@JsonTypeInfo(property="type")` with names matching YAML convention (`and`, `or`, `threshold`, `sequence`, `count`, `streak`, `rate`). All variants carry explicit ganglion references. `referencedGanglia()` default method extracts IDs. |
 | `CaseTriggerConfig` | Case creation parameters — `caseNamespace`, `caseName`, `caseVersion`, `baseCaseData`. String identifiers, no engine-api dependency. |
 | `CaseTrigger` | SPI for case creation — `fire(CaseTriggerConfig, SituationContext) → Uni<UUID>`. Default impl in runtime/ bridges to CaseHub. |
 | `TriggerDecision` | Trigger outcome — TRIGGER, TRIGGER_AND_CONTINUE, CONTINUE_ACCUMULATING, DISCARD, RESOLVE |
-| `TriggerMode` | Sealed interface — FireOnce, Repeating(Duration cooldown). Declares post-trigger lifecycle on SituationDefinition. DefaultRasTriggerPolicy maps to TriggerDecision. |
+| `TriggerMode` | Sealed interface — FireOnce, Repeating(Duration cooldown). Jackson `@JsonTypeInfo(property="type")` with names `fire-once`, `repeating`. Declares post-trigger lifecycle on SituationDefinition. DefaultRasTriggerPolicy maps to TriggerDecision. |
 | `ActiveSituation` | Read-only projection — `situationId`, `correlationKey`, `tenancyId`, `confidence`, `evidence`, `since`, `lastSignal`, `triggerCount`. For external consumers querying active situations. |
 | `SituationSource` | Query SPI — `Uni<List<ActiveSituation>> activeSituations(String tenancyId)`. Implemented by DefaultSituationSource in runtime/. |
 | `SituationChangeEvent` | CDI event — `tenancyId`, `situationId`, `correlationKey`, `ChangeType` (TRIGGERED/RESOLVED/DISCARDED), `SituationContext context`. Fired by evaluator after state transitions. Context carries detection results for consumer bridges. |

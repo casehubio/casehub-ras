@@ -1,9 +1,22 @@
 package io.casehub.ras.api;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = ChainMode.And.class, name = "and"),
+        @JsonSubTypes.Type(value = ChainMode.Or.class, name = "or"),
+        @JsonSubTypes.Type(value = ChainMode.Threshold.class, name = "threshold"),
+        @JsonSubTypes.Type(value = ChainMode.Sequence.class, name = "sequence"),
+        @JsonSubTypes.Type(value = ChainMode.Count.class, name = "count"),
+        @JsonSubTypes.Type(value = ChainMode.Streak.class, name = "streak"),
+        @JsonSubTypes.Type(value = ChainMode.Rate.class, name = "rate")
+})
 public sealed interface ChainMode {
 
     default Set<String> referencedGanglia() {

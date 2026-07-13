@@ -3,8 +3,6 @@ package io.casehub.ras.drools.reliability;
 import io.casehub.ras.drools.DroolsSessionKey;
 import io.casehub.ras.drools.DroolsSessionStore;
 import io.casehub.ras.drools.DroolsSessionStoreException;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -14,6 +12,8 @@ import org.drools.core.common.Storage;
 import org.drools.reliability.core.ReliableGlobalResolverFactory;
 import org.drools.reliability.core.SimpleReliableObjectStoreFactory;
 import org.drools.reliability.core.StorageManagerFactory;
+import org.drools.reliability.h2mvstore.H2MVStoreStorageManager;
+import org.h2.mvstore.MVStore;
 import org.kie.api.KieBase;
 import org.kie.api.KieServices;
 import org.kie.api.runtime.KieSession;
@@ -22,45 +22,51 @@ import org.kie.api.runtime.conf.ClockTypeOption;
 import org.kie.api.runtime.conf.PersistedSessionOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.util.List;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentHashMap;
 
 @ApplicationScoped
 public class ReliableDroolsSessionStore implements DroolsSessionStore {
 
     private static final Logger log = LoggerFactory.getLogger(ReliableDroolsSessionStore.class);
+    private static volatile boolean storageProbed = false;
 
     private record StampedSession(KieSession session, long generation) {}
 
     private final ConcurrentHashMap<DroolsSessionKey, StampedSession> hotCache = new ConcurrentHashMap<>();
-    private Storage<String, Long> sessionIds;
-    private Storage<String, Long> sessionGenerations;
+    private       Storage<String, Long>                               sessionIds;
+    private       Storage<String, Long>                               sessionGenerations;
 
     @Inject
-    Instance<MeterRegistry> meterRegistryInstance;
+    Instance<DroolsReliabilityMetrics> metricsInstance;
 
-    private MeterRegistry metrics;
+    private DroolsReliabilityMetrics metrics;
 
-    void setMeterRegistry(MeterRegistry registry) {
-        this.metrics = registry;
+    void setMetrics(DroolsReliabilityMetrics metrics) {
+        this.metrics = metrics;
     }
 
     @PostConstruct
     void init() {
         ReliableGlobalResolverFactory.get("core");
         SimpleReliableObjectStoreFactory.get("core");
+        recoverCorruptStoreIfNeeded();
         var sm = StorageManagerFactory.get("h2mvstore").getStorageManager();
-        sessionIds = sm.getOrCreateSharedStorage("ras_drools_session_ids");
+        sessionIds         = sm.getOrCreateSharedStorage("ras_drools_session_ids");
         sessionGenerations = sm.getOrCreateSharedStorage("ras_drools_session_gens");
         sessionGenerations.clear();
-        if (metrics == null && meterRegistryInstance != null && meterRegistryInstance.isResolvable()) {
-            metrics = meterRegistryInstance.get();
+        if (metrics == null && metricsInstance != null && metricsInstance.isResolvable()) {
+            metrics = metricsInstance.get();
         }
         if (metrics != null) {
-            metrics.gaugeMapSize("ras.drools.session.active", List.of(), hotCache);
+            metrics.registerActiveSessionsGauge(hotCache::size);
         }
-        log.info("DroolsSessionStore initialized: h2mvstore, {} persisted session(s)", sessionIds.size());
-    }
+        log.info("DroolsSessionStore initialized: h2mvstore, {} persisted session(s)", sessionIds.size());}
 
     int activeSessionCount() {
         return hotCache.size();
@@ -79,7 +85,7 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore {
                                       KieSessionConfiguration config,
                                       long generation) {
         String storageKey = key.toStorageKey();
-        Timer.Sample sample = startTimer();
+        Object sample     = metrics != null ? metrics.startComputeTimer() : null;
 
         StampedSession cached = hotCache.get(key);
         if (cached != null) {
@@ -87,9 +93,9 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore {
                 cached.session.dispose();
                 hotCache.remove(key);
                 removePersistedSession(storageKey);
-                incrementCounter("ras.drools.session.evicted", key.ganglionId());
+                if (metrics != null) {metrics.sessionEvicted(key.ganglionId());}
             } else {
-                stopTimer(sample, key.ganglionId(), "hit");
+                if (metrics != null) {metrics.stopComputeTimer(sample, key.ganglionId(), "hit");}
                 return cached.session;
             }
         }
@@ -105,7 +111,7 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore {
             Long savedGen = sessionGenerations.getOrDefault(storageKey, 0L);
             if (savedGen < generation) {
                 removePersistedSession(storageKey);
-                incrementCounter("ras.drools.session.evicted", key.ganglionId());
+                if (metrics != null) {metrics.sessionEvicted(key.ganglionId());}
             } else {
                 try {
                     KieSession recovered = createRecoveredSession(kieBase, config, savedId);
@@ -113,15 +119,15 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore {
                         sessionGenerations.put(storageKey, generation);
                     } catch (RuntimeException ex) {
                         log.error("Storage write failed for key '{}' — recovered session usable but generation not durable", storageKey, ex);
-                        incrementCounter("ras.drools.store.write_failed", key.ganglionId());
+                        if (metrics != null) {metrics.storeWriteFailed(key.ganglionId());}
                     }
                     hotCache.put(key, new StampedSession(recovered, generation));
-                    incrementCounter("ras.drools.session.recovered", key.ganglionId());
-                    stopTimer(sample, key.ganglionId(), "recovered");
+                    if (metrics != null) {metrics.sessionRecovered(key.ganglionId());}
+                    if (metrics != null) {metrics.stopComputeTimer(sample, key.ganglionId(), "recovered");}
                     return recovered;
                 } catch (RuntimeException ex) {
                     log.warn("Recovery failed for {}, creating fresh session", key, ex);
-                    incrementCounter("ras.drools.session.recovery_failed", key.ganglionId());
+                    if (metrics != null) {metrics.sessionRecoveryFailed(key.ganglionId());}
                     try {
                         removePersistedSession(storageKey);
                     } catch (RuntimeException cleanupEx) {
@@ -137,11 +143,11 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore {
             sessionGenerations.put(storageKey, generation);
         } catch (RuntimeException ex) {
             log.error("Storage write failed for key '{}' — session usable but not durable", storageKey, ex);
-            incrementCounter("ras.drools.store.write_failed", key.ganglionId());
+            if (metrics != null) {metrics.storeWriteFailed(key.ganglionId());}
         }
         hotCache.put(key, new StampedSession(session, generation));
-        incrementCounter("ras.drools.session.created", key.ganglionId());
-        stopTimer(sample, key.ganglionId(), "created");
+        if (metrics != null) {metrics.sessionCreated(key.ganglionId());}
+        if (metrics != null) {metrics.stopComputeTimer(sample, key.ganglionId(), "created");}
         return session;
     }
 
@@ -152,47 +158,30 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore {
             removed.session.dispose();
         }
         String storageKey = key.toStorageKey();
-        Long savedId = sessionIds.remove(storageKey);
+        Long   savedId    = sessionIds.remove(storageKey);
         sessionGenerations.remove(storageKey);
         if (savedId != null) {
             StorageManagerFactory.get().getStorageManager()
-                    .removeStoragesBySessionId(String.valueOf(savedId));
+                                 .removeStoragesBySessionId(String.valueOf(savedId));
         }
-        incrementCounter("ras.drools.session.removed", key.ganglionId());
-    }
-
-    private void incrementCounter(String name, String ganglionId) {
-        if (metrics != null) {
-            metrics.counter(name, "ganglion_id", ganglionId).increment();
-        }
-    }
-
-    private Timer.Sample startTimer() {
-        return metrics != null ? Timer.start(metrics) : null;
-    }
-
-    private void stopTimer(Timer.Sample sample, String ganglionId, String outcome) {
-        if (sample != null) {
-            sample.stop(metrics.timer("ras.drools.session.compute_time",
-                    "ganglion_id", ganglionId, "outcome", outcome));
-        }
+        if (metrics != null) {metrics.sessionRemoved(key.ganglionId());}
     }
 
     private KieSession createNewPersistedSession(KieBase kieBase, KieSessionConfiguration callerConfig) {
         KieSessionConfiguration storeConfig = buildStoreConfig(callerConfig);
         storeConfig.setOption(PersistedSessionOption.newSession()
-                .withPersistenceStrategy(PersistedSessionOption.PersistenceStrategy.STORES_ONLY)
-                .withSafepointStrategy(PersistedSessionOption.SafepointStrategy.AFTER_FIRE)
-                .withActivationStrategy(PersistedSessionOption.ActivationStrategy.ACTIVATION_KEY));
+                                                    .withPersistenceStrategy(PersistedSessionOption.PersistenceStrategy.STORES_ONLY)
+                                                    .withSafepointStrategy(PersistedSessionOption.SafepointStrategy.AFTER_FIRE)
+                                                    .withActivationStrategy(PersistedSessionOption.ActivationStrategy.ACTIVATION_KEY));
         return kieBase.newKieSession(storeConfig, null);
     }
 
     private KieSession createRecoveredSession(KieBase kieBase, KieSessionConfiguration callerConfig, long savedId) {
         KieSessionConfiguration storeConfig = buildStoreConfig(callerConfig);
         storeConfig.setOption(PersistedSessionOption.fromSession(savedId)
-                .withPersistenceStrategy(PersistedSessionOption.PersistenceStrategy.STORES_ONLY)
-                .withSafepointStrategy(PersistedSessionOption.SafepointStrategy.AFTER_FIRE)
-                .withActivationStrategy(PersistedSessionOption.ActivationStrategy.ACTIVATION_KEY));
+                                                    .withPersistenceStrategy(PersistedSessionOption.PersistenceStrategy.STORES_ONLY)
+                                                    .withSafepointStrategy(PersistedSessionOption.SafepointStrategy.AFTER_FIRE)
+                                                    .withActivationStrategy(PersistedSessionOption.ActivationStrategy.ACTIVATION_KEY));
         return kieBase.newKieSession(storeConfig, null);
     }
 
@@ -206,12 +195,67 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore {
         hotCache.clear();
     }
 
+    static void resetStorageProbeForTest() {
+        storageProbed = false;
+    }
+
+
+    private void recoverCorruptStoreIfNeeded() {
+        recoverCorruptStoreIfNeeded(Path.of(H2MVStoreStorageManager.STORE_FILE_NAME));
+    }
+
+    void recoverCorruptStoreIfNeeded(Path storeFile) {
+        if (storageProbed) {
+            return;
+        }
+        storageProbed = true;
+        if (!Files.exists(storeFile)) {
+            return;
+        }
+        MVStore probe = null;
+        try {
+            probe = new MVStore.Builder().fileName(storeFile.toString()).open();
+        } catch (Exception ex) {
+            log.warn("H2MVStore corruption detected — initiating automatic recovery", ex);
+            renameCorruptFile(storeFile);
+            if (metrics != null) {
+                metrics.storeCorruptionRecovered();
+            }
+        } finally {
+            if (probe != null) {
+                try {
+                    probe.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    private void renameCorruptFile(Path storeFile) {
+        String timestamp  = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").format(LocalDateTime.now());
+        Path   backupPath = storeFile.resolveSibling(storeFile.getFileName() + ".corrupt." + timestamp);
+        try {
+            Files.move(storeFile, backupPath);
+            log.warn("Corrupt store renamed to {} — all persisted Drools sessions lost", backupPath);
+        } catch (IOException moveEx) {
+            log.error("Failed to rename corrupt store — attempting delete", moveEx);
+            try {
+                Files.deleteIfExists(storeFile);
+                log.warn("Corrupt store deleted — all persisted Drools sessions lost");
+            } catch (IOException deleteEx) {
+                throw new RuntimeException(
+                        "Cannot recover from corrupt H2MVStore — manual intervention required", deleteEx);
+            }
+        }
+    }
+
+
     private void removePersistedSession(String storageKey) {
         Long savedId = sessionIds.remove(storageKey);
         sessionGenerations.remove(storageKey);
         if (savedId != null) {
             StorageManagerFactory.get().getStorageManager()
-                    .removeStoragesBySessionId(String.valueOf(savedId));
+                                 .removeStoragesBySessionId(String.valueOf(savedId));
         }
     }
 }

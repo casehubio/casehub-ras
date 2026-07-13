@@ -1,6 +1,7 @@
 package io.casehub.ras.drools.reliability;
 
 import io.casehub.ras.drools.DroolsSessionKey;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.drools.model.codegen.ExecutableModelProject;
 import org.drools.reliability.core.ReliableRuntimeComponentFactoryImpl;
 import org.drools.reliability.core.StorageManagerFactory;
@@ -17,9 +18,13 @@ import org.kie.api.runtime.KieSession;
 import org.kie.api.runtime.KieSessionConfiguration;
 import org.kie.api.runtime.conf.ClockTypeOption;
 import org.kie.api.time.SessionPseudoClock;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import static org.assertj.core.api.Assertions.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 
 class ReliableDroolsSessionStoreTest {
 
@@ -43,11 +48,15 @@ class ReliableDroolsSessionStoreTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws Exception {
         if (store != null) {
             store.destroy();
         }
         ((TestableStorageManager) StorageManagerFactory.get().getStorageManager()).restartWithCleanUp();
+        try (var files = Files.list(Path.of("."))) {
+            files.filter(p -> p.getFileName().toString().startsWith("h2mvstore.db.corrupt."))
+                 .forEach(p -> { try { Files.deleteIfExists(p); } catch (Exception ignored) {} });
+        }
     }
 
     private DroolsSessionKey key(String ganglionId, String situationId) {
@@ -210,8 +219,11 @@ class ReliableDroolsSessionStoreTest {
 
 
     private ReliableDroolsSessionStore createStoreWithMetrics(SimpleMeterRegistry registry) {
+        var droolsMetrics = new DroolsReliabilityMetrics();
+        droolsMetrics.setMeterRegistry(registry);
+        droolsMetrics.init();
         var metricsStore = new ReliableDroolsSessionStore();
-        metricsStore.setMeterRegistry(registry);
+        metricsStore.setMetrics(droolsMetrics);
         metricsStore.init();
         return metricsStore;
     }
@@ -290,6 +302,96 @@ class ReliableDroolsSessionStoreTest {
         assertThatNoException().isThrownBy(() -> store.computeIfAbsent(k, kieBase, config, 0));
         assertThatNoException().isThrownBy(() -> store.remove(k));
     }
+
+    @Test
+    void corruptStoreFileRenamedAndMetricRecorded() throws Exception {
+        Path storeFile = Path.of("h2mvstore.db.test.corrupt");
+        try {
+            Files.write(storeFile, new byte[]{0x00, 0x7F, 0x3A, 0x1B, 0x00, 0x00, 0x00});
+
+            var registry = new SimpleMeterRegistry();
+            var droolsMetrics = new DroolsReliabilityMetrics();
+            droolsMetrics.setMeterRegistry(registry);
+            droolsMetrics.init();
+
+            var testStore = new ReliableDroolsSessionStore();
+            testStore.setMetrics(droolsMetrics);
+            ReliableDroolsSessionStore.resetStorageProbeForTest();
+            testStore.recoverCorruptStoreIfNeeded(storeFile);
+
+            assertThat(Files.exists(storeFile)).isFalse();
+            try (var files = Files.list(Path.of("."))) {
+                assertThat(files.anyMatch(
+                        p -> p.getFileName().toString().startsWith("h2mvstore.db.test.corrupt.corrupt.")))
+                        .isTrue();
+            }
+            assertThat(registry.counter("ras.drools.store.corruption_recovered").count())
+                    .isEqualTo(1.0);
+        } finally {
+            try (var files = Files.list(Path.of("."))) {
+                files.filter(p -> p.getFileName().toString().startsWith("h2mvstore.db.test.corrupt"))
+                     .forEach(p -> { try { Files.deleteIfExists(p); } catch (Exception ignored) {} });
+            }
+        }
+    }
+
+    @Test
+    void nonExistentStoreFileSkipsProbe() {
+        Path storeFile = Path.of("h2mvstore.db.test.missing");
+        assertThat(Files.exists(storeFile)).isFalse();
+
+        var testStore = new ReliableDroolsSessionStore();
+        ReliableDroolsSessionStore.resetStorageProbeForTest();
+        testStore.recoverCorruptStoreIfNeeded(storeFile);
+        assertThat(Files.exists(storeFile)).isFalse();
+    }
+
+    @Test
+    void validStoreFileNotRenamedByProbe() throws Exception {
+        Path storeFile = Path.of("h2mvstore.db.test.valid");
+        try {
+            var validStore = new org.h2.mvstore.MVStore.Builder()
+                    .fileName(storeFile.toString()).open();
+            validStore.openMap("test_map").put("key", "value");
+            validStore.close();
+
+            var testStore = new ReliableDroolsSessionStore();
+            ReliableDroolsSessionStore.resetStorageProbeForTest();
+            testStore.recoverCorruptStoreIfNeeded(storeFile);
+
+            assertThat(Files.exists(storeFile)).isTrue();
+            try (var files = Files.list(Path.of("."))) {
+                assertThat(files.noneMatch(
+                        p -> p.getFileName().toString().startsWith("h2mvstore.db.test.valid.corrupt.")))
+                        .isTrue();
+            }
+        } finally {
+            Files.deleteIfExists(storeFile);
+        }
+    }
+
+    @Test
+    void probeOnlyRunsOnce() throws Exception {
+        Path storeFile = Path.of("h2mvstore.db.test.once");
+        try {
+            Files.write(storeFile, new byte[]{0x00, 0x7F});
+
+            var testStore = new ReliableDroolsSessionStore();
+            ReliableDroolsSessionStore.resetStorageProbeForTest();
+            testStore.recoverCorruptStoreIfNeeded(storeFile);
+            assertThat(Files.exists(storeFile)).isFalse();
+
+            Files.write(storeFile, new byte[]{0x00, 0x7F});
+            testStore.recoverCorruptStoreIfNeeded(storeFile);
+            assertThat(Files.exists(storeFile)).isTrue();
+        } finally {
+            try (var files = Files.list(Path.of("."))) {
+                files.filter(p -> p.getFileName().toString().startsWith("h2mvstore.db.test.once"))
+                     .forEach(p -> { try { Files.deleteIfExists(p); } catch (Exception ignored) {} });
+            }
+        }
+    }
+
 
     private void simulateRestart() {
         // Simulate JVM crash: abandon sessions without disposing.
