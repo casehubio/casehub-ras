@@ -2,6 +2,7 @@ package io.casehub.ras.runtime;
 
 import io.casehub.api.engine.CaseHub;
 import io.casehub.api.model.CaseDefinition;
+import io.casehub.ras.api.CaseInputContributor;
 import io.casehub.ras.api.CaseTrigger;
 import io.casehub.ras.api.CaseTriggerConfig;
 import io.casehub.ras.api.SituationContext;
@@ -17,15 +18,19 @@ import java.util.concurrent.CompletionStage;
 public class DefaultCaseTrigger implements CaseTrigger {
 
     private final List<CaseHub> caseHubs;
+    private final List<CaseInputContributor> contributors;
 
     @Inject
-    public DefaultCaseTrigger(Instance<CaseHub> caseHubs) {
+    public DefaultCaseTrigger(Instance<CaseHub> caseHubs, Instance<CaseInputContributor> contributors) {
         this.caseHubs = new ArrayList<>();
         caseHubs.forEach(this.caseHubs::add);
+        this.contributors = new ArrayList<>();
+        contributors.forEach(this.contributors::add);
     }
 
-    DefaultCaseTrigger(List<CaseHub> caseHubs) {
+    DefaultCaseTrigger(List<CaseHub> caseHubs, List<CaseInputContributor> contributors) {
         this.caseHubs = List.copyOf(caseHubs);
+        this.contributors = List.copyOf(contributors);
     }
 
     @PostConstruct
@@ -71,6 +76,9 @@ public class DefaultCaseTrigger implements CaseTrigger {
         data.put("correlationKey", context.correlationKey());
         data.put("tenancyId", context.tenancyId());
         data.put("detections", context.detections());
+        for (CaseInputContributor contributor : contributors) {
+            data.putAll(contributor.contribute(config, context));
+        }
         return data;
     }
 }
