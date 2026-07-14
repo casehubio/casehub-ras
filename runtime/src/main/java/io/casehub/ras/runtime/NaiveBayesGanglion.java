@@ -1,6 +1,14 @@
 package io.casehub.ras.runtime;
 
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.DetectionResult;
+import io.casehub.ras.api.DetectionSignal;
+import io.casehub.ras.api.Ganglion;
+import io.casehub.ras.api.GanglionState;
+import io.casehub.ras.api.GanglionStateConflictException;
+import io.casehub.ras.api.GanglionStateKey;
+import io.casehub.ras.api.GanglionStateStore;
+import io.casehub.ras.api.SituationContext;
+import io.casehub.ras.api.TimestampedDetection;
 import io.cloudevents.CloudEvent;
 import io.smallrye.mutiny.Uni;
 
@@ -8,80 +16,114 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class NaiveBayesGanglion implements Ganglion {
 
-    private record StateKey(String situationId, String correlationKey, String tenancyId) {}
+    private static final int MAX_STATE_RETRIES = 3;
 
-    private final NaiveBayesConfig config;
-    private final double[] logPriors;
-    private final int targetIndex;
-    private final ConcurrentHashMap<StateKey, double[]> states;
+    private final NaiveBayesConfig   config;
+    private final GanglionStateStore stateStore;
+    private final double[]           logPriors;
+    private final int                targetIndex;
 
-    public NaiveBayesGanglion(NaiveBayesConfig config) {
-        this.config = config;
-        this.logPriors = Arrays.stream(config.priors()).map(Math::log).toArray();
+    public NaiveBayesGanglion(NaiveBayesConfig config, GanglionStateStore stateStore) {
+        this.config      = config;
+        this.stateStore  = stateStore;
+        this.logPriors   = Arrays.stream(config.priors()).map(Math::log).toArray();
         this.targetIndex = config.outcomes().indexOf(config.signalMapping().targetOutcome());
-        this.states = new ConcurrentHashMap<>();
+    }
+
+    private static double[] normalizeLogPosteriors(double[] logP) {
+        double max = logP[0];
+        for (int i = 1; i < logP.length; i++) {
+            if (logP[i] > max) {max = logP[i];}
+        }
+        double[] exp = new double[logP.length];
+        double   sum = 0;
+        for (int i = 0; i < logP.length; i++) {
+            exp[i] = Math.exp(logP[i] - max);
+            sum += exp[i];
+        }
+        for (int i = 0; i < exp.length; i++) {
+            exp[i] /= sum;
+        }
+        return exp;
     }
 
     @Override
-    public String ganglionId() { return config.ganglionId(); }
+    public String ganglionId() {return config.ganglionId();}
 
     @Override
-    public Set<String> handledEventTypes() { return config.handledEventTypes(); }
+    public Set<String> handledEventTypes() {return config.handledEventTypes();}
 
     @Override
     public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
-        var key = new StateKey(context.situationId(), context.correlationKey(), context.tenancyId());
-        double[] logPosteriors = states.computeIfAbsent(key,
-                k -> Arrays.copyOf(logPriors, logPriors.length));
+        var key = new GanglionStateKey(config.ganglionId(), context.situationId(),
+                                       context.correlationKey(), context.tenancyId());
 
-        Map<String, String> observed = config.featureExtractor().extract(event);
-        for (var entry : observed.entrySet()) {
-            FeatureLikelihood fl = config.features().get(entry.getKey());
-            if (fl == null) continue;
-            int valueIndex = fl.values().indexOf(entry.getValue());
-            if (valueIndex < 0) continue;
-            for (int i = 0; i < logPosteriors.length; i++) {
-                logPosteriors[i] += Math.log(fl.likelihoods()[i][valueIndex]);
+        for (int attempt = 0; attempt <= MAX_STATE_RETRIES; attempt++) {
+            GanglionState loaded = stateStore.load(key)
+                                             .await().indefinitely()
+                                             .orElseGet(() -> new GanglionState(
+                                                     Arrays.copyOf(logPriors, logPriors.length), OptionalLong.empty()));
+
+            double[] logPosteriors = Arrays.copyOf(loaded.values(), loaded.values().length);
+
+            Map<String, String> observed = config.featureExtractor().extract(event);
+            for (var entry : observed.entrySet()) {
+                FeatureLikelihood fl = config.features().get(entry.getKey());
+                if (fl == null) {continue;}
+                int valueIndex = fl.values().indexOf(entry.getValue());
+                if (valueIndex < 0) {continue;}
+                for (int i = 0; i < logPosteriors.length; i++) {
+                    logPosteriors[i] += Math.log(fl.likelihoods()[i][valueIndex]);
+                }
             }
+
+            try {
+                stateStore.save(key, new GanglionState(logPosteriors, loaded.storeVersion()))
+                          .await().indefinitely();
+            } catch (GanglionStateConflictException e) {
+                if (attempt == MAX_STATE_RETRIES) {throw e;}
+                continue;
+            }
+
+            double[] posteriors      = normalizeLogPosteriors(logPosteriors);
+            double   targetPosterior = posteriors[targetIndex];
+
+            DetectionSignal         signal;
+            double                  confidence;
+            NaiveBayesSignalMapping mapping = config.signalMapping();
+
+            if (targetPosterior >= mapping.detectedThreshold()) {
+                signal     = DetectionSignal.DETECTED;
+                confidence = targetPosterior;
+            } else if (targetPosterior >= mapping.weakThreshold()) {
+                signal     = DetectionSignal.WEAK;
+                confidence = targetPosterior;
+            } else if (mapping.antiThreshold() != null
+                       && targetPosterior <= mapping.antiThreshold()) {
+                signal     = DetectionSignal.ANTI;
+                confidence = 1.0 - targetPosterior;
+            } else {
+                signal     = DetectionSignal.NOISE;
+                confidence = 0.0;
+            }
+
+            var evidence = Map.<String, Object>of(
+                    "posterior", targetPosterior, "features", Map.copyOf(observed));
+            return Uni.createFrom().item(
+                    new DetectionResult(config.ganglionId(), confidence, signal, evidence));
         }
-
-        double[] posteriors = normalizeLogPosteriors(logPosteriors);
-        double targetPosterior = posteriors[targetIndex];
-
-        DetectionSignal signal;
-        double                  confidence;
-        NaiveBayesSignalMapping mapping = config.signalMapping();
-
-        if (targetPosterior >= mapping.detectedThreshold()) {
-            signal = DetectionSignal.DETECTED;
-            confidence = targetPosterior;
-        } else if (targetPosterior >= mapping.weakThreshold()) {
-            signal = DetectionSignal.WEAK;
-            confidence = targetPosterior;
-        } else if (mapping.antiThreshold() != null
-                   && targetPosterior <= mapping.antiThreshold()) {
-            signal = DetectionSignal.ANTI;
-            confidence = 1.0 - targetPosterior;
-        } else {
-            signal = DetectionSignal.NOISE;
-            confidence = 0.0;
-        }
-
-        var evidence = Map.<String, Object>of(
-                "posterior", targetPosterior, "features", Map.copyOf(observed));
-        return Uni.createFrom().item(
-                new DetectionResult(config.ganglionId(), confidence, signal, evidence));
+        throw new IllegalStateException("Exhausted retries without success or conflict");
     }
 
     @Override
     public Uni<SituationContext> compact(SituationContext context) {
-        TimestampedDetection latest = null;
-        List<TimestampedDetection> kept = new ArrayList<>();
+        TimestampedDetection       latest = null;
+        List<TimestampedDetection> kept   = new ArrayList<>();
         for (TimestampedDetection td : context.detections()) {
             if (td.result().ganglionId().equals(config.ganglionId())) {
                 latest = td;
@@ -101,24 +143,9 @@ public class NaiveBayesGanglion implements Ganglion {
 
     @Override
     public Uni<Void> close(String situationId, String correlationKey, String tenancyId) {
-        states.remove(new StateKey(situationId, correlationKey, tenancyId));
+        stateStore.remove(new GanglionStateKey(config.ganglionId(), situationId,
+                                               correlationKey, tenancyId))
+                  .await().indefinitely();
         return Uni.createFrom().voidItem();
-    }
-
-    private static double[] normalizeLogPosteriors(double[] logP) {
-        double max = logP[0];
-        for (int i = 1; i < logP.length; i++) {
-            if (logP[i] > max) max = logP[i];
-        }
-        double[] exp = new double[logP.length];
-        double sum = 0;
-        for (int i = 0; i < logP.length; i++) {
-            exp[i] = Math.exp(logP[i] - max);
-            sum += exp[i];
-        }
-        for (int i = 0; i < exp.length; i++) {
-            exp[i] /= sum;
-        }
-        return exp;
     }
 }

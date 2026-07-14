@@ -40,7 +40,7 @@ class SituationExpiryJobTest {
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
+        var job = new SituationExpiryJob(store, new InMemoryGanglionStateStore(), registry, Duration.ofMinutes(1), initMetrics(registry));
 
         job.cleanup();
 
@@ -60,7 +60,7 @@ class SituationExpiryJobTest {
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
+        var job = new SituationExpiryJob(store, new InMemoryGanglionStateStore(), registry, Duration.ofMinutes(1), initMetrics(registry));
 
         job.cleanup();
 
@@ -84,7 +84,7 @@ class SituationExpiryJobTest {
         store.tryClaimTrigger("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-25T10:00:00Z")).await().indefinitely();
 
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
+        var job = new SituationExpiryJob(store, new InMemoryGanglionStateStore(), registry, Duration.ofMinutes(1), initMetrics(registry));
 
         assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
 
@@ -103,7 +103,7 @@ class SituationExpiryJobTest {
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(g));
         var store = new InMemorySituationStore();
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
+        var job = new SituationExpiryJob(store, new InMemoryGanglionStateStore(), registry, Duration.ofMinutes(1), initMetrics(registry));
 
         // Should not throw — previously returned early when maxWindow was null
         job.cleanup();
@@ -129,7 +129,7 @@ class SituationExpiryJobTest {
                                           new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
+        var job = new SituationExpiryJob(store, new InMemoryGanglionStateStore(), registry, Duration.ofMinutes(1), initMetrics(registry));
 
         job.cleanup();
 
@@ -146,12 +146,31 @@ class SituationExpiryJobTest {
                                           new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry));
+        var job = new SituationExpiryJob(store, new InMemoryGanglionStateStore(), registry, Duration.ofMinutes(1), initMetrics(registry));
 
         job.cleanup();
 
         assertThat(meterRegistry.find("ras.expiry.expired_cleaned").counter()).isNull();
         assertThat(meterRegistry.counter("ras.expiry.triggered_cleaned").count()).isEqualTo(0.0);
     }
+
+    @Test
+    void cleanupCallsRemoveOrphanedAndRecordsMetric() {
+        var store = new InMemorySituationStore();
+        var ganglion = new MockGanglion("g1", Set.of("e"),
+                                        FixedDetectionResult.noise("g1"));
+        var def = new SituationDefinition("sit-1", Set.of("e"), null, null,
+                                          new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
+        var job = new SituationExpiryJob(store, new InMemoryGanglionStateStore(), registry,
+                                         Duration.ofMinutes(1), initMetrics(registry));
+
+        job.cleanup();
+
+        assertThat(meterRegistry.counter("ras.expiry.ganglion_state_orphans_cleaned").count()).isEqualTo(0.0);
+    }
+
 
 }

@@ -7,6 +7,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -36,7 +37,7 @@ public class RasMetrics {
         }
         if (metrics != null) {
             metrics.gauge("ras.registry.definitions.active", List.of(),
-                    registry, r -> r.definitionCount());
+                          registry, r -> r.definitionCount());
         }
     }
 
@@ -64,7 +65,7 @@ public class RasMetrics {
 
     public void stopProcessTimer(Object sample, String situationId, String tenancyId) {
         stopTimer(sample, "ras.evaluator.process_time",
-                "situation_id", situationId, "tenancy_id", tenancyId);
+                  "situation_id", situationId, "tenancy_id", tenancyId);
     }
 
     public void decision(String situationId, String tenancyId, TriggerDecision decision) {
@@ -118,10 +119,10 @@ public class RasMetrics {
     }
 
     public void stopTriggerFireTimer(Object sample, String situationId,
-                                      String tenancyId, String triggerAction) {
+                                     String tenancyId, String triggerAction) {
         stopTimer(sample, "ras.evaluator.trigger.fire_time",
-                "situation_id", situationId, "tenancy_id", tenancyId,
-                "trigger_action", triggerAction);
+                  "situation_id", situationId, "tenancy_id", tenancyId,
+                  "trigger_action", triggerAction);
     }
 
     public void triggerFired(String situationId, String tenancyId, String triggerAction) {
@@ -149,10 +150,15 @@ public class RasMetrics {
         counterBy("ras.expiry.expired_cleaned", count);
     }
 
+    public void orphanedGanglionStateCleaned(int count) {
+        counterBy("ras.expiry.ganglion_state_orphans_cleaned", count);
+    }
+
+
     public void registerActiveBuffersGauge(Supplier<Number> supplier) {
         if (metrics != null) {
             metrics.gauge("ras.evaluator.buffers.active", List.of(), supplier,
-                    s -> s.get().doubleValue());
+                          s -> s.get().doubleValue());
         }
     }
 
