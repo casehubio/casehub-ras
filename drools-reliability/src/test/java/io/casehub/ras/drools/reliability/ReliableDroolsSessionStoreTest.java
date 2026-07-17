@@ -1,6 +1,9 @@
 package io.casehub.ras.drools.reliability;
 
+import io.casehub.ras.api.OrphanedResourceCleaner;
+import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.drools.DroolsSessionKey;
+import io.casehub.ras.persistence.memory.InMemorySituationStore;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.drools.model.codegen.ExecutableModelProject;
 import org.drools.reliability.core.ReliableRuntimeComponentFactoryImpl;
@@ -19,6 +22,7 @@ import org.kie.api.runtime.KieSessionConfiguration;
 import org.kie.api.runtime.conf.ClockTypeOption;
 import org.kie.api.time.SessionPseudoClock;
 
+import java.time.Instant;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
@@ -302,6 +306,73 @@ class ReliableDroolsSessionStoreTest {
         assertThatNoException().isThrownBy(() -> store.computeIfAbsent(k, kieBase, config, 0));
         assertThatNoException().isThrownBy(() -> store.remove(k));
     }
+
+    @Test
+    void removeOrphanedRemovesSessionsWithNoSituationStore() {
+        var k1 = key("g1", "sit-1");
+        var k2 = key("g2", "sit-2");
+        store.computeIfAbsent(k1, kieBase, config, 0);
+        store.computeIfAbsent(k2, kieBase, config, 0);
+        assertThat(store.activeSessionCount()).isEqualTo(2);
+
+        int removed = ((OrphanedResourceCleaner) store).removeOrphaned().await().indefinitely();
+
+        assertThat(removed).isEqualTo(2);
+        assertThat(store.activeSessionCount()).isEqualTo(0);
+    }
+
+    @Test
+    void removeOrphanedPreservesSessionsWithMatchingSituation() {
+        var situationStore = new InMemorySituationStore();
+        var k1             = key("g1", "sit-1");
+        store.computeIfAbsent(k1, kieBase, config, 0);
+
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", Instant.now());
+        situationStore.save(ctx).await().indefinitely();
+
+        store.setSituationStore(situationStore);
+
+        int removed = ((OrphanedResourceCleaner) store).removeOrphaned().await().indefinitely();
+
+        assertThat(removed).isEqualTo(0);
+        assertThat(store.activeSessionCount()).isEqualTo(1);
+    }
+
+    @Test
+    void removeOrphanedRemovesOnlyOrphans() {
+        var situationStore = new InMemorySituationStore();
+        var k1             = key("g1", "sit-1");
+        var k2             = key("g2", "sit-2");
+        store.computeIfAbsent(k1, kieBase, config, 0);
+        store.computeIfAbsent(k2, kieBase, config, 0);
+
+        var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", Instant.now());
+        situationStore.save(ctx).await().indefinitely();
+
+        store.setSituationStore(situationStore);
+
+        int removed = ((OrphanedResourceCleaner) store).removeOrphaned().await().indefinitely();
+
+        assertThat(removed).isEqualTo(1);
+        assertThat(store.activeSessionCount()).isEqualTo(1);
+    }
+
+    @Test
+    void removeOrphanedReturnsZeroAfterShutdown() {
+        var k = key("g1", "sit-1");
+        store.computeIfAbsent(k, kieBase, config, 0);
+
+        store.destroy();
+
+        int removed = ((OrphanedResourceCleaner) store).removeOrphaned().await().indefinitely();
+        assertThat(removed).isEqualTo(0);
+    }
+
+    @Test
+    void cleanerTypeReturnsDroolsSession() {
+        assertThat(((OrphanedResourceCleaner) store).cleanerType()).isEqualTo("drools_session");
+    }
+
 
     @Test
     void corruptStoreFileRenamedAndMetricRecorded() throws Exception {

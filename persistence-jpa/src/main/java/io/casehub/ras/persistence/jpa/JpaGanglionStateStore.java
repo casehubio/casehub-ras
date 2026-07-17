@@ -2,18 +2,23 @@ package io.casehub.ras.persistence.jpa;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.GanglionState;
+import io.casehub.ras.api.GanglionStateConflictException;
+import io.casehub.ras.api.GanglionStateKey;
+import io.casehub.ras.api.GanglionStateStore;
+import io.casehub.ras.api.OrphanedResourceCleaner;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+
 import java.util.Optional;
 import java.util.OptionalLong;
 
 @ApplicationScoped
-public class JpaGanglionStateStore implements GanglionStateStore {
+public class JpaGanglionStateStore implements GanglionStateStore, OrphanedResourceCleaner {
 
     private final EntityManager em;
     private final ObjectMapper objectMapper;
@@ -101,6 +106,12 @@ public class JpaGanglionStateStore implements GanglionStateStore {
                 .setParameter("sid", situationId)
                 .executeUpdate();
         return Uni.createFrom().voidItem();
+    }
+
+
+    @Override
+    public String cleanerType() {
+        return "ganglion_state";
     }
 
     @Override

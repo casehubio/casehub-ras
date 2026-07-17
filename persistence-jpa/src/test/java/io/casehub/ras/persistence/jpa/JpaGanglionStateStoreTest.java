@@ -1,13 +1,21 @@
 package io.casehub.ras.persistence.jpa;
 
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.AbstractGanglionStateStoreContractTest;
+import io.casehub.ras.api.GanglionState;
+import io.casehub.ras.api.GanglionStateConflictException;
+import io.casehub.ras.api.GanglionStateKey;
+import io.casehub.ras.api.GanglionStateStore;
+import io.casehub.ras.api.OrphanedResourceCleaner;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
 import java.util.OptionalLong;
-import static org.assertj.core.api.Assertions.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @QuarkusTest
 class JpaGanglionStateStoreTest extends AbstractGanglionStateStoreContractTest {
@@ -61,7 +69,7 @@ class JpaGanglionStateStoreTest extends AbstractGanglionStateStoreContractTest {
         store.save(key, new GanglionState(new double[]{1.0}, OptionalLong.empty()))
                 .await().indefinitely();
 
-        int removed = store.removeOrphaned().await().indefinitely();
+        int removed = ((OrphanedResourceCleaner) jpaStore).removeOrphaned().await().indefinitely();
 
         assertThat(removed).isEqualTo(1);
         assertThat(store.load(key).await().indefinitely()).isEmpty();

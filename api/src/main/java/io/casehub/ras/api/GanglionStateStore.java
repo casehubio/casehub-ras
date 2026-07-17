@@ -8,7 +8,4 @@ public interface GanglionStateStore {
     Uni<Void> save(GanglionStateKey key, GanglionState state);
     Uni<Void> remove(GanglionStateKey key);
     Uni<Void> removeForSituation(String situationId);
-    default Uni<Integer> removeOrphaned() {
-        return Uni.createFrom().item(0);
-    }
 }

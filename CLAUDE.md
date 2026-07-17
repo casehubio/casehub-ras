@@ -38,6 +38,7 @@ Multiple ganglia, one RAS per deployment context.
 - DroolsSessionStore hardening: `docs/superpowers/specs/2026-07-09-drools-session-store-hardening-design.md`
 - RAS runtime metrics: `docs/superpowers/specs/2026-07-12-ras-runtime-metrics-design.md`
 - GanglionStateStore: `docs/superpowers/specs/2026-07-13-ganglion-state-store-design.md`
+- DroolsSessionStore orphan cleanup: `docs/superpowers/specs/2026-07-17-drools-session-store-orphan-cleanup-design.md`
 
 ## Build Commands
 
@@ -50,12 +51,12 @@ mvn --batch-mode deploy -DskipTests   # CI only
 
 | Module | Artifact | Root package | Purpose |
 |--------|----------|-------------|---------|
-| `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. GanglionStateStore SPI + GanglionStateKey, GanglionState, GanglionStateConflictException. Depends on `casehub-platform-api` (for `CloudEvent`). Jackson annotations provided (polymorphic serde for sealed types). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest + AbstractGanglionStateStoreContractTest. |
+| `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. GanglionStateStore SPI + GanglionStateKey, GanglionState, GanglionStateConflictException. OrphanedResourceCleaner SPI. Depends on `casehub-platform-api` (for `CloudEvent`). Jackson annotations provided (polymorphic serde for sealed types). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest + AbstractGanglionStateStoreContractTest. |
 | `persistence-memory/` | `casehub-ras-persistence-memory` | `io.casehub.ras.persistence.memory` | InMemorySituationStore — `@Alternative @Priority(100)`, ConcurrentHashMap-backed. Dev/test only. |
-| `persistence-jpa/` | `casehub-ras-persistence-jpa` | `io.casehub.ras.persistence.jpa` | JpaSituationStore — `@ApplicationScoped`, Hibernate ORM + JSONB detections. JpaGanglionStateStore — `@ApplicationScoped`, GanglionStateEntity with JSONB state + `@Version` optimistic locking. Consumers add `classpath:db/ras/migration` to `quarkus.flyway.locations`. |
+| `persistence-jpa/` | `casehub-ras-persistence-jpa` | `io.casehub.ras.persistence.jpa` | JpaSituationStore — `@ApplicationScoped`, Hibernate ORM + JSONB detections. JpaGanglionStateStore — `@ApplicationScoped`, GanglionStateEntity with JSONB state + `@Version` optimistic locking. Implements `OrphanedResourceCleaner` for SQL join-based orphan cleanup. Consumers add `classpath:db/ras/migration` to `quarkus.flyway.locations`. |
 | `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, EventBufferFlushJob, EventReorderBuffer, YamlSituationDefinitionProvider, NaiveBayesGanglion, DefaultSituationSource, RasEndpointRegistration, RasMetrics, InMemoryGanglionStateStore (`@DefaultBean`). Micrometer metrics (optional, via `Instance<MeterRegistry>`). Quarkus extension. |
 | `ras-drools/` | `casehub-ras-drools` | `io.casehub.ras.drools` | DroolsGanglion — Drools CEP (KieSession, sliding windows, temporal correlation). Optional. |
-| `drools-reliability/` | `casehub-ras-drools-reliability` | `io.casehub.ras.drools.reliability` | ReliableDroolsSessionStore — persistent DroolsSessionStore backed by drools-reliability + H2MVStore. DroolsReliabilityMetrics (centralised, optional via `Instance<MeterRegistry>`). ReliableDroolsSessionStoreHealthCheck (`@Readiness`). H2MVStore corruption auto-recovery at startup. Experimental. |
+| `drools-reliability/` | `casehub-ras-drools-reliability` | `io.casehub.ras.drools.reliability` | ReliableDroolsSessionStore — persistent DroolsSessionStore backed by drools-reliability + H2MVStore. Implements `OrphanedResourceCleaner` for orphaned session cleanup via `SituationStore.find()`. DroolsReliabilityMetrics (centralised, optional via `Instance<MeterRegistry>`). ReliableDroolsSessionStoreHealthCheck (`@Readiness`). H2MVStore corruption auto-recovery at startup. Experimental. |
 | `ras-llm/` | `casehub-ras-llm` | `io.casehub.ras.llm` | LlmGanglion — narrative detection via casehub-platform-agent-api. Optional, slow path. |
 | `testing/` | `casehub-ras-testing` | `io.casehub.ras.testing` | MockGanglion, FixedDetectionResult, MockCaseTrigger. **Test scope only.** |
 
@@ -106,11 +107,21 @@ interface GanglionStateStore {
     Uni<Void> save(GanglionStateKey key, GanglionState state);
     Uni<Void> remove(GanglionStateKey key);
     Uni<Void> removeForSituation(String situationId);
-    default Uni<Integer> removeOrphaned() { ... }
 }
 ```
 
-Pluggable persistence for simple-state ganglia (numeric accumulation). `GanglionStateKey` is a 4-tuple `(ganglionId, situationId, correlationKey, tenancyId)`. `GanglionState` carries `double[] values` + `OptionalLong storeVersion` for optimistic locking. `InMemoryGanglionStateStore` (`@DefaultBean` in runtime/) is the zero-config default. `JpaGanglionStateStore` (`@ApplicationScoped` in persistence-jpa/) adds persistence — wins over `@DefaultBean` by CDI priority when on the classpath. `SituationExpiryJob` calls `removeOrphaned()` to clean up entries whose situation no longer exists.
+Pluggable persistence for simple-state ganglia (numeric accumulation). `GanglionStateKey` is a 4-tuple `(ganglionId, situationId, correlationKey, tenancyId)`. `GanglionState` carries `double[] values` + `OptionalLong storeVersion` for optimistic locking. `InMemoryGanglionStateStore` (`@DefaultBean` in runtime/) is the zero-config default. `JpaGanglionStateStore` (`@ApplicationScoped` in persistence-jpa/) adds persistence — wins over `@DefaultBean` by CDI priority when on the classpath. Orphan cleanup via `OrphanedResourceCleaner` SPI (see below).
+
+### OrphanedResourceCleaner — derived resource cleanup (api/)
+
+```java
+interface OrphanedResourceCleaner {
+    String cleanerType();
+    Uni<Integer> removeOrphaned();
+}
+```
+
+Generic SPI for cleaning up derived resources whose parent situation no longer exists. Discovered via CDI `Instance<OrphanedResourceCleaner>` in `SituationExpiryJob`. Implementations: `JpaGanglionStateStore` (`cleanerType="ganglion_state"`, SQL join-based), `ReliableDroolsSessionStore` (`cleanerType="drools_session"`, `SituationStore.find()` per key with error isolation). Metric: `ras.expiry.orphans_cleaned` counter tagged by `cleaner_type`.
 
 ### JavaSwitchGanglion — synchronous detection base class (api/)
 

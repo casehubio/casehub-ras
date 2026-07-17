@@ -150,8 +150,8 @@ public class RasMetrics {
         counterBy("ras.expiry.expired_cleaned", count);
     }
 
-    public void orphanedGanglionStateCleaned(int count) {
-        counterBy("ras.expiry.ganglion_state_orphans_cleaned", count);
+    public void orphanedResourcesCleaned(int count, String cleanerType) {
+        counterBy("ras.expiry.orphans_cleaned", count, "cleaner_type", cleanerType);
     }
 
 

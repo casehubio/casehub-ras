@@ -1,5 +1,9 @@
 package io.casehub.ras.drools.reliability;
 
+import io.casehub.ras.api.OrphanedResourceCleaner;
+import io.casehub.ras.api.SituationContext;
+import io.casehub.ras.api.SituationStore;
+import io.smallrye.mutiny.Uni;
 import io.casehub.ras.drools.DroolsSessionKey;
 import io.casehub.ras.drools.DroolsSessionStore;
 import io.casehub.ras.drools.DroolsSessionStoreException;
@@ -28,10 +32,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 @ApplicationScoped
-public class ReliableDroolsSessionStore implements DroolsSessionStore {
+public class ReliableDroolsSessionStore implements DroolsSessionStore, OrphanedResourceCleaner {
 
     private static final Logger log = LoggerFactory.getLogger(ReliableDroolsSessionStore.class);
     private static volatile boolean storageProbed = false;
@@ -51,6 +58,17 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore {
         this.metrics = metrics;
     }
 
+    @Inject
+    Instance<SituationStore> situationStoreInstance;
+
+    private          SituationStore situationStore;
+    private volatile boolean        closed = false;
+
+    void setSituationStore(SituationStore situationStore) {
+        this.situationStore = situationStore;
+    }
+
+
     @PostConstruct
     void init() {
         ReliableGlobalResolverFactory.get("core");
@@ -66,7 +84,11 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore {
         if (metrics != null) {
             metrics.registerActiveSessionsGauge(hotCache::size);
         }
-        log.info("DroolsSessionStore initialized: h2mvstore, {} persisted session(s)", sessionIds.size());}
+        if (situationStore == null && situationStoreInstance != null && situationStoreInstance.isResolvable()) {
+            situationStore = situationStoreInstance.get();
+        }
+        log.info("DroolsSessionStore initialized: h2mvstore, {} persisted session(s)", sessionIds.size());
+    }
 
     int activeSessionCount() {
         return hotCache.size();
@@ -74,10 +96,46 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore {
 
     @PreDestroy
     void destroy() {
+        closed = true;
         int count = hotCache.size();
         hotCache.clear();
         log.info("DroolsSessionStore shutdown: {} sessions released from hot cache (persisted data preserved)", count);
     }
+
+    @Override
+    public String cleanerType() {
+        return "drools_session";
+    }
+
+    @Override
+    public Uni<Integer> removeOrphaned() {
+        if (closed) {
+            return Uni.createFrom().item(0);
+        }
+        int          removed     = 0;
+        List<String> storageKeys = new ArrayList<>(sessionIds.keySet());
+        for (String storageKey : storageKeys) {
+            try {
+                DroolsSessionKey key = DroolsSessionKey.fromStorageKey(storageKey);
+                if (situationStore == null) {
+                    remove(key);
+                    removed++;
+                } else {
+                    Optional<SituationContext> ctx = situationStore
+                                                             .find(key.situationId(), key.correlationKey(), key.tenancyId())
+                                                             .await().indefinitely();
+                    if (ctx.isEmpty()) {
+                        remove(key);
+                        removed++;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Orphan cleanup failed for key '{}', skipping", storageKey, e);
+            }
+        }
+        return Uni.createFrom().item(removed);
+    }
+
 
     @Override
     public KieSession computeIfAbsent(DroolsSessionKey key,
