@@ -1,15 +1,29 @@
 package io.casehub.ras.runtime;
 
-import io.casehub.ras.api.*;
+import io.casehub.platform.api.expression.ExpressionEvaluator;
+import io.casehub.platform.api.expression.JQExpressionEvaluator;
+import io.casehub.platform.api.expression.MvelExpressionEvaluator;
+import io.casehub.ras.api.CaseTriggerConfig;
+import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.SituationDefinition;
+import io.casehub.ras.api.SituationDefinitionProvider;
+import io.casehub.ras.api.SituationRegistration;
+import io.casehub.ras.api.TriggerAction;
+import io.casehub.ras.api.TriggerMode;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.yaml.snakeyaml.Yaml;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.Duration;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.logging.Logger;
 
 @ApplicationScoped
@@ -62,7 +76,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
 
     @SuppressWarnings("unchecked")
     private static SituationRegistration parseSituation(Map<String, Object> map) {
-        String situationId = requireString(map, "situationId");
+        String       situationId   = requireString(map, "situationId");
         List<String> eventTypeList = (List<String>) map.get("eventTypes");
         if (eventTypeList == null || eventTypeList.isEmpty()) {
             throw new IllegalArgumentException(
@@ -91,7 +105,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                     "triggerAction required for situation '" + situationId + "'");
         }
 
-        ChainMode chainMode = parseChainMode(chainModeMap, situationId);
+        ChainMode     chainMode     = parseChainMode(chainModeMap, situationId);
         TriggerAction triggerAction = parseTriggerAction(triggerActionMap, situationId);
 
         TriggerMode triggerMode = new TriggerMode.FireOnce();
@@ -99,12 +113,16 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
             triggerMode = parseTriggerMode((Map<String, Object>) map.get("triggerMode"));
         }
 
+        ExpressionEvaluator              correlationKeyExpr = parseExpressionEvaluator(map, "correlationKey");
+        ExpressionEvaluator              eventFilterExpr    = parseExpressionEvaluator(map, "eventFilter");
+        Map<String, ExpressionEvaluator> dynamicCaseData    = parseDynamicCaseData(map);
+
         SituationDefinition def = new SituationDefinition(
                 situationId, new LinkedHashSet<>(eventTypeList),
                 correlationWindow, eventBufferDelay, chainMode,
-                triggerAction, triggerMode);
-        return new SituationRegistration(def);
-    }
+                triggerAction, triggerMode,
+                correlationKeyExpr, eventFilterExpr, dynamicCaseData);
+        return new SituationRegistration(def);}
 
     @SuppressWarnings("unchecked")
     private static ChainMode parseChainMode(Map<String, Object> map, String situationId) {
@@ -148,6 +166,42 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                     "Unknown triggerAction type '" + type + "' in situation '" + situationId
                     + "'. Expected 'create-case' or 'notify-only'");
         };
+    }
+
+
+    @SuppressWarnings("unchecked")
+    private static ExpressionEvaluator parseExpressionEvaluator(Map<String, Object> map, String key) {
+        Map<String, Object> exprMap = (Map<String, Object>) map.get(key);
+        if (exprMap == null) {return null;}
+        String expression = requireString(exprMap, "expression");
+        String language   = requireString(exprMap, "language");
+        return switch (language) {
+            case "jq" -> new JQExpressionEvaluator(expression);
+            case "mvel" -> new MvelExpressionEvaluator(expression);
+            default -> throw new IllegalArgumentException(
+                    "Unknown expression language '" + language + "'. Expected 'jq' or 'mvel'");
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, ExpressionEvaluator> parseDynamicCaseData(Map<String, Object> map) {
+        Map<String, Object> raw = (Map<String, Object>) map.get("dynamicCaseData");
+        if (raw == null) {return Map.of();}
+        Map<String, ExpressionEvaluator> result = new LinkedHashMap<>();
+        for (var entry : raw.entrySet()) {
+            Map<String, Object> exprMap    = (Map<String, Object>) entry.getValue();
+            String              expression = requireString(exprMap, "expression");
+            String              language   = requireString(exprMap, "language");
+            ExpressionEvaluator evaluator = switch (language) {
+                case "jq" -> new JQExpressionEvaluator(expression);
+                case "mvel" -> new MvelExpressionEvaluator(expression);
+                default -> throw new IllegalArgumentException(
+                        "Unknown expression language '" + language
+                        + "' for dynamicCaseData key '" + entry.getKey() + "'");
+            };
+            result.put(entry.getKey(), evaluator);
+        }
+        return result;
     }
 
     private static String requireString(Map<String, Object> map, String key) {

@@ -1,10 +1,13 @@
 package io.casehub.ras.api;
 
 import org.junit.jupiter.api.Test;
+
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
-import static org.assertj.core.api.Assertions.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 class SituationRegistrationTest {
 
@@ -39,5 +42,29 @@ class SituationRegistrationTest {
         assertThatNullPointerException()
                 .isThrownBy(() -> new SituationRegistration(null))
                 .withMessage("definition");
+    }
+
+    @Test
+    void fourArgConstructorSetsFilterAndDynamicData() {
+        EventFilter filter = event -> true;
+        var reg = new SituationRegistration(DEF, DefaultCorrelationKeyExtractor.INSTANCE,
+                                            filter, Map.of());
+        assertThat(reg.eventFilter()).isSameAs(filter);
+        assertThat(reg.compiledDynamicData()).isEmpty();
+    }
+
+    @Test
+    void twoArgConstructorDefaultsFilterAndDynamicDataToNull() {
+        var reg = new SituationRegistration(DEF, DefaultCorrelationKeyExtractor.INSTANCE);
+        assertThat(reg.eventFilter()).isNull();
+        assertThat(reg.compiledDynamicData()).isNull();
+    }
+
+    @Test
+    void singleArgConstructorDefaultsAll() {
+        var reg = new SituationRegistration(DEF);
+        assertThat(reg.correlationKeyExtractor()).isSameAs(DefaultCorrelationKeyExtractor.INSTANCE);
+        assertThat(reg.eventFilter()).isNull();
+        assertThat(reg.compiledDynamicData()).isNull();
     }
 }

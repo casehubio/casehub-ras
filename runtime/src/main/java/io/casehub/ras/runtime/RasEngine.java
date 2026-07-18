@@ -1,5 +1,6 @@
 package io.casehub.ras.runtime;
 
+import io.casehub.ras.api.DefaultCorrelationKeyExtractor;
 import io.casehub.ras.api.SituationRegistration;
 import io.cloudevents.CloudEvent;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -42,8 +43,29 @@ public class RasEngine {
         }
 
         for (SituationRegistration reg : registrations) {
+            if (reg.eventFilter() != null) {
+                try {
+                    if (!reg.eventFilter().accepts(event)) {
+                        metrics.eventFiltered(reg.definition().situationId(), tenancyId);
+                        continue;
+                    }
+                } catch (RuntimeException ex) {
+                    LOG.warning("Event filter error for situation '" + reg.definition().situationId()
+                                + "', treating as pass-through: " + ex.getMessage());
+                    metrics.expressionError(reg.definition().situationId(), "event_filter");
+                }
+            }
+
             try {
-                String correlationKey = reg.correlationKeyExtractor().extract(event);
+                String correlationKey;
+                try {
+                    correlationKey = reg.correlationKeyExtractor().extract(event);
+                } catch (RuntimeException ex) {
+                    LOG.warning("Correlation key expression error for situation '"
+                                + reg.definition().situationId() + "', using default: " + ex.getMessage());
+                    metrics.expressionError(reg.definition().situationId(), "correlation_key");
+                    correlationKey = DefaultCorrelationKeyExtractor.INSTANCE.extract(event);
+                }
                 metrics.eventRouted(reg.definition().situationId(), tenancyId);
                 evaluator.evaluate(event, reg.definition(), correlationKey, tenancyId);
             } catch (RuntimeException ex) {

@@ -1,10 +1,17 @@
 package io.casehub.ras.api;
 
+import io.casehub.platform.api.expression.ExpressionEvaluator;
+import io.casehub.platform.api.expression.JQExpressionEvaluator;
+import io.casehub.platform.api.expression.MvelExpressionEvaluator;
 import org.junit.jupiter.api.Test;
+
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
-import static org.assertj.core.api.Assertions.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 class SituationDefinitionTest {
 
@@ -123,5 +130,43 @@ class SituationDefinitionTest {
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(TRIGGER), mode);
         assertThat(def.triggerMode()).isEqualTo(mode);
+    }
+
+    @Test
+    void expressionFieldsDefaultToNull() {
+        var def = new SituationDefinition("sit-1", Set.of("e"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())),
+                                          null);
+        assertThat(def.correlationKeyExpression()).isNull();
+        assertThat(def.eventFilter()).isNull();
+        assertThat(def.dynamicCaseData()).isEmpty();
+    }
+
+    @Test
+    void fullConstructorWithExpressions() {
+        var corrExpr   = new JQExpressionEvaluator(".data.orderId");
+        var filterExpr = new MvelExpressionEvaluator("data.severity >= 3");
+        var dynamicData = Map.<String, ExpressionEvaluator>of(
+                "orderId", new JQExpressionEvaluator(".correlationKey"));
+        var def = new SituationDefinition("sit-1", Set.of("e"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())),
+                                          null, corrExpr, filterExpr, dynamicData);
+        assertThat(def.correlationKeyExpression()).isEqualTo(corrExpr);
+        assertThat(def.eventFilter()).isEqualTo(filterExpr);
+        assertThat(def.dynamicCaseData()).containsKey("orderId");
+    }
+
+    @Test
+    void dynamicCaseDataDefensiveCopy() {
+        var mutable = new java.util.HashMap<String, ExpressionEvaluator>();
+        mutable.put("key", new JQExpressionEvaluator(".data.x"));
+        var def = new SituationDefinition("sit-1", Set.of("e"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())),
+                                          null, null, null, mutable);
+        mutable.put("extra", new JQExpressionEvaluator(".data.y"));
+        assertThat(def.dynamicCaseData()).hasSize(1);
     }
 }

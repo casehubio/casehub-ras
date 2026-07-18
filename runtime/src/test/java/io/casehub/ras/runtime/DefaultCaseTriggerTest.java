@@ -2,14 +2,17 @@ package io.casehub.ras.runtime;
 
 import io.casehub.api.engine.CaseHub;
 import io.casehub.api.model.CaseDefinition;
-import io.casehub.ras.api.CaseInputContributor;
-import io.casehub.ras.api.CaseTriggerConfig;
-import io.casehub.ras.api.SituationContext;
+import io.casehub.platform.api.expression.CompiledExpression;
+import io.casehub.ras.api.*;
+import io.casehub.ras.testing.FixedDetectionResult;
+import io.casehub.ras.testing.MockGanglion;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -198,4 +201,141 @@ class DefaultCaseTriggerTest {
     }
 
 
+    @SuppressWarnings("unchecked")
+    private CaseHub capturingCaseHub(String ns, String name, String ver,
+                                     java.util.concurrent.atomic.AtomicReference<Map<String, Object>> capture) {
+        return new CaseHub() {
+            private final CaseDefinition def = new CaseDefinition(ns, name, ver);
+
+            @Override
+            public CaseDefinition getDefinition() {return def;}
+
+            @Override
+            public CompletionStage<UUID> startCase(Object inputData) {
+                capture.set((Map<String, Object>) inputData);
+                return CompletableFuture.completedFuture(UUID.randomUUID());
+            }
+        };
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void dynamicCaseDataMergedIntoCaseInput() {
+        var capture = new java.util.concurrent.atomic.AtomicReference<Map<String, Object>>();
+        var hub     = capturingCaseHub("ns", "case-name", "1.0", capture);
+
+        var ganglion = new MockGanglion("g1", Set.of("e"), FixedDetectionResult.detected("g1", 0.9));
+        CompiledExpression<Map, Object> corrKeyExpr = new CompiledExpression<>() {
+            @Override
+            public String type()            {return "test";}
+
+            @Override
+            public Object eval(Map context) {return context.get("correlationKey");}
+        };
+        var compiledDynamic = Map.<String, CompiledExpression<Map, Object>>of("extractedKey", corrKeyExpr);
+
+        var def = new SituationDefinition("sit-1", Set.of("e"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case-name", "1.0", Map.of())),
+                                          null);
+        var reg = new SituationRegistration(def, DefaultCorrelationKeyExtractor.INSTANCE,
+                                            null, compiledDynamic);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+
+        var trigger = new DefaultCaseTrigger(List.of(hub), List.of(), registry);
+        var ctx     = SituationContext.initial("sit-1", "order-123", "tenant-a", T1);
+
+        trigger.fire(new CaseTriggerConfig("ns", "case-name", "1.0", Map.of()), ctx)
+               .await().indefinitely();
+
+        var input = capture.get();
+        assertThat(input).isNotNull();
+        assertThat(input.get("extractedKey")).isEqualTo("order-123");
+        assertThat(input.get("situationId")).isEqualTo("sit-1");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void dynamicExpressionErrorSkipsKeyButCreatesCase() {
+        var capture = new java.util.concurrent.atomic.AtomicReference<Map<String, Object>>();
+        var hub     = capturingCaseHub("ns", "case-name", "1.0", capture);
+
+        var ganglion = new MockGanglion("g1", Set.of("e"), FixedDetectionResult.detected("g1", 0.9));
+        CompiledExpression<Map, Object> throwingExpr = new CompiledExpression<>() {
+            @Override
+            public String type()            {return "test";}
+
+            @Override
+            public Object eval(Map context) {throw new RuntimeException("broken");}
+        };
+        var compiledDynamic = Map.<String, CompiledExpression<Map, Object>>of("brokenKey", throwingExpr);
+
+        var def = new SituationDefinition("sit-1", Set.of("e"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case-name", "1.0",
+                                                                                             Map.of("static", "value"))),
+                                          null);
+        var reg = new SituationRegistration(def, DefaultCorrelationKeyExtractor.INSTANCE,
+                                            null, compiledDynamic);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+
+        var trigger = new DefaultCaseTrigger(List.of(hub), List.of(), registry);
+        var ctx     = SituationContext.initial("sit-1", "corr-1", "tenant-a", T1);
+
+        trigger.fire(new CaseTriggerConfig("ns", "case-name", "1.0",
+                                           Map.of("static", "value")), ctx).await().indefinitely();
+
+        var input = capture.get();
+        assertThat(input).containsKey("static");
+        assertThat(input).doesNotContainKey("brokenKey");
+        assertThat(input.get("situationId")).isEqualTo("sit-1");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void mergeOrderStaticThenDynamicThenMetadata() {
+        var capture = new java.util.concurrent.atomic.AtomicReference<Map<String, Object>>();
+        var hub     = capturingCaseHub("ns", "case-name", "1.0", capture);
+
+        var ganglion = new MockGanglion("g1", Set.of("e"), FixedDetectionResult.detected("g1", 0.9));
+        CompiledExpression<Map, Object> dynamicExpr = new CompiledExpression<>() {
+            @Override
+            public String type()            {return "test";}
+
+            @Override
+            public Object eval(Map context) {return "dynamic-value";}
+        };
+        CompiledExpression<Map, Object> overrideSitId = new CompiledExpression<>() {
+            @Override
+            public String type()            {return "test";}
+
+            @Override
+            public Object eval(Map context) {return "attacker-sit";}
+        };
+        var compiledDynamic = Map.<String, CompiledExpression<Map, Object>>of(
+                "foo", dynamicExpr,
+                "situationId", overrideSitId);
+
+        var def = new SituationDefinition("sit-1", Set.of("e"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case-name", "1.0",
+                                                                                             Map.of("foo", "static-value"))),
+                                          null);
+        var reg = new SituationRegistration(def, DefaultCorrelationKeyExtractor.INSTANCE,
+                                            null, compiledDynamic);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+
+        var trigger = new DefaultCaseTrigger(List.of(hub), List.of(), registry);
+        var ctx     = SituationContext.initial("sit-1", "corr-1", "tenant-a", T1);
+
+        trigger.fire(new CaseTriggerConfig("ns", "case-name", "1.0",
+                                           Map.of("foo", "static-value")), ctx).await().indefinitely();
+
+        var input = capture.get();
+        assertThat(input.get("foo")).isEqualTo("dynamic-value");
+        assertThat(input.get("situationId")).isEqualTo("sit-1");
+    }
 }

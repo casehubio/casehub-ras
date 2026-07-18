@@ -39,6 +39,7 @@ Multiple ganglia, one RAS per deployment context.
 - RAS runtime metrics: `docs/superpowers/specs/2026-07-12-ras-runtime-metrics-design.md`
 - GanglionStateStore: `docs/superpowers/specs/2026-07-13-ganglion-state-store-design.md`
 - DroolsSessionStore orphan cleanup: `docs/superpowers/specs/2026-07-17-drools-session-store-orphan-cleanup-design.md`
+- ExpressionEvaluator integration: `docs/superpowers/specs/2026-07-17-expression-evaluator-integration-design.md`
 
 ## Build Commands
 
@@ -51,10 +52,10 @@ mvn --batch-mode deploy -DskipTests   # CI only
 
 | Module | Artifact | Root package | Purpose |
 |--------|----------|-------------|---------|
-| `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. GanglionStateStore SPI + GanglionStateKey, GanglionState, GanglionStateConflictException. OrphanedResourceCleaner SPI. Depends on `casehub-platform-api` (for `CloudEvent`). Jackson annotations provided (polymorphic serde for sealed types). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest + AbstractGanglionStateStoreContractTest. |
+| `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. GanglionStateStore SPI + GanglionStateKey, GanglionState, GanglionStateConflictException. OrphanedResourceCleaner SPI. EventFilter interface. Depends on `casehub-platform-api` (for `CloudEvent`, `ExpressionEvaluator`). Jackson annotations provided (polymorphic serde for sealed types). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest + AbstractGanglionStateStoreContractTest. |
 | `persistence-memory/` | `casehub-ras-persistence-memory` | `io.casehub.ras.persistence.memory` | InMemorySituationStore — `@Alternative @Priority(100)`, ConcurrentHashMap-backed. Dev/test only. |
 | `persistence-jpa/` | `casehub-ras-persistence-jpa` | `io.casehub.ras.persistence.jpa` | JpaSituationStore — `@ApplicationScoped`, Hibernate ORM + JSONB detections. JpaGanglionStateStore — `@ApplicationScoped`, GanglionStateEntity with JSONB state + `@Version` optimistic locking. Implements `OrphanedResourceCleaner` for SQL join-based orphan cleanup. Consumers add `classpath:db/ras/migration` to `quarkus.flyway.locations`. |
-| `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, EventBufferFlushJob, EventReorderBuffer, YamlSituationDefinitionProvider, NaiveBayesGanglion, DefaultSituationSource, RasEndpointRegistration, RasMetrics, InMemoryGanglionStateStore (`@DefaultBean`). Micrometer metrics (optional, via `Instance<MeterRegistry>`). Quarkus extension. |
+| `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, EventBufferFlushJob, EventReorderBuffer, YamlSituationDefinitionProvider, NaiveBayesGanglion, DefaultSituationSource, RasEndpointRegistration, RasMetrics, InMemoryGanglionStateStore (`@DefaultBean`), CloudEventExpressionContext, SituationContextExpressionContext. SituationDefinitionRegistry compiles expression descriptors at registration. Micrometer metrics (optional, via `Instance<MeterRegistry>`). `casehub-platform-expression` at test scope only — deployers add it to classpath when expressions are needed. Quarkus extension. |
 | `ras-drools/` | `casehub-ras-drools` | `io.casehub.ras.drools` | DroolsGanglion — Drools CEP (KieSession, sliding windows, temporal correlation). Optional. |
 | `drools-reliability/` | `casehub-ras-drools-reliability` | `io.casehub.ras.drools.reliability` | ReliableDroolsSessionStore — persistent DroolsSessionStore backed by drools-reliability + H2MVStore. Implements `OrphanedResourceCleaner` for orphaned session cleanup via `SituationStore.find()`. DroolsReliabilityMetrics (centralised, optional via `Instance<MeterRegistry>`). ReliableDroolsSessionStoreHealthCheck (`@Readiness`). H2MVStore corruption auto-recovery at startup. Experimental. |
 | `ras-llm/` | `casehub-ras-llm` | `io.casehub.ras.llm` | LlmGanglion — narrative detection via casehub-platform-agent-api. Optional, slow path. |
@@ -123,6 +124,17 @@ interface OrphanedResourceCleaner {
 
 Generic SPI for cleaning up derived resources whose parent situation no longer exists. Discovered via CDI `Instance<OrphanedResourceCleaner>` in `SituationExpiryJob`. Implementations: `JpaGanglionStateStore` (`cleanerType="ganglion_state"`, SQL join-based), `ReliableDroolsSessionStore` (`cleanerType="drools_session"`, `SituationStore.find()` per key with error isolation). Metric: `ras.expiry.orphans_cleaned` counter tagged by `cleaner_type`.
 
+### EventFilter — pre-ganglion event filter (api/)
+
+```java
+@FunctionalInterface
+interface EventFilter {
+    boolean accepts(CloudEvent event);
+}
+```
+
+Compiled from `SituationDefinition.eventFilter()` expression descriptors by `SituationDefinitionRegistry`. Evaluated by `RasEngine` before correlation key extraction — events that don't pass are skipped without invoking detection. Filter errors degrade to pass-through (non-fatal) with `ras.expression.error` metric.
+
 ### JavaSwitchGanglion — synchronous detection base class (api/)
 
 Abstract class in `api/`. Developers subclass and override `evaluate(CloudEvent, SituationContext) → DetectionResult`.
@@ -164,10 +176,11 @@ SPI for registering situation definitions. Implementations return a list of `Sit
 ### SituationRegistration — situation + correlation bundle (api/)
 
 ```java
-record SituationRegistration(SituationDefinition definition, CorrelationKeyExtractor correlationKeyExtractor) {}
+record SituationRegistration(SituationDefinition definition, CorrelationKeyExtractor correlationKeyExtractor,
+        EventFilter eventFilter, Map<String, CompiledExpression<Map, Object>> compiledDynamicData) {}
 ```
 
-Bundles a `SituationDefinition` with its `CorrelationKeyExtractor`. Returned by `SituationDefinitionProvider` implementations. The runtime registers both the situation and its correlation strategy atomically.
+Bundles a `SituationDefinition` with compiled strategies. `correlationKeyExtractor` and `eventFilter` are compiled from expression descriptors on the definition by `SituationDefinitionRegistry`. `compiledDynamicData` holds compiled dynamic case data expressions. Convenience constructors default new fields to null. Returned by `SituationDefinitionProvider` implementations (with defaults); the registry replaces strategies with compiled versions.
 
 ## Core Types (api/)
 
@@ -180,7 +193,7 @@ Bundles a `SituationDefinition` with its `CorrelationKeyExtractor`. Returned by 
 | `SituationContext` | Accumulated state — `situationId`, `correlationKey`, `tenancyId`, `firstSignal`, `lastSignal`, `List<TimestampedDetection>`, `OptionalLong storeVersion`, `Instant lastTriggered` (@Nullable), `int triggerCount` |
 | `SituationConflictException` | Thrown by `SituationStore.save()` on concurrent modification — evaluator catches and retries |
 | `TriggerAction` | Sealed interface — `CreateCase(CaseTriggerConfig)`, `NotifyOnly()`. Jackson `@JsonTypeInfo(property="type")` with names `create-case`, `notify-only`. Declares what happens when a situation triggers. `CreateCase` starts a new case via `CaseTrigger`. `NotifyOnly` fires enriched `SituationChangeEvent` only — for signaling existing cases via consumer bridge. |
-| `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `eventBufferDelay` (@Nullable), `ChainMode`, `TriggerAction`, `TriggerMode triggerMode` |
+| `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `eventBufferDelay` (@Nullable), `ChainMode`, `TriggerAction`, `TriggerMode triggerMode`, `ExpressionEvaluator correlationKeyExpression` (@Nullable), `ExpressionEvaluator eventFilter` (@Nullable), `Map<String, ExpressionEvaluator> dynamicCaseData` (defaults empty). 7-arg convenience constructor for non-expression usage. |
 | `ChainMode` | Sealed interface — And, Or, Threshold, Sequence, Count, Streak, Rate. Jackson `@JsonTypeInfo(property="type")` with names matching YAML convention (`and`, `or`, `threshold`, `sequence`, `count`, `streak`, `rate`). All variants carry explicit ganglion references. `referencedGanglia()` default method extracts IDs. |
 | `CaseTriggerConfig` | Case creation parameters — `caseNamespace`, `caseName`, `caseVersion`, `baseCaseData`. String identifiers, no engine-api dependency. |
 | `CaseTrigger` | SPI for case creation — `fire(CaseTriggerConfig, SituationContext) → Uni<UUID>`. Default impl in runtime/ bridges to CaseHub. |
@@ -218,7 +231,12 @@ via a `type` discriminator (`and`, `or`, `threshold`, `sequence`, `count`, `stre
 field uses a `type` discriminator: `type: create-case` (with `caseNamespace`, `caseName`, `caseVersion`,
 optional `baseCaseData`) or `type: notify-only`. Optional `eventBufferDelay` field (ISO-8601 Duration)
 enables per-situation event reordering for pseudo clock mode. Optional `triggerMode` field: `type: fire-once`
-(default when absent) or `type: repeating` with `cooldown` (ISO-8601 Duration).
+(default when absent) or `type: repeating` with `cooldown` (ISO-8601 Duration). Optional `correlationKey`
+field: `{expression, language}` for expression-based correlation key extraction (replaces
+`DefaultCorrelationKeyExtractor`). Optional `eventFilter` field: `{expression, language}` for pre-ganglion
+event filtering. Optional `dynamicCaseData` field: map of `{expression, language}` entries for expressions
+evaluated against `SituationContext` at trigger time. Supported languages: `jq`, `mvel`. Expression
+compilation is handled by `SituationDefinitionRegistry` at registration time via `ExpressionEngineRegistry`.
 
 ## Dynamic Situation Registration (runtime/)
 

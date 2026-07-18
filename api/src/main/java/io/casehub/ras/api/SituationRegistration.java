@@ -1,10 +1,15 @@
 package io.casehub.ras.api;
 
+import io.casehub.platform.api.expression.CompiledExpression;
+
+import java.util.Map;
 import java.util.Objects;
 
 public record SituationRegistration(
         SituationDefinition definition,
-        CorrelationKeyExtractor correlationKeyExtractor
+        CorrelationKeyExtractor correlationKeyExtractor,
+        EventFilter eventFilter,
+        Map<String, CompiledExpression<Map, Object>> compiledDynamicData
 ) {
     public SituationRegistration {
         Objects.requireNonNull(definition, "definition");
@@ -13,7 +18,12 @@ public record SituationRegistration(
         }
     }
 
+    public SituationRegistration(SituationDefinition definition,
+                                 CorrelationKeyExtractor correlationKeyExtractor) {
+        this(definition, correlationKeyExtractor, null, null);
+    }
+
     public SituationRegistration(SituationDefinition definition) {
-        this(definition, null);
+        this(definition, null, null, null);
     }
 }

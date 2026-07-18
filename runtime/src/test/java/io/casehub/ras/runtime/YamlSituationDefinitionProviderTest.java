@@ -1,13 +1,21 @@
 package io.casehub.ras.runtime;
 
-import io.casehub.ras.api.*;
+import io.casehub.platform.api.expression.JQExpressionEvaluator;
+import io.casehub.platform.api.expression.MvelExpressionEvaluator;
+import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.DefaultCorrelationKeyExtractor;
+import io.casehub.ras.api.TriggerAction;
+import io.casehub.ras.api.TriggerMode;
 import org.junit.jupiter.api.Test;
+
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.List;
-import static org.assertj.core.api.Assertions.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class YamlSituationDefinitionProviderTest {
 
@@ -533,5 +541,131 @@ class YamlSituationDefinitionProviderTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new YamlSituationDefinitionProvider(
                         new ByteArrayInputStream(yaml.getBytes())));
+    }
+
+    @Test
+    void parsesCorrelationKeyExpression() {
+        var regs = provider("""
+                            situations:
+                              - situationId: sit1
+                                eventTypes: [e1]
+                                correlationKey:
+                                  expression: ".data.orderId"
+                                  language: jq
+                                chainMode:
+                                  type: or
+                                  ganglia: [g1]
+                                triggerAction:
+                                  type: create-case
+                                  caseNamespace: ns
+                                  caseName: c
+                                  caseVersion: "1"
+                            """).registrations();
+
+        assertThat(regs).hasSize(1);
+        var def = regs.get(0).definition();
+        assertThat(def.correlationKeyExpression()).isNotNull();
+        assertThat(def.correlationKeyExpression()).isInstanceOf(JQExpressionEvaluator.class);
+        assertThat(((JQExpressionEvaluator) def.correlationKeyExpression()).expression())
+                .isEqualTo(".data.orderId");
+    }
+
+    @Test
+    void parsesEventFilterExpression() {
+        var regs = provider("""
+                            situations:
+                              - situationId: sit1
+                                eventTypes: [e1]
+                                eventFilter:
+                                  expression: "data.severity >= 3"
+                                  language: mvel
+                                chainMode:
+                                  type: or
+                                  ganglia: [g1]
+                                triggerAction:
+                                  type: create-case
+                                  caseNamespace: ns
+                                  caseName: c
+                                  caseVersion: "1"
+                            """).registrations();
+
+        var def = regs.get(0).definition();
+        assertThat(def.eventFilter()).isNotNull();
+        assertThat(def.eventFilter()).isInstanceOf(MvelExpressionEvaluator.class);
+        assertThat(((MvelExpressionEvaluator) def.eventFilter()).expression())
+                .isEqualTo("data.severity >= 3");
+    }
+
+    @Test
+    void parsesDynamicCaseData() {
+        var regs = provider("""
+                            situations:
+                              - situationId: sit1
+                                eventTypes: [e1]
+                                dynamicCaseData:
+                                  orderId:
+                                    expression: ".correlationKey"
+                                    language: jq
+                                  severity:
+                                    expression: ".detections[-1].result.evidence.severity"
+                                    language: jq
+                                chainMode:
+                                  type: or
+                                  ganglia: [g1]
+                                triggerAction:
+                                  type: create-case
+                                  caseNamespace: ns
+                                  caseName: c
+                                  caseVersion: "1"
+                            """).registrations();
+
+        var def = regs.get(0).definition();
+        assertThat(def.dynamicCaseData()).hasSize(2);
+        assertThat(def.dynamicCaseData()).containsKey("orderId");
+        assertThat(def.dynamicCaseData()).containsKey("severity");
+        assertThat(def.dynamicCaseData().get("orderId")).isInstanceOf(JQExpressionEvaluator.class);
+    }
+
+    @Test
+    void unknownExpressionLanguageThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() -> provider("""
+                                                                       situations:
+                                                                         - situationId: sit1
+                                                                           eventTypes: [e1]
+                                                                           correlationKey:
+                                                                             expression: ".data.orderId"
+                                                                             language: groovy
+                                                                           chainMode:
+                                                                             type: or
+                                                                             ganglia: [g1]
+                                                                           triggerAction:
+                                                                             type: create-case
+                                                                             caseNamespace: ns
+                                                                             caseName: c
+                                                                             caseVersion: "1"
+                                                                       """).registrations())
+                                            .withMessageContaining("groovy");
+    }
+
+    @Test
+    void absentExpressionFieldsDefaultToNull() {
+        var regs = provider("""
+                            situations:
+                              - situationId: sit1
+                                eventTypes: [e1]
+                                chainMode:
+                                  type: or
+                                  ganglia: [g1]
+                                triggerAction:
+                                  type: create-case
+                                  caseNamespace: ns
+                                  caseName: c
+                                  caseVersion: "1"
+                            """).registrations();
+
+        var def = regs.get(0).definition();
+        assertThat(def.correlationKeyExpression()).isNull();
+        assertThat(def.eventFilter()).isNull();
+        assertThat(def.dynamicCaseData()).isEmpty();
     }
 }

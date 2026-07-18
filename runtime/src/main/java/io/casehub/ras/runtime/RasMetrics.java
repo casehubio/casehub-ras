@@ -54,6 +54,15 @@ public class RasMetrics {
                 "situation_id", situationId, "tenancy_id", tenancyId);
     }
 
+    public void eventFiltered(String situationId, String tenancyId) {
+        counter("ras.events.filtered", "situation_id", situationId, "tenancy_id", tenancyId);
+    }
+
+    public void expressionError(String situationId, String expressionPoint) {
+        counter("ras.expression.error", "situation_id", situationId, "expression_point", expressionPoint);
+    }
+
+
     public void evaluationFailed(String situationId, String tenancyId) {
         counter("ras.engine.evaluation.failed",
                 "situation_id", situationId, "tenancy_id", tenancyId);
