@@ -1,9 +1,18 @@
 package io.casehub.ras.runtime;
 
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.DetectionSignal;
+import io.casehub.ras.api.PolicyDecision;
+import io.casehub.ras.api.RasTriggerPolicy;
+import io.casehub.ras.api.SituationContext;
+import io.casehub.ras.api.SituationDefinition;
+import io.casehub.ras.api.TimestampedDetection;
+import io.casehub.ras.api.TriggerDecision;
+import io.casehub.ras.api.TriggerMode;
 import io.quarkus.arc.DefaultBean;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
+
 import java.util.Comparator;
 import java.util.List;
 
@@ -12,7 +21,7 @@ import java.util.List;
 public class DefaultRasTriggerPolicy implements RasTriggerPolicy {
 
     @Override
-    public Uni<TriggerDecision> evaluate(SituationContext context, SituationDefinition definition) {
+    public Uni<PolicyDecision> evaluate(SituationContext context, SituationDefinition definition) {
         boolean satisfied = switch (definition.chainMode()) {
             case ChainMode.And and -> evaluateAnd(context, and);
             case ChainMode.Or or -> evaluateOr(context, or);
@@ -24,16 +33,15 @@ public class DefaultRasTriggerPolicy implements RasTriggerPolicy {
         };
 
         if (!satisfied) {
-            return Uni.createFrom().item(TriggerDecision.CONTINUE_ACCUMULATING);
+            return Uni.createFrom().item(new PolicyDecision(TriggerDecision.CONTINUE_ACCUMULATING));
         }
 
-        // Chain mode satisfied — map TriggerMode to decision
         TriggerMode mode = definition.triggerMode();
 
-        return Uni.createFrom().item(switch (mode) {
+        return Uni.createFrom().item(new PolicyDecision(switch (mode) {
             case TriggerMode.FireOnce ignored -> TriggerDecision.TRIGGER;
             case TriggerMode.Repeating repeating -> evaluateRepeating(context, repeating);
-        });
+        }));
     }
 
     private TriggerDecision evaluateRepeating(SituationContext context, TriggerMode.Repeating repeating) {

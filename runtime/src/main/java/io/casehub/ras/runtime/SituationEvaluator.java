@@ -1,10 +1,25 @@
 package io.casehub.ras.runtime;
 
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.CaseTrigger;
+import io.casehub.ras.api.CaseTriggerConfig;
+import io.casehub.ras.api.DetectionResult;
+import io.casehub.ras.api.Ganglion;
+import io.casehub.ras.api.PolicyDecision;
+import io.casehub.ras.api.RasTriggerPolicy;
+import io.casehub.ras.api.SituationChangeEvent;
+import io.casehub.ras.api.SituationConflictException;
+import io.casehub.ras.api.SituationContext;
+import io.casehub.ras.api.SituationDefinition;
+import io.casehub.ras.api.SituationStore;
+import io.casehub.ras.api.TriggerAction;
+import io.casehub.ras.api.TriggerDecision;
 import io.cloudevents.CloudEvent;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -13,8 +28,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
-import jakarta.annotation.PostConstruct;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 @ApplicationScoped
 public class SituationEvaluator {
@@ -88,17 +101,15 @@ public class SituationEvaluator {
     }
 
     private boolean processEvent(CloudEvent event, SituationDefinition definition,
-                                  String correlationKey, String tenancyId) {
-        String situationId = definition.situationId();
-        Instant eventTime = extractEventTime(event);
-        Object timer = metrics.startProcessTimer();
+                                 String correlationKey, String tenancyId) {
+        String  situationId = definition.situationId();
+        Instant eventTime   = extractEventTime(event);
+        Object  timer       = metrics.startProcessTimer();
 
-        // Phase 1: Detect (once, never retried)
         SituationContext initialContext = loadContext(situationId, correlationKey,
                                                       tenancyId, definition, eventTime);
         List<DetectionResult> detectionResults = runDetection(event, definition, initialContext);
 
-        // Phase 2: Apply + persist (retried on conflict)
         for (int attempt = 0; attempt <= maxConflictRetries; attempt++) {
             SituationContext context;
             if (attempt == 0) {
@@ -108,20 +119,21 @@ public class SituationEvaluator {
                 LOG.info("Retry " + attempt + "/" + maxConflictRetries
                          + " for situation '" + situationId + "'");
                 context = loadContext(situationId, correlationKey,
-                                     tenancyId, definition, eventTime);
+                                      tenancyId, definition, eventTime);
             }
 
             for (DetectionResult result : detectionResults) {
                 context = context.withDetection(result, eventTime);
             }
 
-            TriggerDecision decision = triggerPolicy.evaluate(context, definition)
-                    .await().indefinitely();
-            metrics.decision(situationId, tenancyId, decision);
+            PolicyDecision policyDecision = triggerPolicy.evaluate(context, definition)
+                                                         .await().indefinitely();
+            metrics.decision(situationId, tenancyId, policyDecision.decision());
 
             try {
-                boolean terminated = executeDecision(decision, context, definition,
-                                       situationId, correlationKey, tenancyId, eventTime);
+                boolean terminated = executeDecision(policyDecision.decision(),
+                                                     policyDecision.metadata(), context, definition,
+                                                     situationId, correlationKey, tenancyId, eventTime);
                 metrics.stopProcessTimer(timer, situationId, tenancyId);
                 return terminated;
             } catch (SituationConflictException e) {
@@ -173,16 +185,17 @@ public class SituationEvaluator {
         return results;
     }
 
-    private boolean executeDecision(TriggerDecision decision, SituationContext context,
-                                     SituationDefinition definition,
-                                     String situationId, String correlationKey,
-                                     String tenancyId, Instant triggerTime) {
+    private boolean executeDecision(TriggerDecision decision, java.util.Map<String, Object> policyMetadata,
+                                    SituationContext context,
+                                    SituationDefinition definition,
+                                    String situationId, String correlationKey,
+                                    String tenancyId, Instant triggerTime) {
         switch (decision) {
             case TRIGGER -> {
                 if (context.storeVersion().isPresent()) {
                     boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
-                                                           tenancyId, triggerTime)
-                            .await().indefinitely();
+                                                            tenancyId, triggerTime)
+                                           .await().indefinitely();
                     if (!claimed) {
                         metrics.triggerRaceLost(situationId, tenancyId);
                         return true;
@@ -192,14 +205,14 @@ public class SituationEvaluator {
                         context = store.save(context).await().indefinitely();
                     } catch (SituationConflictException e) {
                         store.resetTriggerClaim(situationId, correlationKey, tenancyId)
-                                .await().indefinitely();
+                             .await().indefinitely();
                         throw e;
                     }
                 } else {
                     context = store.save(context).await().indefinitely();
                     boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
-                                                           tenancyId, triggerTime)
-                            .await().indefinitely();
+                                                            tenancyId, triggerTime)
+                                           .await().indefinitely();
                     if (!claimed) {
                         metrics.triggerRaceLost(situationId, tenancyId);
                         return true;
@@ -208,9 +221,10 @@ public class SituationEvaluator {
                 }
 
                 if (definition.triggerAction() instanceof TriggerAction.CreateCase createCase) {
-                    Object fireSample = metrics.startTriggerFireTimer();
+                    CaseTriggerConfig config     = mergeMetadata(createCase.config(), policyMetadata);
+                    Object            fireSample = metrics.startTriggerFireTimer();
                     try {
-                        caseTrigger.fire(createCase.config(), context).await().indefinitely();
+                        caseTrigger.fire(config, context).await().indefinitely();
                         metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "create_case");
                         metrics.triggerFired(situationId, tenancyId, "create_case");
                     } catch (RuntimeException ex) {
@@ -219,19 +233,19 @@ public class SituationEvaluator {
                         LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
                                    + "': " + ex.getMessage());
                         store.resetTriggerClaim(situationId, correlationKey, tenancyId)
-                                .await().indefinitely();
+                             .await().indefinitely();
                         return false;
                     }
                     changeEvent.fireAsync(new SituationChangeEvent(
                             tenancyId, situationId, correlationKey,
-                            SituationChangeEvent.ChangeType.TRIGGERED, context));
+                            SituationChangeEvent.ChangeType.TRIGGERED, context, policyMetadata));
                 } else {
                     Object fireSample = metrics.startTriggerFireTimer();
                     try {
                         changeEvent.fireAsync(new SituationChangeEvent(
-                                tenancyId, situationId, correlationKey,
-                                SituationChangeEvent.ChangeType.TRIGGERED, context))
-                                .toCompletableFuture().join();
+                                           tenancyId, situationId, correlationKey,
+                                           SituationChangeEvent.ChangeType.TRIGGERED, context, policyMetadata))
+                                   .toCompletableFuture().join();
                         metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "notify_only");
                         metrics.triggerFired(situationId, tenancyId, "notify_only");
                     } catch (Exception ex) {
@@ -240,7 +254,7 @@ public class SituationEvaluator {
                         LOG.severe("SituationChangeEvent delivery failed for situation '"
                                    + situationId + "': " + ex.getMessage());
                         store.resetTriggerClaim(situationId, correlationKey, tenancyId)
-                                .await().indefinitely();
+                             .await().indefinitely();
                         return false;
                     }
                 }
@@ -249,11 +263,10 @@ public class SituationEvaluator {
                 return true;
             }
             case TRIGGER_AND_CONTINUE -> {
-                // Save-first flow — always persist detection before claiming
                 SituationContext savedContext = store.save(context).await().indefinitely();
                 boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
-                                                       tenancyId, triggerTime)
-                        .await().indefinitely();
+                                                        tenancyId, triggerTime)
+                                       .await().indefinitely();
                 if (!claimed) {
                     metrics.triggerRaceLost(situationId, tenancyId);
                     return false;
@@ -261,9 +274,10 @@ public class SituationEvaluator {
                 metrics.triggerClaimed(situationId, tenancyId);
 
                 if (definition.triggerAction() instanceof TriggerAction.CreateCase createCase) {
-                    Object fireSample = metrics.startTriggerFireTimer();
+                    CaseTriggerConfig config     = mergeMetadata(createCase.config(), policyMetadata);
+                    Object            fireSample = metrics.startTriggerFireTimer();
                     try {
-                        caseTrigger.fire(createCase.config(), savedContext).await().indefinitely();
+                        caseTrigger.fire(config, savedContext).await().indefinitely();
                         metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "create_case");
                         metrics.triggerFired(situationId, tenancyId, "create_case");
                     } catch (RuntimeException ex) {
@@ -272,19 +286,19 @@ public class SituationEvaluator {
                         LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
                                    + "': " + ex.getMessage());
                         store.resetTriggerClaim(situationId, correlationKey, tenancyId)
-                                .await().indefinitely();
+                             .await().indefinitely();
                         return false;
                     }
                     changeEvent.fireAsync(new SituationChangeEvent(
                             tenancyId, situationId, correlationKey,
-                            SituationChangeEvent.ChangeType.TRIGGERED, savedContext));
+                            SituationChangeEvent.ChangeType.TRIGGERED, savedContext, policyMetadata));
                 } else {
                     Object fireSample = metrics.startTriggerFireTimer();
                     try {
                         changeEvent.fireAsync(new SituationChangeEvent(
-                                tenancyId, situationId, correlationKey,
-                                SituationChangeEvent.ChangeType.TRIGGERED, savedContext))
-                                .toCompletableFuture().join();
+                                           tenancyId, situationId, correlationKey,
+                                           SituationChangeEvent.ChangeType.TRIGGERED, savedContext, policyMetadata))
+                                   .toCompletableFuture().join();
                         metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "notify_only");
                         metrics.triggerFired(situationId, tenancyId, "notify_only");
                     } catch (Exception ex) {
@@ -293,15 +307,13 @@ public class SituationEvaluator {
                         LOG.severe("SituationChangeEvent delivery failed for situation '"
                                    + situationId + "': " + ex.getMessage());
                         store.resetTriggerClaim(situationId, correlationKey, tenancyId)
-                                .await().indefinitely();
+                             .await().indefinitely();
                         return false;
                     }
                 }
 
-                // Reset claim for next trigger cycle
                 store.resetTriggerClaim(situationId, correlationKey, tenancyId)
-                        .await().indefinitely();
-                // Compact and save for continued accumulation
+                     .await().indefinitely();
                 SituationContext postFireContext = savedContext;
                 if (definition.correlationWindow() == null) {
                     postFireContext = compactGanglia(definition, savedContext);
@@ -315,6 +327,15 @@ public class SituationEvaluator {
                 }
                 store.save(context).await().indefinitely();
                 return false;
+            }
+            case SUPPRESS -> {
+                closeGanglia(definition, situationId, correlationKey, tenancyId);
+                store.remove(situationId, correlationKey, tenancyId).await().indefinitely();
+                changeEvent.fireAsync(new SituationChangeEvent(
+                        tenancyId, situationId, correlationKey,
+                        SituationChangeEvent.ChangeType.SUPPRESSED, context, policyMetadata));
+                metrics.situationSuppressed(situationId, tenancyId);
+                return true;
             }
             case DISCARD -> {
                 closeGanglia(definition, situationId, correlationKey, tenancyId);
@@ -335,6 +356,18 @@ public class SituationEvaluator {
         }
         return false;
     }
+
+    private static CaseTriggerConfig mergeMetadata(CaseTriggerConfig config,
+                                                   java.util.Map<String, Object> policyMetadata) {
+        if (policyMetadata.isEmpty()) {
+            return config;
+        }
+        var merged = new java.util.LinkedHashMap<>(config.baseCaseData());
+        merged.putAll(policyMetadata);
+        return new CaseTriggerConfig(config.caseNamespace(), config.caseName(),
+                                     config.caseVersion(), java.util.Map.copyOf(merged));
+    }
+
 
     private Instant extractEventTime(CloudEvent event) {
         OffsetDateTime time = event.getTime();

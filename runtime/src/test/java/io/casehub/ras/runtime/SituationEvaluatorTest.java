@@ -6,6 +6,7 @@ import io.casehub.ras.api.ChainMode;
 import io.casehub.ras.api.DetectionResult;
 import io.casehub.ras.api.DetectionSignal;
 import io.casehub.ras.api.Ganglion;
+import io.casehub.ras.api.PolicyDecision;
 import io.casehub.ras.api.RasTriggerPolicy;
 import io.casehub.ras.api.SituationChangeEvent;
 import io.casehub.ras.api.SituationConflictException;
@@ -523,9 +524,9 @@ class SituationEvaluatorTest {
         var resolvingPolicy = new RasTriggerPolicy() {
             private int calls = 0;
             @Override
-            public Uni<TriggerDecision> evaluate(SituationContext ctx, SituationDefinition d) {
-                return Uni.createFrom().item(++calls >= 3
-                        ? TriggerDecision.RESOLVE : TriggerDecision.CONTINUE_ACCUMULATING);
+            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
+                return Uni.createFrom().item(new PolicyDecision(++calls >= 3
+                        ? TriggerDecision.RESOLVE : TriggerDecision.CONTINUE_ACCUMULATING));
             }
         };
 
@@ -577,8 +578,8 @@ class SituationEvaluatorTest {
 
         var resolvingPolicy = new RasTriggerPolicy() {
             @Override
-            public Uni<TriggerDecision> evaluate(SituationContext ctx, SituationDefinition d) {
-                return Uni.createFrom().item(TriggerDecision.RESOLVE);
+            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
+                return Uni.createFrom().item(new PolicyDecision(TriggerDecision.RESOLVE));
             }
         };
 
@@ -605,8 +606,8 @@ class SituationEvaluatorTest {
 
         var discardingPolicy = new RasTriggerPolicy() {
             @Override
-            public Uni<TriggerDecision> evaluate(SituationContext ctx, SituationDefinition d) {
-                return Uni.createFrom().item(TriggerDecision.DISCARD);
+            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
+                return Uni.createFrom().item(new PolicyDecision(TriggerDecision.DISCARD));
             }
         };
 
@@ -623,6 +624,124 @@ class SituationEvaluatorTest {
         assertThat(evt.changeType()).isEqualTo(SituationChangeEvent.ChangeType.DISCARDED);
         assertThat(evt.context()).isNotNull();
     }
+
+    @Test
+    void suppressRemovesContextAndFiresSuppressedEvent() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(TRIGGER_CONFIG), null);
+
+        var suppressPolicy = new RasTriggerPolicy() {
+            @Override
+            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
+                return Uni.createFrom().item(new PolicyDecision(TriggerDecision.SUPPRESS,
+                                                                Map.of("suppression.tier", "full", "suppression.dismissalRate", 0.92)));
+            }
+        };
+
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        initMetrics(registry);
+        evaluator = new SituationEvaluator(store, suppressPolicy, caseTrigger, registry,
+                                           3, changeEvent, metrics);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(caseTrigger.firedCases()).isEmpty();
+        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(changeEvent.firedEvents()).hasSize(1);
+        assertThat(changeEvent.firedEvents().get(0).changeType())
+                .isEqualTo(SituationChangeEvent.ChangeType.SUPPRESSED);
+        assertThat(changeEvent.firedEvents().get(0).metadata())
+                .containsEntry("suppression.tier", "full")
+                .containsEntry("suppression.dismissalRate", 0.92);
+    }
+
+    @Test
+    void triggerWithMetadataMergesIntoCaseData() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var configWithData = new CaseTriggerConfig("ns", "case", "1.0",
+                                                   Map.of("existing", "value"));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(configWithData), null);
+
+        var annotatePolicy = new RasTriggerPolicy() {
+            @Override
+            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
+                return Uni.createFrom().item(new PolicyDecision(TriggerDecision.TRIGGER,
+                                                                Map.of("suppression.tier", "annotate", "suppression.dismissalRate", 0.45)));
+            }
+        };
+
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        initMetrics(registry);
+        evaluator = new SituationEvaluator(store, annotatePolicy, caseTrigger, registry,
+                                           3, changeEvent, metrics);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+        var firedConfig = caseTrigger.firedCases().get(0).triggerConfig();
+        assertThat(firedConfig.baseCaseData()).containsEntry("existing", "value");
+        assertThat(firedConfig.baseCaseData()).containsEntry("suppression.tier", "annotate");
+        assertThat(firedConfig.baseCaseData()).containsEntry("suppression.dismissalRate", 0.45);
+    }
+
+    @Test
+    void triggerWithEmptyMetadataDoesNotModifyCaseData() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(TRIGGER_CONFIG), null);
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+        var firedConfig = caseTrigger.firedCases().get(0).triggerConfig();
+        assertThat(firedConfig.baseCaseData()).isEqualTo(TRIGGER_CONFIG.baseCaseData());
+    }
+
+    @Test
+    void notifyOnlyWithMetadataPassesMetadataOnEvent() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.NotifyOnly(), null);
+
+        var annotatePolicy = new RasTriggerPolicy() {
+            @Override
+            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
+                return Uni.createFrom().item(new PolicyDecision(TriggerDecision.TRIGGER,
+                                                                Map.of("suppression.tier", "annotate")));
+            }
+        };
+
+        var reg = new SituationRegistration(def);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(reg)), List.of(ganglion));
+        initMetrics(registry);
+        evaluator = new SituationEvaluator(store, annotatePolicy, caseTrigger, registry,
+                                           3, changeEvent, metrics);
+
+        evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
+
+        assertThat(caseTrigger.firedCases()).isEmpty();
+        assertThat(changeEvent.firedEvents()).hasSize(1);
+        var evt = changeEvent.firedEvents().get(0);
+        assertThat(evt.changeType()).isEqualTo(SituationChangeEvent.ChangeType.TRIGGERED);
+        assertThat(evt.metadata()).containsEntry("suppression.tier", "annotate");
+    }
+
 
     @Test
     void createCaseAndContinueEmitsTriggeredEvent() {

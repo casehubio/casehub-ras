@@ -146,6 +146,12 @@ public class RasMetrics {
                 "trigger_action", triggerAction);
     }
 
+    public void situationSuppressed(String situationId, String tenancyId) {
+        counter("ras.engine.situations.suppressed",
+                "situation_id", situationId, "tenancy_id", tenancyId);
+    }
+
+
     public void eventBuffered(String situationId, String tenancyId) {
         counter("ras.evaluator.buffer.events_buffered",
                 "situation_id", situationId, "tenancy_id", tenancyId);

@@ -72,7 +72,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g2", DetectionSignal.WEAK, 0.5, T2)),
                 def(new ChainMode.And(Set.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -81,7 +81,7 @@ class DefaultRasTriggerPolicyTest {
                 ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1)),
                 def(new ChainMode.And(Set.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -91,7 +91,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g2", DetectionSignal.NOISE, 0.0, T2)),
                 def(new ChainMode.And(Set.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -101,7 +101,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g2", DetectionSignal.ANTI, 0.7, T2)),
                 def(new ChainMode.And(Set.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     // --- OR ---
@@ -112,7 +112,7 @@ class DefaultRasTriggerPolicyTest {
                 ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1)),
                 def(new ChainMode.Or(Set.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -121,7 +121,7 @@ class DefaultRasTriggerPolicyTest {
                 ctx(td("g1", DetectionSignal.NOISE, 0.0, T1)),
                 def(new ChainMode.Or(Set.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     // --- THRESHOLD ---
@@ -133,7 +133,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g2", DetectionSignal.WEAK, 0.4, T2)),
                 def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -142,7 +142,7 @@ class DefaultRasTriggerPolicyTest {
                 ctx(td("g1", DetectionSignal.DETECTED, 0.3, T1)),
                 def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -152,7 +152,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g2", DetectionSignal.NOISE, 0.5, T2)),
                 def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     // --- SEQUENCE ---
@@ -164,7 +164,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g2", DetectionSignal.DETECTED, 0.8, T2)),
                 def(new ChainMode.Sequence(List.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -174,7 +174,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.9, T2)),
                 def(new ChainMode.Sequence(List.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -185,7 +185,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.9, T1)),
                 def(new ChainMode.Sequence(List.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -194,7 +194,7 @@ class DefaultRasTriggerPolicyTest {
                 ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1)),
                 def(new ChainMode.Sequence(List.of("g1", "g2")))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     // --- STREAK ---
@@ -207,7 +207,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.WEAK, 0.5, T3)),
                 def(new ChainMode.Streak("g1", 3))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -218,7 +218,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.8, T3)),
                 def(new ChainMode.Streak("g1", 2))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -229,7 +229,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.8, T3)),
                 def(new ChainMode.Streak("g1", 2))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -240,7 +240,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.8, T3)),
                 def(new ChainMode.Streak("g1", 2))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -249,7 +249,7 @@ class DefaultRasTriggerPolicyTest {
                 ctx(td("g1", DetectionSignal.DETECTED, 0.9, T1)),
                 def(new ChainMode.Streak("g1", 2))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -262,7 +262,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.8, T3)),
                 def(new ChainMode.Streak("g1", 2))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     // --- RATE ---
@@ -276,7 +276,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1"), 0.6, 3))
         ).await().indefinitely();
         // 2 qualifying / 3 total = 0.67 >= 0.6
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -288,7 +288,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1"), 0.6, 3))
         ).await().indefinitely();
         // 1 qualifying / 3 total = 0.33 < 0.6
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -299,7 +299,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1"), 0.5, 3))
         ).await().indefinitely();
         // Only 2 scoreable signals, window needs 3
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -311,7 +311,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1"), 0.5, 3))
         ).await().indefinitely();
         // Only 2 scoreable (NOISE excluded), window needs 3
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -324,7 +324,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1"), 0.6, 3))
         ).await().indefinitely();
         // Last 3 scoreable: ANTI@T2, DETECTED@T3, DETECTED@T4 → 2/3 = 0.67 >= 0.6
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -336,7 +336,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1", "g2"), 0.6, 3))
         ).await().indefinitely();
         // 2 qualifying / 3 total = 0.67 >= 0.6
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -348,7 +348,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Rate(Set.of("g1"), 0.5, 2))
         ).await().indefinitely();
         // g3 not in ganglia → ignored; 2 qualifying / 2 total = 1.0 >= 0.5
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -362,7 +362,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.9, T2)),
                 def(new ChainMode.Rate(Set.of("g1"), 0.5, 2))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     // --- COUNT ---
@@ -375,7 +375,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.8, T3)),
                 def(new ChainMode.Count("g1", 3))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -385,7 +385,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.WEAK, 0.5, T2)),
                 def(new ChainMode.Count("g1", 3))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -396,7 +396,7 @@ class DefaultRasTriggerPolicyTest {
                     td("g1", DetectionSignal.DETECTED, 0.8, T3)),
                 def(new ChainMode.Count("g1", 3))
         ).await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     // --- ANTI SIGNAL HANDLING ---
@@ -409,7 +409,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
         ).await().indefinitely();
         // 0.9 - 0.5 = 0.4, below 0.8 threshold
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -421,7 +421,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
         ).await().indefinitely();
         // 0.5 + 0.4 - 0.3 = 0.6, below 0.8 threshold
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     @Test
@@ -433,7 +433,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
         ).await().indefinitely();
         // 0.9 + 0.5 - 0.3 = 1.1, above 0.8
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     @Test
@@ -444,7 +444,7 @@ class DefaultRasTriggerPolicyTest {
                 def(new ChainMode.Threshold(Set.of("g1", "g2"), 0.8))
         ).await().indefinitely();
         // g3 not in threshold ganglia → ignored; 0.9 >= 0.8
-        assertThat(result).isEqualTo(TriggerDecision.TRIGGER);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.TRIGGER);
     }
 
     // --- EMPTY CONTEXT ---
@@ -454,7 +454,7 @@ class DefaultRasTriggerPolicyTest {
         var ctx = SituationContext.initial("sit", "key", "tenant", T1);
         var result = policy.evaluate(ctx, def(new ChainMode.Or(Set.of("g1"))))
                 .await().indefinitely();
-        assertThat(result).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
+        assertThat(result.decision()).isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
     // --- TRIGGER MODE ---
@@ -463,7 +463,7 @@ class DefaultRasTriggerPolicyTest {
     void fireOnceReturnsCreateCase() {
         var def = def(new ChainMode.Or(Set.of("g1")), new TriggerMode.FireOnce());
         var ctx = contextWithDetection("g1", 0.9);
-        assertThat(policy.evaluate(ctx, def).await().indefinitely())
+        assertThat(policy.evaluate(ctx, def).await().indefinitely().decision())
                 .isEqualTo(TriggerDecision.TRIGGER);
     }
 
@@ -472,7 +472,7 @@ class DefaultRasTriggerPolicyTest {
         var def = def(new ChainMode.Or(Set.of("g1")),
                 new TriggerMode.Repeating(Duration.ofMinutes(5)));
         var ctx = contextWithDetection("g1", 0.9);
-        assertThat(policy.evaluate(ctx, def).await().indefinitely())
+        assertThat(policy.evaluate(ctx, def).await().indefinitely().decision())
                 .isEqualTo(TriggerDecision.TRIGGER_AND_CONTINUE);
     }
 
@@ -482,7 +482,7 @@ class DefaultRasTriggerPolicyTest {
                 new TriggerMode.Repeating(Duration.ofMinutes(5)));
         var ctx = contextWithDetectionAndTrigger("g1", 0.9,
                 T1, T1.plus(Duration.ofMinutes(1)));
-        assertThat(policy.evaluate(ctx, def).await().indefinitely())
+        assertThat(policy.evaluate(ctx, def).await().indefinitely().decision())
                 .isEqualTo(TriggerDecision.CONTINUE_ACCUMULATING);
     }
 
@@ -492,7 +492,7 @@ class DefaultRasTriggerPolicyTest {
                 new TriggerMode.Repeating(Duration.ofMinutes(5)));
         var ctx = contextWithDetectionAndTrigger("g1", 0.9,
                 T1, T1.plus(Duration.ofMinutes(10)));
-        assertThat(policy.evaluate(ctx, def).await().indefinitely())
+        assertThat(policy.evaluate(ctx, def).await().indefinitely().decision())
                 .isEqualTo(TriggerDecision.TRIGGER_AND_CONTINUE);
     }
 }

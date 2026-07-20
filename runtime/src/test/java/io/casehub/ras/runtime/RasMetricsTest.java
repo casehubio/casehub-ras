@@ -1,17 +1,24 @@
 package io.casehub.ras.runtime;
 
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.CaseTriggerConfig;
+import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.SituationDefinition;
+import io.casehub.ras.api.SituationRegistration;
+import io.casehub.ras.api.TriggerAction;
+import io.casehub.ras.api.TriggerDecision;
 import io.casehub.ras.testing.FixedDetectionResult;
 import io.casehub.ras.testing.MockGanglion;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import static org.assertj.core.api.Assertions.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class RasMetricsTest {
 
@@ -241,5 +248,14 @@ class RasMetricsTest {
         Object triggerSample = nullMetrics.startTriggerFireTimer();
         assertThat(triggerSample).isNull();
         nullMetrics.stopTriggerFireTimer(null, "sit", "tenant", "create_case");
+    }
+
+    @Test
+    void situationSuppressedIncrementsCounter() {
+        metrics.situationSuppressed("sit-1", "tenant-a");
+        metrics.situationSuppressed("sit-1", "tenant-a");
+
+        assertThat(meterRegistry.counter("ras.engine.situations.suppressed",
+                                         "situation_id", "sit-1", "tenancy_id", "tenant-a").count()).isEqualTo(2.0);
     }
 }
