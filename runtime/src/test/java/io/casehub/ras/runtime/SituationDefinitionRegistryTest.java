@@ -431,6 +431,106 @@ class SituationDefinitionRegistryTest {
         assertThat(extractor.extract(event)).isEqualTo("_singleton");
     }
 
+
+// --- Descriptor ganglion tests ---
+
+    @Test
+    void descriptorGanglionRegisteredAndFindable() {
+        var descriptor = new io.casehub.ras.api.GanglionDescriptor.NaiveBayes(
+                "yaml-g", Set.of("test.event"),
+                List.of("NORMAL", "ANOMALY"), new double[]{0.9, 0.1},
+                Map.of("f1", new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.Feature(
+                        new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f"),
+                        List.of("X", "Y"),
+                        new double[][]{{0.8, 0.2}, {0.3, 0.7}})),
+                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("ANOMALY", 0.75, 0.30, null));
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(descriptor);}
+        };
+
+        var registry = new SituationDefinitionRegistry(
+                List.of(provider), List.of(),
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+
+        assertThat(registry.ganglion("yaml-g")).isNotNull();
+        assertThat(registry.ganglion("yaml-g")).isInstanceOf(NaiveBayesGanglion.class);
+    }
+
+    @Test
+    void duplicateGanglionIdBetweenDescriptorAndCdiThrows() {
+        var descriptor = new io.casehub.ras.api.GanglionDescriptor.NaiveBayes(
+                "dup-g", Set.of("test.event"),
+                List.of("A", "B"), new double[]{0.5, 0.5},
+                Map.of("f1", new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.Feature(
+                        new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f"),
+                        List.of("X"), new double[][]{{0.6}, {0.4}})),
+                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null));
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(descriptor);}
+        };
+
+        var cdiGanglion = ganglion("dup-g", "test.event");
+
+        assertThatIllegalStateException().isThrownBy(() ->
+                                                             new SituationDefinitionRegistry(
+                                                                     List.of(provider), List.of(cdiGanglion),
+                                                                     new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null))
+                                         .withMessageContaining("Duplicate ganglionId 'dup-g'");
+    }
+
+    @Test
+    void yamlSituationReferencingDescriptorGanglionValidates() {
+        var descriptor = new io.casehub.ras.api.GanglionDescriptor.NaiveBayes(
+                "desc-g", Set.of("test.event"),
+                List.of("A", "B"), new double[]{0.5, 0.5},
+                Map.of("f1", new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.Feature(
+                        new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f"),
+                        List.of("X"), new double[][]{{0.6}, {0.4}})),
+                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null));
+
+        var def = definition("sit-1", Set.of("test.event"), new ChainMode.Or(Set.of("desc-g")));
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<io.casehub.ras.api.SituationRegistration> registrations() {
+                return List.of(new io.casehub.ras.api.SituationRegistration(def));
+            }
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(descriptor);}
+        };
+
+        assertThatNoException().isThrownBy(() ->
+                                                   new SituationDefinitionRegistry(
+                                                           List.of(provider), List.of(),
+                                                           new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null));
+    }
+
+    @Test
+    void invalidDescriptorWrapsErrorWithGanglionContext() {
+        var descriptor = new io.casehub.ras.api.GanglionDescriptor.NaiveBayes(
+                "bad-g", Set.of("test.event"),
+                List.of("A", "B"), new double[]{0.7, 0.7},
+                Map.of(), new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null));
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(descriptor);}
+        };
+
+        assertThatIllegalStateException().isThrownBy(() ->
+                                                             new SituationDefinitionRegistry(
+                                                                     List.of(provider), List.of(),
+                                                                     new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null))
+                                         .withMessageContaining("bad-g")
+                                         .withMessageContaining("priors must sum to 1.0");
+    }
+
     private static class StubExpressionEngineRegistry implements ExpressionEngineRegistry {
         int compileCount = 0;
         private final boolean resolveSucceeds;

@@ -32,40 +32,55 @@ public class SituationDefinitionRegistry {
 
     private static final java.util.logging.Logger LOG =
             java.util.logging.Logger.getLogger(SituationDefinitionRegistry.class.getName());
-
-    private record RegistrySnapshot(
-            Map<String, List<SituationRegistration>> byEventType,
-            Map<String, SituationRegistration> bySituationId,
-            Set<String> situationIds,
-            Duration maxCorrelationWindow
-    ) {}
-
-    private volatile RegistrySnapshot         snapshot;
     private final    Map<String, Ganglion>    gangliaById;
     private final    ExpressionEngineRegistry expressionRegistry;
-
+    private volatile RegistrySnapshot         snapshot;
     @Inject
     public SituationDefinitionRegistry(Instance<SituationDefinitionProvider> providers,
                                        Instance<Ganglion> ganglia,
-                                       ExpressionEngineRegistry expressionRegistry) {
-        this(toList(providers), toList(ganglia), expressionRegistry);
+                                       ExpressionEngineRegistry expressionRegistry,
+                                       Instance<io.casehub.ras.api.GanglionStateStore> stateStore,
+                                       Instance<io.micrometer.core.instrument.MeterRegistry> meterRegistryInstance) {
+        this(toList(providers), toList(ganglia), expressionRegistry,
+             stateStore.isResolvable() ? stateStore.get() : new InMemoryGanglionStateStore(),
+             meterRegistryInstance != null && meterRegistryInstance.isResolvable()
+             ? meterRegistryInstance.get() : null);
     }
 
     SituationDefinitionRegistry(List<SituationDefinitionProvider> providers,
-                                List<Ganglion> ganglia,
-                                ExpressionEngineRegistry expressionRegistry) {
+                                List<Ganglion> cdiGanglia,
+                                ExpressionEngineRegistry expressionRegistry,
+                                io.casehub.ras.api.GanglionStateStore stateStore,
+                                io.micrometer.core.instrument.MeterRegistry meterRegistry) {
         this.expressionRegistry = expressionRegistry;
-        this.gangliaById        = ganglia.stream()
-                                         .collect(Collectors.toMap(
-                                                 Ganglion::ganglionId,
-                                                 g -> g,
-                                                 (g1, g2) -> {
-                                                     throw new IllegalStateException(
-                                                             "Duplicate ganglionId '" + g1.ganglionId()
-                                                             + "' — found in " + g1.getClass().getName()
-                                                             + " and " + g2.getClass().getName());
-                                                 }));
+        this.gangliaById        = new HashMap<>();
 
+        // Phase 1: descriptor ganglia (before CDI ganglia and before situation validation)
+        for (var provider : providers) {
+            for (var descriptor : provider.ganglionDescriptors()) {
+                try {
+                    Ganglion ganglion = constructGanglion(descriptor, stateStore, meterRegistry);
+                    if (gangliaById.putIfAbsent(ganglion.ganglionId(), ganglion) != null) {
+                        throw new IllegalStateException(
+                                "Duplicate ganglionId: " + ganglion.ganglionId());
+                    }
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalStateException(
+                            "Invalid ganglion descriptor '" + descriptor.ganglionId()
+                            + "': " + e.getMessage(), e);
+                }
+            }
+        }
+
+        // Phase 2: CDI ganglia
+        for (Ganglion g : cdiGanglia) {
+            if (gangliaById.putIfAbsent(g.ganglionId(), g) != null) {
+                throw new IllegalStateException("Duplicate ganglionId '" + g.ganglionId()
+                                                + "' — declared in both YAML descriptor and CDI: " + g.getClass().getName());
+            }
+        }
+
+        // Phase 3: situation registrations (all ganglia now in gangliaById)
         List<SituationRegistration> allRegistrations = new ArrayList<>();
         Set<String>                 seenSituationIds = new HashSet<>();
         for (var provider : providers) {
@@ -84,8 +99,47 @@ public class SituationDefinitionRegistry {
     }
 
     SituationDefinitionRegistry(List<SituationDefinitionProvider> providers,
+                                List<Ganglion> ganglia,
+                                ExpressionEngineRegistry expressionRegistry) {
+        this(providers, ganglia, expressionRegistry, new InMemoryGanglionStateStore(), null);
+    }
+
+
+    SituationDefinitionRegistry(List<SituationDefinitionProvider> providers,
                                 List<Ganglion> ganglia) {
-        this(providers, ganglia, null);
+        this(providers, ganglia, null, new InMemoryGanglionStateStore(), null);
+    }
+
+    private static RegistrySnapshot buildSnapshot(List<SituationRegistration> registrations) {
+        Map<String, List<SituationRegistration>> index = new HashMap<>();
+        Map<String, SituationRegistration>       byId  = new HashMap<>();
+        Set<String>                              ids   = new HashSet<>();
+        for (var reg : registrations) {
+            String sitId = reg.definition().situationId();
+            ids.add(sitId);
+            byId.put(sitId, reg);
+            for (String eventType : reg.definition().eventTypes()) {
+                index.computeIfAbsent(eventType, k -> new ArrayList<>()).add(reg);
+            }
+        }
+        Duration maxWindow = registrations.stream()
+                                          .map(r -> r.definition().correlationWindow())
+                                          .filter(Objects::nonNull)
+                                          .max(Comparator.naturalOrder())
+                                          .orElse(null);
+
+        return new RegistrySnapshot(
+                Map.copyOf(index.entrySet().stream()
+                                .collect(Collectors.toMap(Map.Entry::getKey, e -> List.copyOf(e.getValue())))),
+                Map.copyOf(byId),
+                Set.copyOf(ids),
+                maxWindow);
+    }
+
+    private static <T> List<T> toList(Instance<T> instance) {
+        List<T> list = new ArrayList<>();
+        instance.forEach(list::add);
+        return list;
     }
 
     public List<SituationRegistration> findByEventType(String eventType) {
@@ -193,6 +247,46 @@ public class SituationDefinitionRegistry {
     }
 
     @SuppressWarnings("unchecked")
+    private Ganglion constructGanglion(io.casehub.ras.api.GanglionDescriptor descriptor,
+                                       io.casehub.ras.api.GanglionStateStore stateStore,
+                                       io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+        if (descriptor instanceof io.casehub.ras.api.GanglionDescriptor.NaiveBayes nb) {
+            Map<String, CompiledExpression<Map, String>> compiledFeatures = new LinkedHashMap<>();
+            for (var entry : nb.features().entrySet()) {
+                var feature = entry.getValue();
+                CompiledExpression<Map, String> compiled = compileExpression(
+                        feature.expression(), nb.ganglionId(), Map.class, String.class);
+                compiledFeatures.put(entry.getKey(), compiled);
+            }
+
+            var featureExtractor = new ExpressionFeatureExtractor(
+                    nb.ganglionId(), compiledFeatures, meterRegistry);
+
+            Map<String, FeatureLikelihood> features = new LinkedHashMap<>();
+            for (var entry : nb.features().entrySet()) {
+                features.put(entry.getKey(), new FeatureLikelihood(
+                        entry.getValue().values(), entry.getValue().likelihoods()));
+            }
+
+            var signalMapping = new NaiveBayesSignalMapping(
+                    nb.signalMapping().targetOutcome(),
+                    nb.signalMapping().detectedThreshold(),
+                    nb.signalMapping().weakThreshold(),
+                    nb.signalMapping().antiThreshold());
+
+            var config = new NaiveBayesConfig(
+                    nb.ganglionId(), nb.handledEventTypes(),
+                    nb.outcomes(), nb.priors(),
+                    features, featureExtractor, signalMapping);
+
+            return new NaiveBayesGanglion(config,
+                                          stateStore != null ? stateStore : new InMemoryGanglionStateStore());
+        }
+        throw new IllegalStateException("Unsupported GanglionDescriptor type: "
+                                        + descriptor.getClass().getName());
+    }
+
+    @SuppressWarnings("unchecked")
     private <C, R> CompiledExpression<C, R> compileExpression(
             ExpressionEvaluator evaluator, String situationId,
             Class<C> contextType, Class<R> resultType) {
@@ -206,79 +300,18 @@ public class SituationDefinitionRegistry {
                         + stringEval.type() + "' but no ExpressionEngine is registered for it"
                         + " — add casehub-platform-expression to the classpath");
             }
-            if ("jq".equals(stringEval.type()) && Map.class.isAssignableFrom(contextType)) {
-                CompiledExpression<com.fasterxml.jackson.databind.JsonNode, ?> jqExpr =
-                        expressionRegistry.compile(stringEval.type(), stringEval.expression(),
-                                                   com.fasterxml.jackson.databind.JsonNode.class, resultType);
-                return (CompiledExpression<C, R>) new JqMapAdapter<>(jqExpr, resultType);
+            CompiledExpression<C, R> compiled = expressionRegistry.compile(
+                    stringEval.type(), stringEval.expression(), contextType, resultType);
+            if ("jq".equals(stringEval.type())
+                && resultType != Boolean.class
+                && resultType != List.class) {
+                return (CompiledExpression<C, R>) new JqResultUnwrapper<>(
+                        (CompiledExpression<Map, ?>) compiled, resultType);
             }
-            return expressionRegistry.compile(stringEval.type(), stringEval.expression(),
-                                              contextType, resultType);
+            return compiled;
         }
         throw new IllegalStateException(
                 "Unknown ExpressionEvaluator type: " + evaluator.getClass().getName());
-    }
-
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private static class JqMapAdapter<R> implements CompiledExpression<Map, R> {
-        private static final com.fasterxml.jackson.databind.ObjectMapper                    MAPPER =
-                new com.fasterxml.jackson.databind.ObjectMapper();
-        private final        CompiledExpression<com.fasterxml.jackson.databind.JsonNode, ?> delegate;
-        private final        Class<R>                                                       resultType;
-
-        JqMapAdapter(CompiledExpression<com.fasterxml.jackson.databind.JsonNode, ?> delegate,
-                     Class<R> resultType) {
-            this.delegate   = delegate;
-            this.resultType = resultType;
-        }
-
-        @Override
-        public String type() {return "jq";}
-
-        @Override
-        public R eval(Map context) {
-            com.fasterxml.jackson.databind.JsonNode node   = MAPPER.valueToTree(context);
-            Object                                  result = delegate.eval(node);
-            if (result instanceof java.util.List<?> list && !list.isEmpty()) {
-                com.fasterxml.jackson.databind.JsonNode first =
-                        (com.fasterxml.jackson.databind.JsonNode) list.getFirst();
-                if (resultType == String.class) {
-                    return (R) (first.isNull() ? null : first.asText());
-                }
-                if (resultType == Boolean.class) {
-                    return (R) Boolean.valueOf(first.asBoolean());
-                }
-                return (R) MAPPER.convertValue(first, resultType);
-            }
-            return (R) result;
-        }
-    }
-
-
-    private static RegistrySnapshot buildSnapshot(List<SituationRegistration> registrations) {
-        Map<String, List<SituationRegistration>> index = new HashMap<>();
-        Map<String, SituationRegistration>       byId  = new HashMap<>();
-        Set<String>                              ids   = new HashSet<>();
-        for (var reg : registrations) {
-            String sitId = reg.definition().situationId();
-            ids.add(sitId);
-            byId.put(sitId, reg);
-            for (String eventType : reg.definition().eventTypes()) {
-                index.computeIfAbsent(eventType, k -> new ArrayList<>()).add(reg);
-            }
-        }
-        Duration maxWindow = registrations.stream()
-                                          .map(r -> r.definition().correlationWindow())
-                                          .filter(Objects::nonNull)
-                                          .max(Comparator.naturalOrder())
-                                          .orElse(null);
-
-        return new RegistrySnapshot(
-                Map.copyOf(index.entrySet().stream()
-                                .collect(Collectors.toMap(Map.Entry::getKey, e -> List.copyOf(e.getValue())))),
-                Map.copyOf(byId),
-                Set.copyOf(ids),
-                maxWindow);
     }
 
     private void validate(SituationDefinition def) {
@@ -299,9 +332,10 @@ public class SituationDefinitionRegistry {
         }
     }
 
-    private static <T> List<T> toList(Instance<T> instance) {
-        List<T> list = new ArrayList<>();
-        instance.forEach(list::add);
-        return list;
-    }
+    private record RegistrySnapshot(
+            Map<String, List<SituationRegistration>> byEventType,
+            Map<String, SituationRegistration> bySituationId,
+            Set<String> situationIds,
+            Duration maxCorrelationWindow
+    ) {}
 }

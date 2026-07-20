@@ -1,0 +1,32 @@
+ganglia:
+  - ganglionId: yaml-bayes
+    type: naive-bayes
+    handledEventTypes: [sensor.reading]
+    outcomes: [NORMAL, ANOMALY]
+    priors: [0.9, 0.1]
+    features:
+      severity:
+        expression: ".data.severity"
+        language: jq
+        values: [LOW, MEDIUM, HIGH]
+        likelihoods:
+          - [0.7, 0.25, 0.05]
+          - [0.1, 0.3, 0.6]
+    signalMapping:
+      targetOutcome: ANOMALY
+      detectedThreshold: 0.75
+      weakThreshold: 0.30
+      antiThreshold: 0.05
+
+situations:
+  - situationId: yaml-sit
+    eventTypes: [sensor.reading]
+    correlationWindow: PT1H
+    chainMode:
+      type: or
+      ganglia: [yaml-bayes]
+    triggerAction:
+      type: create-case
+      caseNamespace: test
+      caseName: test-case
+      caseVersion: "1"

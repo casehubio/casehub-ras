@@ -668,4 +668,171 @@ class YamlSituationDefinitionProviderTest {
         assertThat(def.eventFilter()).isNull();
         assertThat(def.dynamicCaseData()).isEmpty();
     }
+
+    @Test
+    void parsesNaiveBayesGanglionFromYaml() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: yaml-bayes
+                                    type: naive-bayes
+                                    handledEventTypes: [sensor.reading]
+                                    outcomes: [NORMAL, ANOMALY]
+                                    priors: [0.9, 0.1]
+                                    features:
+                                      severity:
+                                        expression: ".data.severity"
+                                        language: jq
+                                        values: [LOW, MEDIUM, HIGH]
+                                        likelihoods:
+                                          - [0.7, 0.25, 0.05]
+                                          - [0.1, 0.3, 0.6]
+                                    signalMapping:
+                                      targetOutcome: ANOMALY
+                                      detectedThreshold: 0.75
+                                      weakThreshold: 0.30
+                                      antiThreshold: 0.05
+                                """);
+
+        var descriptors = provider.ganglionDescriptors();
+        assertThat(descriptors).hasSize(1);
+
+        var bayes = (io.casehub.ras.api.GanglionDescriptor.NaiveBayes) descriptors.getFirst();
+        assertThat(bayes.ganglionId()).isEqualTo("yaml-bayes");
+        assertThat(bayes.handledEventTypes()).containsExactly("sensor.reading");
+        assertThat(bayes.outcomes()).containsExactly("NORMAL", "ANOMALY");
+        assertThat(bayes.priors()).containsExactly(0.9, 0.1);
+        assertThat(bayes.features()).containsKey("severity");
+
+        var feature = bayes.features().get("severity");
+        assertThat(feature.expression()).isInstanceOf(JQExpressionEvaluator.class);
+        assertThat(feature.values()).containsExactly("LOW", "MEDIUM", "HIGH");
+        assertThat(feature.likelihoods()).hasNumberOfRows(2);
+        assertThat(feature.likelihoods()[0]).containsExactly(0.7, 0.25, 0.05);
+
+        assertThat(bayes.signalMapping().targetOutcome()).isEqualTo("ANOMALY");
+        assertThat(bayes.signalMapping().detectedThreshold()).isEqualTo(0.75);
+        assertThat(bayes.signalMapping().antiThreshold()).isEqualTo(0.05);
+    }
+
+    @Test
+    void parsesIntegerLikelihoodsAsDoubles() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: int-test
+                                    type: naive-bayes
+                                    handledEventTypes: [test.event]
+                                    outcomes: [A, B]
+                                    priors: [1, 0]
+                                    features:
+                                      f1:
+                                        expression: ".data.f"
+                                        language: jq
+                                        values: [X]
+                                        likelihoods:
+                                          - [1]
+                                          - [1]
+                                    signalMapping:
+                                      targetOutcome: B
+                                      detectedThreshold: 0.75
+                                      weakThreshold: 0.30
+                                """);
+
+        var bayes = (io.casehub.ras.api.GanglionDescriptor.NaiveBayes) provider.ganglionDescriptors().getFirst();
+        assertThat(bayes.priors()[0]).isEqualTo(1.0);
+        assertThat(bayes.features().get("f1").likelihoods()[0][0]).isEqualTo(1.0);
+    }
+
+    @Test
+    void unknownGanglionTypeThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: unknown-type
+                                                                             handledEventTypes: [test.event]
+                                                                         """))
+                                            .withMessageContaining("Unknown ganglion type 'unknown-type'");
+    }
+
+    @Test
+    void missingGanglionIdThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - type: naive-bayes
+                                                                             handledEventTypes: [test.event]
+                                                                             outcomes: [A, B]
+                                                                             priors: [0.5, 0.5]
+                                                                             features: {}
+                                                                             signalMapping:
+                                                                               targetOutcome: B
+                                                                               detectedThreshold: 0.75
+                                                                               weakThreshold: 0.30
+                                                                         """))
+                                            .withMessageContaining("ganglionId");
+    }
+
+    @Test
+    void noGangliaSectionReturnsEmptyDescriptors() {
+        var provider = provider("""
+                                situations:
+                                  - situationId: sit-1
+                                    eventTypes: [test.event]
+                                    chainMode:
+                                      type: or
+                                      ganglia: [g1]
+                                    triggerAction:
+                                      type: notify-only
+                                """);
+
+        assertThat(provider.ganglionDescriptors()).isEmpty();
+    }
+
+    @Test
+    void endToEndYamlNaiveBayesGanglionDetectsAndTriggers() {
+        var provider = new YamlSituationDefinitionProvider(
+                Thread.currentThread().getContextClassLoader()
+                      .getResourceAsStream("META-INF/ras-situations-e2e-naivebayes.yaml"));
+
+        assertThat(provider.ganglionDescriptors()).hasSize(1);
+        assertThat(provider.registrations()).hasSize(1);
+
+        var jqEngine = new io.casehub.platform.expression.JQExpressionEngine();
+        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        engines.register(jqEngine);
+        var stateStore = new InMemoryGanglionStateStore();
+
+        var registry = new SituationDefinitionRegistry(
+                java.util.List.of(provider), java.util.List.of(), engines, stateStore, null);
+
+        assertThat(registry.ganglion("e2e-bayes")).isNotNull();
+        assertThat(registry.ganglion("e2e-bayes")).isInstanceOf(NaiveBayesGanglion.class);
+
+        assertThat(registry.findByEventType("test.e2e")).hasSize(1);
+        assertThat(registry.findByEventType("test.e2e").getFirst()
+                           .definition().situationId()).isEqualTo("e2e-situation");
+
+        var event = io.cloudevents.core.builder.CloudEventBuilder.v1()
+                                                                 .withId("e2e-1")
+                                                                 .withSource(java.net.URI.create("/test"))
+                                                                 .withType("test.e2e")
+                                                                 .withSubject("device-1")
+                                                                 .withData("application/json", "{\"severity\":\"HIGH\"}".getBytes())
+                                                                 .build();
+
+        var ganglion = (NaiveBayesGanglion) registry.ganglion("e2e-bayes");
+        var ctx = io.casehub.ras.api.SituationContext.initial("e2e-situation", "device-1", "tenant-1",
+                                                              java.time.Instant.parse("2026-07-20T10:00:00Z"));
+
+        io.casehub.ras.api.DetectionResult result = ganglion.detect(event, ctx).await().indefinitely();
+
+        assertThat(result.ganglionId()).isEqualTo("e2e-bayes");
+        double posterior = (double) result.evidence().get("posterior");
+        assertThat(posterior).isGreaterThan(0.5);
+        assertThat(result.signal().isAtLeast(io.casehub.ras.api.DetectionSignal.WEAK)).isTrue();
+
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, String> features = (java.util.Map<String, String>) result.evidence().get("features");
+        assertThat(features).containsEntry("severity", "HIGH");
+    }
 }

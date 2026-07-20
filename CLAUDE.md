@@ -40,6 +40,7 @@ Multiple ganglia, one RAS per deployment context.
 - GanglionStateStore: `docs/superpowers/specs/2026-07-13-ganglion-state-store-design.md`
 - DroolsSessionStore orphan cleanup: `docs/superpowers/specs/2026-07-17-drools-session-store-orphan-cleanup-design.md`
 - ExpressionEvaluator integration: `docs/superpowers/specs/2026-07-17-expression-evaluator-integration-design.md`
+- JQ Map context + NaiveBayes expressions: `docs/superpowers/specs/2026-07-20-jq-map-context-naivebayes-expressions-design.md`
 
 ## Build Commands
 
@@ -52,10 +53,10 @@ mvn --batch-mode deploy -DskipTests   # CI only
 
 | Module | Artifact | Root package | Purpose |
 |--------|----------|-------------|---------|
-| `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. GanglionStateStore SPI + GanglionStateKey, GanglionState, GanglionStateConflictException. OrphanedResourceCleaner SPI. EventFilter interface. Depends on `casehub-platform-api` (for `CloudEvent`, `ExpressionEvaluator`). Jackson annotations provided (polymorphic serde for sealed types). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest + AbstractGanglionStateStoreContractTest. |
+| `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. GanglionStateStore SPI + GanglionStateKey, GanglionState, GanglionStateConflictException. OrphanedResourceCleaner SPI. EventFilter interface. GanglionDescriptor sealed interface (NaiveBayes variant) for declarative ganglion configuration. `SituationDefinitionProvider.ganglionDescriptors()` default method. Depends on `casehub-platform-api` (for `CloudEvent`, `ExpressionEvaluator`). Jackson annotations provided (polymorphic serde for sealed types). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest + AbstractGanglionStateStoreContractTest. |
 | `persistence-memory/` | `casehub-ras-persistence-memory` | `io.casehub.ras.persistence.memory` | InMemorySituationStore — `@Alternative @Priority(100)`, ConcurrentHashMap-backed. Dev/test only. |
 | `persistence-jpa/` | `casehub-ras-persistence-jpa` | `io.casehub.ras.persistence.jpa` | JpaSituationStore — `@ApplicationScoped`, Hibernate ORM + JSONB detections. JpaGanglionStateStore — `@ApplicationScoped`, GanglionStateEntity with JSONB state + `@Version` optimistic locking. Implements `OrphanedResourceCleaner` for SQL join-based orphan cleanup. Consumers add `classpath:db/ras/migration` to `quarkus.flyway.locations`. |
-| `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, EventBufferFlushJob, EventReorderBuffer, YamlSituationDefinitionProvider, NaiveBayesGanglion, DefaultSituationSource, RasEndpointRegistration, RasMetrics, InMemoryGanglionStateStore (`@DefaultBean`), CloudEventExpressionContext, SituationContextExpressionContext. SituationDefinitionRegistry compiles expression descriptors at registration. Micrometer metrics (optional, via `Instance<MeterRegistry>`). `casehub-platform-expression` at test scope only — deployers add it to classpath when expressions are needed. Quarkus extension. |
+| `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, EventBufferFlushJob, EventReorderBuffer, YamlSituationDefinitionProvider, NaiveBayesGanglion, DefaultSituationSource, RasEndpointRegistration, RasMetrics, InMemoryGanglionStateStore (`@DefaultBean`), CloudEventExpressionContext, SituationContextExpressionContext, ExpressionFeatureExtractor, JqResultUnwrapper. SituationDefinitionRegistry compiles expression descriptors at registration via three-phase constructor (descriptor ganglia → CDI ganglia → situation registrations). Constructs NaiveBayesGanglion from GanglionDescriptor.NaiveBayes with expression-based feature extraction. Micrometer metrics (optional, via `Instance<MeterRegistry>`). `casehub-platform-expression` at test scope only — deployers add it to classpath when expressions are needed. Quarkus extension. |
 | `ras-drools/` | `casehub-ras-drools` | `io.casehub.ras.drools` | DroolsGanglion — Drools CEP (KieSession, sliding windows, temporal correlation). Optional. |
 | `drools-reliability/` | `casehub-ras-drools-reliability` | `io.casehub.ras.drools.reliability` | ReliableDroolsSessionStore — persistent DroolsSessionStore backed by drools-reliability + H2MVStore. Implements `OrphanedResourceCleaner` for orphaned session cleanup via `SituationStore.find()`. DroolsReliabilityMetrics (centralised, optional via `Instance<MeterRegistry>`). ReliableDroolsSessionStoreHealthCheck (`@Readiness`). H2MVStore corruption auto-recovery at startup. Experimental. |
 | `ras-llm/` | `casehub-ras-llm` | `io.casehub.ras.llm` | LlmGanglion — narrative detection via casehub-platform-agent-api. Optional, slow path. |
@@ -163,11 +164,21 @@ Domain adapters implement `CorrelationKeyExtractor` to provide custom correlatio
 
 Default `CorrelationKeyExtractor` implementation in `api/`. Returns `CloudEvent.getSubject()` when non-null, otherwise `"_singleton"`. Sufficient for most use cases — custom extractors needed only when correlation key is derived from event data.
 
+### GanglionDescriptor — declarative ganglion configuration (api/)
+
+Sealed interface for declaring ganglia via configuration rather than CDI beans. Providers return
+descriptors via `SituationDefinitionProvider.ganglionDescriptors()`. The registry compiles
+feature expressions and constructs ganglion instances during its three-phase startup.
+
+Currently permits `NaiveBayes` — carries outcomes, priors, per-feature expression + likelihood
+tables, and signal mapping thresholds. Extensible for future ganglion types (expression-rules).
+
 ### SituationDefinitionProvider — situation registration SPI (api/)
 
 ```java
 interface SituationDefinitionProvider {
     List<SituationRegistration> registrations();
+    default List<GanglionDescriptor> ganglionDescriptors() { return List.of(); }
 }
 ```
 
@@ -208,6 +219,7 @@ Bundles a `SituationDefinition` with compiled strategies. `correlationKeyExtract
 | `GanglionState` | Ganglion computation state — `double[] values`, `OptionalLong storeVersion`. Carries log-posteriors (or other numeric accumulation) with optional version for optimistic locking. |
 | `GanglionStateConflictException` | Thrown by `GanglionStateStore.save()` on concurrent modification — ganglion catches and retries internally. Mirrors `SituationConflictException`. |
 | `DroolsSessionStoreException` | Unchecked exception in `ras-drools/` — thrown by `DroolsSessionStore` implementations on storage read failure. Part of the SPI contract. |
+| `GanglionDescriptor` | Sealed interface in api/ for declarative ganglion configuration. `NaiveBayes` variant carries outcomes, priors, per-feature expression + likelihood tables, signal mapping. Registry constructs ganglion instances from descriptors during three-phase startup. |
 
 ## Routing Model — Definition-Driven (Model B)
 
@@ -237,6 +249,16 @@ field: `{expression, language}` for expression-based correlation key extraction 
 event filtering. Optional `dynamicCaseData` field: map of `{expression, language}` entries for expressions
 evaluated against `SituationContext` at trigger time. Supported languages: `jq`, `mvel`. Expression
 compilation is handled by `SituationDefinitionRegistry` at registration time via `ExpressionEngineRegistry`.
+
+### YAML Ganglia
+
+Optional `ganglia:` section in the same YAML resource, parsed before `situations:`. Declares ganglion
+instances via a `type` discriminator. Currently supports `type: naive-bayes` — carries `ganglionId`,
+`handledEventTypes`, `outcomes`, `priors`, per-feature `expression` + `language` + `values` + `likelihoods`,
+and `signalMapping` (targetOutcome, detectedThreshold, weakThreshold, optional antiThreshold). Numeric
+YAML values coerced via `Number.doubleValue()`. Expression compilation and ganglion construction handled
+by `SituationDefinitionRegistry` during three-phase startup. YAML ganglia coexist with CDI-declared
+ganglia — duplicate `ganglionId` is a startup error.
 
 ## Dynamic Situation Registration (runtime/)
 

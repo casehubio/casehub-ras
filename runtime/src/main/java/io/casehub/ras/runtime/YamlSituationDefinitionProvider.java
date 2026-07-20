@@ -4,6 +4,7 @@ import io.casehub.platform.api.expression.ExpressionEvaluator;
 import io.casehub.platform.api.expression.JQExpressionEvaluator;
 import io.casehub.platform.api.expression.MvelExpressionEvaluator;
 import io.casehub.ras.api.CaseTriggerConfig;
+import io.casehub.ras.api.GanglionDescriptor;
 import io.casehub.ras.api.ChainMode;
 import io.casehub.ras.api.SituationDefinition;
 import io.casehub.ras.api.SituationDefinitionProvider;
@@ -32,19 +33,23 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
     private static final Logger LOG = Logger.getLogger(YamlSituationDefinitionProvider.class.getName());
 
     private final List<SituationRegistration> registrations;
+    private final List<GanglionDescriptor>    ganglionDescriptors;
 
     @Inject
     YamlSituationDefinitionProvider(
             @ConfigProperty(name = "ras.situations.yaml",
                             defaultValue = "META-INF/ras-situations.yaml") String resourcePath) {
         InputStream is = Thread.currentThread().getContextClassLoader()
-                .getResourceAsStream(resourcePath);
+                               .getResourceAsStream(resourcePath);
         if (is == null) {
             LOG.fine("No YAML situation definitions found at " + resourcePath);
-            this.registrations = List.of();
+            this.registrations       = List.of();
+            this.ganglionDescriptors = List.of();
         } else {
             try (is) {
-                this.registrations = parse(is);
+                var parsed = parseAll(is);
+                this.registrations       = parsed.registrations();
+                this.ganglionDescriptors = parsed.ganglionDescriptors();
             } catch (IOException e) {
                 throw new UncheckedIOException("Failed to read " + resourcePath, e);
             }
@@ -52,7 +57,9 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
     }
 
     YamlSituationDefinitionProvider(InputStream yaml) {
-        this.registrations = parse(yaml);
+        var parsed = parseAll(yaml);
+        this.registrations       = parsed.registrations();
+        this.ganglionDescriptors = parsed.ganglionDescriptors();
     }
 
     @Override
@@ -60,18 +67,136 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         return registrations;
     }
 
+    @Override
+    public List<GanglionDescriptor> ganglionDescriptors() {
+        return ganglionDescriptors;
+    }
+
+    private record ParseResult(List<SituationRegistration> registrations,
+                               List<GanglionDescriptor> ganglionDescriptors) {}
+
     @SuppressWarnings("unchecked")
-    private static List<SituationRegistration> parse(InputStream yaml) {
+    private static ParseResult parseAll(InputStream yaml) {
         Map<String, Object> root = new Yaml().load(yaml);
-        if (root == null || !root.containsKey("situations")) {
+        if (root == null) {
+            return new ParseResult(List.of(), List.of());
+        }
+        List<GanglionDescriptor>    ganglia    = parseGanglia(root);
+        List<SituationRegistration> situations = parseSituations(root);
+        return new ParseResult(situations, ganglia);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<SituationRegistration> parseSituations(Map<String, Object> root) {
+        if (!root.containsKey("situations")) {
             return List.of();
         }
-        List<Map<String, Object>> situations = (List<Map<String, Object>>) root.get("situations");
-        List<SituationRegistration> result = new ArrayList<>(situations.size());
+        List<Map<String, Object>>   situations = (List<Map<String, Object>>) root.get("situations");
+        List<SituationRegistration> result     = new ArrayList<>(situations.size());
         for (Map<String, Object> sit : situations) {
             result.add(parseSituation(sit));
         }
         return List.copyOf(result);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<GanglionDescriptor> parseGanglia(Map<String, Object> root) {
+        List<Map<String, Object>> ganglia = (List<Map<String, Object>>) root.get("ganglia");
+        if (ganglia == null) {return List.of();}
+        List<GanglionDescriptor> result = new ArrayList<>(ganglia.size());
+        for (Map<String, Object> g : ganglia) {
+            String type = requireString(g, "type");
+            result.add(switch (type) {
+                case "naive-bayes" -> parseNaiveBayesGanglion(g);
+                default -> throw new IllegalArgumentException(
+                        "Unknown ganglion type '" + type + "' for ganglion '"
+                        + g.getOrDefault("ganglionId", "<missing>") + "'");
+            });
+        }
+        return List.copyOf(result);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static GanglionDescriptor.NaiveBayes parseNaiveBayesGanglion(Map<String, Object> map) {
+        String       ganglionId = requireString(map, "ganglionId");
+        List<String> eventTypes = (List<String>) map.get("handledEventTypes");
+        if (eventTypes == null || eventTypes.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "handledEventTypes must not be empty for ganglion '" + ganglionId + "'");
+        }
+        List<String> outcomes = (List<String>) map.get("outcomes");
+        if (outcomes == null || outcomes.size() < 2) {
+            throw new IllegalArgumentException(
+                    "outcomes must have at least 2 entries for ganglion '" + ganglionId + "'");
+        }
+        List<Number> priorsList = (List<Number>) map.get("priors");
+        if (priorsList == null) {
+            throw new IllegalArgumentException("Missing priors for ganglion '" + ganglionId + "'");
+        }
+        double[] priors = priorsList.stream().mapToDouble(Number::doubleValue).toArray();
+
+        Map<String, Object> featuresMap = (Map<String, Object>) map.get("features");
+        if (featuresMap == null) {featuresMap = Map.of();}
+        Map<String, GanglionDescriptor.NaiveBayes.Feature> features = new LinkedHashMap<>();
+        for (var entry : featuresMap.entrySet()) {
+            features.put(entry.getKey(),
+                         parseNaiveBayesFeature((Map<String, Object>) entry.getValue(), ganglionId, entry.getKey()));
+        }
+
+        Map<String, Object> sigMap = (Map<String, Object>) map.get("signalMapping");
+        if (sigMap == null) {
+            throw new IllegalArgumentException("Missing signalMapping for ganglion '" + ganglionId + "'");
+        }
+
+        return new GanglionDescriptor.NaiveBayes(
+                ganglionId, new LinkedHashSet<>(eventTypes), outcomes, priors,
+                features, parseSignalMapping(sigMap));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static GanglionDescriptor.NaiveBayes.Feature parseNaiveBayesFeature(
+            Map<String, Object> map, String ganglionId, String featureName) {
+        String exprValue = (String) map.get("expression");
+        String langValue = (String) map.get("language");
+        if (exprValue == null || langValue == null) {
+            throw new IllegalArgumentException(
+                    "Feature '" + featureName + "' in ganglion '" + ganglionId
+                    + "' must have expression and language");
+        }
+        ExpressionEvaluator expression = switch (langValue) {
+            case "jq" -> new JQExpressionEvaluator(exprValue);
+            case "mvel" -> new MvelExpressionEvaluator(exprValue);
+            default -> throw new IllegalArgumentException(
+                    "Unknown expression language '" + langValue + "'. Expected 'jq' or 'mvel'");
+        };
+
+        List<String> values = (List<String>) map.get("values");
+        if (values == null || values.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Feature '" + featureName + "' in ganglion '" + ganglionId
+                    + "' must have non-empty values");
+        }
+        List<List<Number>> likelihoodsList = (List<List<Number>>) map.get("likelihoods");
+        if (likelihoodsList == null) {
+            throw new IllegalArgumentException(
+                    "Feature '" + featureName + "' in ganglion '" + ganglionId
+                    + "' must have likelihoods");
+        }
+        double[][] likelihoods = likelihoodsList.stream()
+                                                .map(row -> row.stream().mapToDouble(Number::doubleValue).toArray())
+                                                .toArray(double[][]::new);
+
+        return new GanglionDescriptor.NaiveBayes.Feature(expression, values, likelihoods);
+    }
+
+    private static GanglionDescriptor.NaiveBayes.SignalMapping parseSignalMapping(Map<String, Object> map) {
+        String targetOutcome = requireString(map, "targetOutcome");
+        double detected      = ((Number) map.get("detectedThreshold")).doubleValue();
+        double weak          = ((Number) map.get("weakThreshold")).doubleValue();
+        Double anti = map.containsKey("antiThreshold")
+                      ? ((Number) map.get("antiThreshold")).doubleValue()
+                      : null;
+        return new GanglionDescriptor.NaiveBayes.SignalMapping(targetOutcome, detected, weak, anti);
     }
 
     @SuppressWarnings("unchecked")
@@ -122,7 +247,8 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                 correlationWindow, eventBufferDelay, chainMode,
                 triggerAction, triggerMode,
                 correlationKeyExpr, eventFilterExpr, dynamicCaseData);
-        return new SituationRegistration(def);}
+        return new SituationRegistration(def);
+    }
 
     @SuppressWarnings("unchecked")
     private static ChainMode parseChainMode(Map<String, Object> map, String situationId) {
@@ -167,7 +293,6 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                     + "'. Expected 'create-case' or 'notify-only'");
         };
     }
-
 
     @SuppressWarnings("unchecked")
     private static ExpressionEvaluator parseExpressionEvaluator(Map<String, Object> map, String key) {

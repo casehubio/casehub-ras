@@ -1,0 +1,28 @@
+ganglia:
+  - ganglionId: e2e-bayes
+    type: naive-bayes
+    handledEventTypes: [test.e2e]
+    outcomes: [NORMAL, ANOMALY]
+    priors: [0.5, 0.5]
+    features:
+      severity:
+        expression: ".data.severity"
+        language: jq
+        values: [LOW, HIGH]
+        likelihoods:
+          - [0.9, 0.1]
+          - [0.1, 0.9]
+    signalMapping:
+      targetOutcome: ANOMALY
+      detectedThreshold: 0.70
+      weakThreshold: 0.30
+
+situations:
+  - situationId: e2e-situation
+    eventTypes: [test.e2e]
+    correlationWindow: PT1H
+    chainMode:
+      type: or
+      ganglia: [e2e-bayes]
+    triggerAction:
+      type: notify-only
