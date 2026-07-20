@@ -1,5 +1,6 @@
 package io.casehub.ras.api;
 
+import java.util.Map;
 import java.util.Objects;
 
 public record SituationChangeEvent(
@@ -7,9 +8,10 @@ public record SituationChangeEvent(
         String situationId,
         String correlationKey,
         ChangeType changeType,
-        SituationContext context
-) {
-    public enum ChangeType { TRIGGERED, RESOLVED, DISCARDED }
+        SituationContext context,
+        Map<String, Object> metadata) {
+
+    public enum ChangeType {TRIGGERED, RESOLVED, DISCARDED, SUPPRESSED, DISMISSED}
 
     public SituationChangeEvent {
         Objects.requireNonNull(tenancyId, "tenancyId");
@@ -17,5 +19,11 @@ public record SituationChangeEvent(
         Objects.requireNonNull(correlationKey, "correlationKey");
         Objects.requireNonNull(changeType, "changeType");
         Objects.requireNonNull(context, "context");
+        Objects.requireNonNull(metadata, "metadata");
+    }
+
+    public SituationChangeEvent(String tenancyId, String situationId,
+                                String correlationKey, ChangeType changeType, SituationContext context) {
+        this(tenancyId, situationId, correlationKey, changeType, context, Map.of());
     }
 }

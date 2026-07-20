@@ -5,5 +5,6 @@ public enum TriggerDecision {
     TRIGGER_AND_CONTINUE,
     CONTINUE_ACCUMULATING,
     DISCARD,
-    RESOLVE
+    RESOLVE,
+    SUPPRESS
 }
