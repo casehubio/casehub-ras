@@ -4,8 +4,9 @@ import io.casehub.platform.api.expression.ExpressionEvaluator;
 import io.casehub.platform.api.expression.JQExpressionEvaluator;
 import io.casehub.platform.api.expression.MvelExpressionEvaluator;
 import io.casehub.ras.api.CaseTriggerConfig;
-import io.casehub.ras.api.GanglionDescriptor;
 import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.DetectionSignal;
+import io.casehub.ras.api.GanglionDescriptor;
 import io.casehub.ras.api.SituationDefinition;
 import io.casehub.ras.api.SituationDefinitionProvider;
 import io.casehub.ras.api.SituationRegistration;
@@ -108,6 +109,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
             String type = requireString(g, "type");
             result.add(switch (type) {
                 case "naive-bayes" -> parseNaiveBayesGanglion(g);
+                case "expression-rules" -> parseExpressionRulesGanglion(g);
                 default -> throw new IllegalArgumentException(
                         "Unknown ganglion type '" + type + "' for ganglion '"
                         + g.getOrDefault("ganglionId", "<missing>") + "'");
@@ -150,25 +152,85 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
 
         return new GanglionDescriptor.NaiveBayes(
                 ganglionId, new LinkedHashSet<>(eventTypes), outcomes, priors,
-                features, parseSignalMapping(sigMap));
+                features, parseSignalMapping(sigMap),
+                parseEvidenceTemplates(map));
     }
+
+    @SuppressWarnings("unchecked")
+    private static GanglionDescriptor.ExpressionRules parseExpressionRulesGanglion(Map<String, Object> map) {
+        String       ganglionId = requireString(map, "ganglionId");
+        List<String> eventTypes = (List<String>) map.get("handledEventTypes");
+        if (eventTypes == null || eventTypes.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "handledEventTypes must not be empty for ganglion '" + ganglionId + "'");
+        }
+
+        List<Map<String, Object>> rulesList = (List<Map<String, Object>>) map.get("rules");
+        if (rulesList == null || rulesList.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "rules must not be empty for ganglion '" + ganglionId + "'");
+        }
+
+        List<GanglionDescriptor.ExpressionRules.Rule> rules = new ArrayList<>();
+        for (int i = 0; i < rulesList.size(); i++) {
+            Map<String, Object> ruleMap      = rulesList.get(i);
+            boolean             hasWhen      = ruleMap.containsKey("when");
+            boolean             hasOtherwise = ruleMap.containsKey("otherwise");
+
+            if (hasWhen && hasOtherwise) {
+                throw new IllegalArgumentException(
+                        "Rule " + i + " in ganglion '" + ganglionId
+                        + "' has both 'when' and 'otherwise' — mutually exclusive");
+            }
+            if (!hasWhen && !hasOtherwise) {
+                throw new IllegalArgumentException(
+                        "Rule " + i + " in ganglion '" + ganglionId
+                        + "' has neither 'when' nor 'otherwise'");
+            }
+            if (hasOtherwise && i != rulesList.size() - 1) {
+                throw new IllegalArgumentException(
+                        "'otherwise' must be the last rule in ganglion '" + ganglionId + "'");
+            }
+
+            ExpressionEvaluator when = hasWhen
+                                       ? parseExpressionEntry((Map<String, Object>) ruleMap.get("when"),
+                                                              "rule " + i + " in ganglion '" + ganglionId + "'")
+                                       : null;
+
+            String          signalStr = requireString(ruleMap, "signal");
+            DetectionSignal signal;
+            try {
+                signal = DetectionSignal.valueOf(signalStr.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                        "Invalid signal '" + signalStr + "' in rule " + i
+                        + " of ganglion '" + ganglionId + "'. Expected: DETECTED, WEAK, NOISE, ANTI");
+            }
+
+            Number confidenceNum = requireNumber(ruleMap, "confidence", ganglionId);
+            double confidence    = confidenceNum.doubleValue();
+            if (confidence < 0.0 || confidence > 1.0) {
+                throw new IllegalArgumentException(
+                        "confidence must be 0.0-1.0 in rule " + i
+                        + " of ganglion '" + ganglionId + "', got: " + confidence);
+            }
+
+            rules.add(new GanglionDescriptor.ExpressionRules.Rule(when, signal, confidence));
+        }
+
+        Map<String, ExpressionEvaluator> evidenceTemplates = parseEvidenceTemplates(map);
+
+        return new GanglionDescriptor.ExpressionRules(
+                ganglionId, new LinkedHashSet<>(eventTypes),
+                List.copyOf(rules), evidenceTemplates);
+    }
+
 
     @SuppressWarnings("unchecked")
     private static GanglionDescriptor.NaiveBayes.Feature parseNaiveBayesFeature(
             Map<String, Object> map, String ganglionId, String featureName) {
-        String exprValue = (String) map.get("expression");
-        String langValue = (String) map.get("language");
-        if (exprValue == null || langValue == null) {
-            throw new IllegalArgumentException(
-                    "Feature '" + featureName + "' in ganglion '" + ganglionId
-                    + "' must have expression and language");
-        }
-        ExpressionEvaluator expression = switch (langValue) {
-            case "jq" -> new JQExpressionEvaluator(exprValue);
-            case "mvel" -> new MvelExpressionEvaluator(exprValue);
-            default -> throw new IllegalArgumentException(
-                    "Unknown expression language '" + langValue + "'. Expected 'jq' or 'mvel'");
-        };
+        ExpressionEvaluator expression = parseExpressionEntry(map,
+                                                              "feature '" + featureName + "' in ganglion '" + ganglionId + "'");
 
         List<String> values = (List<String>) map.get("values");
         if (values == null || values.isEmpty()) {
@@ -298,14 +360,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
     private static ExpressionEvaluator parseExpressionEvaluator(Map<String, Object> map, String key) {
         Map<String, Object> exprMap = (Map<String, Object>) map.get(key);
         if (exprMap == null) {return null;}
-        String expression = requireString(exprMap, "expression");
-        String language   = requireString(exprMap, "language");
-        return switch (language) {
-            case "jq" -> new JQExpressionEvaluator(expression);
-            case "mvel" -> new MvelExpressionEvaluator(expression);
-            default -> throw new IllegalArgumentException(
-                    "Unknown expression language '" + language + "'. Expected 'jq' or 'mvel'");
-        };
+        return parseExpressionEntry(exprMap, key);
     }
 
     @SuppressWarnings("unchecked")
@@ -314,19 +369,36 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         if (raw == null) {return Map.of();}
         Map<String, ExpressionEvaluator> result = new LinkedHashMap<>();
         for (var entry : raw.entrySet()) {
-            Map<String, Object> exprMap    = (Map<String, Object>) entry.getValue();
-            String              expression = requireString(exprMap, "expression");
-            String              language   = requireString(exprMap, "language");
-            ExpressionEvaluator evaluator = switch (language) {
-                case "jq" -> new JQExpressionEvaluator(expression);
-                case "mvel" -> new MvelExpressionEvaluator(expression);
-                default -> throw new IllegalArgumentException(
-                        "Unknown expression language '" + language
-                        + "' for dynamicCaseData key '" + entry.getKey() + "'");
-            };
-            result.put(entry.getKey(), evaluator);
+            result.put(entry.getKey(), parseExpressionEntry(
+                    (Map<String, Object>) entry.getValue(),
+                    "dynamicCaseData key '" + entry.getKey() + "'"));
         }
         return result;
+    }
+
+
+    private static ExpressionEvaluator parseExpressionEntry(Map<String, Object> exprMap, String context) {
+        String expression = requireString(exprMap, "expression");
+        String language   = requireString(exprMap, "language");
+        return switch (language) {
+            case "jq" -> new JQExpressionEvaluator(expression);
+            case "mvel" -> new MvelExpressionEvaluator(expression);
+            default -> throw new IllegalArgumentException(
+                    "Unknown expression language '" + language + "' in " + context + ". Expected 'jq' or 'mvel'");
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, ExpressionEvaluator> parseEvidenceTemplates(Map<String, Object> map) {
+        Map<String, Object> raw = (Map<String, Object>) map.get("evidenceTemplates");
+        if (raw == null) {return Map.of();}
+        Map<String, ExpressionEvaluator> result = new LinkedHashMap<>();
+        for (var entry : raw.entrySet()) {
+            result.put(entry.getKey(), parseExpressionEntry(
+                    (Map<String, Object>) entry.getValue(),
+                    "evidenceTemplate '" + entry.getKey() + "'"));
+        }
+        return Map.copyOf(result);
     }
 
     private static String requireString(Map<String, Object> map, String key) {

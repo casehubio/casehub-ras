@@ -250,40 +250,85 @@ public class SituationDefinitionRegistry {
     private Ganglion constructGanglion(io.casehub.ras.api.GanglionDescriptor descriptor,
                                        io.casehub.ras.api.GanglionStateStore stateStore,
                                        io.micrometer.core.instrument.MeterRegistry meterRegistry) {
-        if (descriptor instanceof io.casehub.ras.api.GanglionDescriptor.NaiveBayes nb) {
-            Map<String, CompiledExpression<Map, String>> compiledFeatures = new LinkedHashMap<>();
-            for (var entry : nb.features().entrySet()) {
-                var feature = entry.getValue();
-                CompiledExpression<Map, String> compiled = compileExpression(
-                        feature.expression(), nb.ganglionId(), Map.class, String.class);
-                compiledFeatures.put(entry.getKey(), compiled);
+        Ganglion ganglion = switch (descriptor) {
+            case io.casehub.ras.api.GanglionDescriptor.NaiveBayes nb -> constructNaiveBayes(nb, stateStore, meterRegistry);
+            case io.casehub.ras.api.GanglionDescriptor.ExpressionRules er -> constructExpressionRules(er, meterRegistry);
+        };
+
+        if (!descriptor.evidenceTemplates().isEmpty()) {
+            Map<String, CompiledExpression<Map, Object>> compiled = new LinkedHashMap<>();
+            for (var entry : descriptor.evidenceTemplates().entrySet()) {
+                compiled.put(entry.getKey(), compileExpression(
+                        entry.getValue(), descriptor.ganglionId(), Map.class, Object.class));
             }
 
-            var featureExtractor = new ExpressionFeatureExtractor(
-                    nb.ganglionId(), compiledFeatures, meterRegistry);
-
-            Map<String, FeatureLikelihood> features = new LinkedHashMap<>();
-            for (var entry : nb.features().entrySet()) {
-                features.put(entry.getKey(), new FeatureLikelihood(
-                        entry.getValue().values(), entry.getValue().likelihoods()));
+            Set<String> autoKeys = switch (descriptor) {
+                case io.casehub.ras.api.GanglionDescriptor.NaiveBayes ignored -> Set.of("posterior", "features");
+                case io.casehub.ras.api.GanglionDescriptor.ExpressionRules ignored -> Set.of("matchedRuleIndex");
+            };
+            for (String templateKey : compiled.keySet()) {
+                if (autoKeys.contains(templateKey)) {
+                    LOG.warning("Evidence template key '" + templateKey
+                                + "' in ganglion '" + descriptor.ganglionId()
+                                + "' shadows automatic evidence key — template will overwrite");
+                }
             }
 
-            var signalMapping = new NaiveBayesSignalMapping(
-                    nb.signalMapping().targetOutcome(),
-                    nb.signalMapping().detectedThreshold(),
-                    nb.signalMapping().weakThreshold(),
-                    nb.signalMapping().antiThreshold());
-
-            var config = new NaiveBayesConfig(
-                    nb.ganglionId(), nb.handledEventTypes(),
-                    nb.outcomes(), nb.priors(),
-                    features, featureExtractor, signalMapping);
-
-            return new NaiveBayesGanglion(config,
-                                          stateStore != null ? stateStore : new InMemoryGanglionStateStore());
+            ganglion = new EvidenceExtractingGanglion(ganglion, Map.copyOf(compiled), meterRegistry);
         }
-        throw new IllegalStateException("Unsupported GanglionDescriptor type: "
-                                        + descriptor.getClass().getName());
+
+        return ganglion;
+    }
+
+    private Ganglion constructNaiveBayes(io.casehub.ras.api.GanglionDescriptor.NaiveBayes nb,
+                                         io.casehub.ras.api.GanglionStateStore stateStore,
+                                         io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+        Map<String, CompiledExpression<Map, String>> compiledFeatures = new LinkedHashMap<>();
+        for (var entry : nb.features().entrySet()) {
+            var feature = entry.getValue();
+            CompiledExpression<Map, String> compiled = compileExpression(
+                    feature.expression(), nb.ganglionId(), Map.class, String.class);
+            compiledFeatures.put(entry.getKey(), compiled);
+        }
+
+        var featureExtractor = new ExpressionFeatureExtractor(
+                nb.ganglionId(), compiledFeatures, meterRegistry);
+
+        Map<String, FeatureLikelihood> features = new LinkedHashMap<>();
+        for (var entry : nb.features().entrySet()) {
+            features.put(entry.getKey(), new FeatureLikelihood(
+                    entry.getValue().values(), entry.getValue().likelihoods()));
+        }
+
+        var signalMapping = new NaiveBayesSignalMapping(
+                nb.signalMapping().targetOutcome(),
+                nb.signalMapping().detectedThreshold(),
+                nb.signalMapping().weakThreshold(),
+                nb.signalMapping().antiThreshold());
+
+        var config = new NaiveBayesConfig(
+                nb.ganglionId(), nb.handledEventTypes(),
+                nb.outcomes(), nb.priors(),
+                features, featureExtractor, signalMapping);
+
+        return new NaiveBayesGanglion(config,
+                                      stateStore != null ? stateStore : new InMemoryGanglionStateStore());
+    }
+
+    @SuppressWarnings("unchecked")
+    private Ganglion constructExpressionRules(io.casehub.ras.api.GanglionDescriptor.ExpressionRules er,
+                                              io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+        List<ExpressionRulesGanglion.CompiledRule> compiledRules = new ArrayList<>();
+        for (int i = 0; i < er.rules().size(); i++) {
+            var rule = er.rules().get(i);
+            CompiledExpression<Map, Boolean> compiled = rule.when() != null
+                                                        ? compileExpression(rule.when(), er.ganglionId(), Map.class, Boolean.class)
+                                                        : null;
+            compiledRules.add(new ExpressionRulesGanglion.CompiledRule(
+                    compiled, rule.signal(), rule.confidence()));
+        }
+        return new ExpressionRulesGanglion(
+                er.ganglionId(), er.handledEventTypes(), compiledRules, meterRegistry);
     }
 
     @SuppressWarnings("unchecked")

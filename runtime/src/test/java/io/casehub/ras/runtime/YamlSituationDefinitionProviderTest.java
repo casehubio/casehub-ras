@@ -789,6 +789,298 @@ class YamlSituationDefinitionProviderTest {
     }
 
     @Test
+    void parsesEvidenceTemplatesOnNaiveBayes() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: with-evidence
+                                    type: naive-bayes
+                                    handledEventTypes: [test.event]
+                                    outcomes: [A, B]
+                                    priors: [0.5, 0.5]
+                                    features:
+                                      f1:
+                                        expression: ".data.f"
+                                        language: jq
+                                        values: [X]
+                                        likelihoods:
+                                          - [1]
+                                          - [1]
+                                    signalMapping:
+                                      targetOutcome: B
+                                      detectedThreshold: 0.75
+                                      weakThreshold: 0.30
+                                    evidenceTemplates:
+                                      raw_severity:
+                                        expression: ".data.severity"
+                                        language: jq
+                                      sensor_id:
+                                        expression: ".data.sensorId"
+                                        language: mvel
+                                """);
+
+        var bayes = (io.casehub.ras.api.GanglionDescriptor.NaiveBayes) provider.ganglionDescriptors().getFirst();
+        assertThat(bayes.evidenceTemplates()).hasSize(2);
+        assertThat(bayes.evidenceTemplates()).containsKey("raw_severity");
+        assertThat(bayes.evidenceTemplates()).containsKey("sensor_id");
+        assertThat(bayes.evidenceTemplates().get("raw_severity")).isInstanceOf(io.casehub.platform.api.expression.JQExpressionEvaluator.class);
+        assertThat(bayes.evidenceTemplates().get("sensor_id")).isInstanceOf(io.casehub.platform.api.expression.MvelExpressionEvaluator.class);
+    }
+
+    @Test
+    void evidenceTemplatesAbsentReturnsEmptyMap() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: no-evidence
+                                    type: naive-bayes
+                                    handledEventTypes: [test.event]
+                                    outcomes: [A, B]
+                                    priors: [0.5, 0.5]
+                                    features:
+                                      f1:
+                                        expression: ".data.f"
+                                        language: jq
+                                        values: [X]
+                                        likelihoods:
+                                          - [1]
+                                          - [1]
+                                    signalMapping:
+                                      targetOutcome: B
+                                      detectedThreshold: 0.75
+                                      weakThreshold: 0.30
+                                """);
+
+        var bayes = (io.casehub.ras.api.GanglionDescriptor.NaiveBayes) provider.ganglionDescriptors().getFirst();
+        assertThat(bayes.evidenceTemplates()).isEmpty();
+    }
+
+    @Test
+    void parsesExpressionRulesGanglionFromYaml() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: severity-checker
+                                    type: expression-rules
+                                    handledEventTypes: [sensor.reading]
+                                    rules:
+                                      - when:
+                                          expression: ".data.severity == \\"HIGH\\""
+                                          language: jq
+                                        signal: DETECTED
+                                        confidence: 0.9
+                                      - when:
+                                          expression: ".data.severity == \\"MEDIUM\\""
+                                          language: jq
+                                        signal: WEAK
+                                        confidence: 0.5
+                                      - otherwise:
+                                        signal: NOISE
+                                        confidence: 0.0
+                                    evidenceTemplates:
+                                      severity:
+                                        expression: ".data.severity"
+                                        language: jq
+                                """);
+
+        var descriptors = provider.ganglionDescriptors();
+        assertThat(descriptors).hasSize(1);
+        var er = (io.casehub.ras.api.GanglionDescriptor.ExpressionRules) descriptors.getFirst();
+        assertThat(er.ganglionId()).isEqualTo("severity-checker");
+        assertThat(er.handledEventTypes()).containsExactly("sensor.reading");
+        assertThat(er.rules()).hasSize(3);
+        assertThat(er.rules().get(0).when()).isNotNull();
+        assertThat(er.rules().get(0).signal()).isEqualTo(io.casehub.ras.api.DetectionSignal.DETECTED);
+        assertThat(er.rules().get(0).confidence()).isEqualTo(0.9);
+        assertThat(er.rules().get(2).when()).isNull();
+        assertThat(er.evidenceTemplates()).containsKey("severity");
+    }
+
+    @Test
+    void expressionRulesEmptyRulesThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: [test.event]
+                                                                             rules: []
+                                                                         """))
+                                            .withMessageContaining("rules must not be empty");
+    }
+
+    @Test
+    void expressionRulesMissingRulesThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: [test.event]
+                                                                         """))
+                                            .withMessageContaining("rules must not be empty");
+    }
+
+    @Test
+    void expressionRulesOtherwiseNotLastThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: [test.event]
+                                                                             rules:
+                                                                               - otherwise:
+                                                                                 signal: NOISE
+                                                                                 confidence: 0.0
+                                                                               - when:
+                                                                                   expression: ".data.x"
+                                                                                   language: jq
+                                                                                 signal: DETECTED
+                                                                                 confidence: 0.9
+                                                                         """))
+                                            .withMessageContaining("otherwise");
+    }
+
+    @Test
+    void expressionRulesInvalidSignalThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: [test.event]
+                                                                             rules:
+                                                                               - when:
+                                                                                   expression: ".data.x"
+                                                                                   language: jq
+                                                                                 signal: INVALID
+                                                                                 confidence: 0.5
+                                                                         """))
+                                            .withMessageContaining("Invalid signal");
+    }
+
+    @Test
+    void expressionRulesConfidenceOutOfRangeThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: [test.event]
+                                                                             rules:
+                                                                               - when:
+                                                                                   expression: ".data.x"
+                                                                                   language: jq
+                                                                                 signal: DETECTED
+                                                                                 confidence: 1.5
+                                                                         """))
+                                            .withMessageContaining("confidence must be 0.0-1.0");
+    }
+
+    @Test
+    void expressionRulesBothWhenAndOtherwiseThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: [test.event]
+                                                                             rules:
+                                                                               - when:
+                                                                                   expression: ".data.x"
+                                                                                   language: jq
+                                                                                 otherwise:
+                                                                                 signal: DETECTED
+                                                                                 confidence: 0.5
+                                                                         """))
+                                            .withMessageContaining("both 'when' and 'otherwise'");
+    }
+
+    @Test
+    void expressionRulesNeitherWhenNorOtherwiseThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: [test.event]
+                                                                             rules:
+                                                                               - signal: DETECTED
+                                                                                 confidence: 0.5
+                                                                         """))
+                                            .withMessageContaining("neither 'when' nor 'otherwise'");
+    }
+
+    @Test
+    void expressionRulesHandledEventTypesEmptyThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: []
+                                                                             rules:
+                                                                               - when:
+                                                                                   expression: ".data.x"
+                                                                                   language: jq
+                                                                                 signal: DETECTED
+                                                                                 confidence: 0.5
+                                                                         """))
+                                            .withMessageContaining("handledEventTypes must not be empty");
+    }
+
+    @Test
+    void expressionRulesMissingSignalThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: [test.event]
+                                                                             rules:
+                                                                               - when:
+                                                                                   expression: ".data.x"
+                                                                                   language: jq
+                                                                                 confidence: 0.5
+                                                                         """))
+                                            .withMessageContaining("signal");
+    }
+
+    @Test
+    void expressionRulesMissingConfidenceThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: [test.event]
+                                                                             rules:
+                                                                               - when:
+                                                                                   expression: ".data.x"
+                                                                                   language: jq
+                                                                                 signal: DETECTED
+                                                                         """))
+                                            .withMessageContaining("confidence");
+    }
+
+    @Test
+    void expressionRulesNegativeConfidenceThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                                                                provider("""
+                                                                         ganglia:
+                                                                           - ganglionId: bad
+                                                                             type: expression-rules
+                                                                             handledEventTypes: [test.event]
+                                                                             rules:
+                                                                               - when:
+                                                                                   expression: ".data.x"
+                                                                                   language: jq
+                                                                                 signal: DETECTED
+                                                                                 confidence: -0.1
+                                                                         """))
+                                            .withMessageContaining("confidence must be 0.0-1.0");
+    }
+
+
+    @Test
     void endToEndYamlNaiveBayesGanglionDetectsAndTriggers() {
         var provider = new YamlSituationDefinitionProvider(
                 Thread.currentThread().getContextClassLoader()

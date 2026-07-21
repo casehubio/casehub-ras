@@ -12,13 +12,16 @@ public sealed interface GanglionDescriptor {
 
     Set<String> handledEventTypes();
 
+    default Map<String, ExpressionEvaluator> evidenceTemplates() {return Map.of();}
+
     record NaiveBayes(
             String ganglionId,
             Set<String> handledEventTypes,
             List<String> outcomes,
             double[] priors,
             Map<String, Feature> features,
-            SignalMapping signalMapping
+            SignalMapping signalMapping,
+            Map<String, ExpressionEvaluator> evidenceTemplates
     ) implements GanglionDescriptor {
 
         public record Feature(
@@ -32,6 +35,20 @@ public sealed interface GanglionDescriptor {
                 double detectedThreshold,
                 double weakThreshold,
                 Double antiThreshold
+        ) {}
+    }
+
+    record ExpressionRules(
+            String ganglionId,
+            Set<String> handledEventTypes,
+            List<Rule> rules,
+            Map<String, ExpressionEvaluator> evidenceTemplates
+    ) implements GanglionDescriptor {
+
+        public record Rule(
+                ExpressionEvaluator when,
+                DetectionSignal signal,
+                double confidence
         ) {}
     }
 }

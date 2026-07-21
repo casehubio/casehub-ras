@@ -27,7 +27,8 @@ class GanglionDescriptorTest {
                 List.of("NORMAL", "ANOMALY"),
                 new double[]{0.9, 0.1},
                 Map.of("severity", feature),
-                mapping);
+                mapping,
+                Map.of());
 
         assertThat(descriptor.ganglionId()).isEqualTo("bayes-1");
         assertThat(descriptor.handledEventTypes()).containsExactly("sensor.reading");
@@ -36,7 +37,7 @@ class GanglionDescriptorTest {
         assertThat(descriptor.features()).containsKey("severity");
         assertThat(descriptor.signalMapping().targetOutcome()).isEqualTo("ANOMALY");
         assertThat(descriptor.signalMapping().antiThreshold()).isEqualTo(0.05);
-    }
+        assertThat(descriptor.evidenceTemplates()).isEmpty();}
 
     @Test
     void signalMappingWithNullAntiThreshold() {
@@ -47,10 +48,62 @@ class GanglionDescriptorTest {
     }
 
     @Test
-    void sealedInterfacePermitsOnlyNaiveBayes() {
+    void expressionRulesRecordCarriesAllFields() {
+        var rule = new GanglionDescriptor.ExpressionRules.Rule(
+                new JQExpressionEvaluator(".data.severity == \"HIGH\""),
+                DetectionSignal.DETECTED, 0.9);
+        var otherwise = new GanglionDescriptor.ExpressionRules.Rule(
+                null, DetectionSignal.NOISE, 0.0);
+
+        var descriptor = new GanglionDescriptor.ExpressionRules(
+                "severity-checker", Set.of("sensor.reading"),
+                List.of(rule, otherwise), Map.of());
+
+        assertThat(descriptor.ganglionId()).isEqualTo("severity-checker");
+        assertThat(descriptor.handledEventTypes()).containsExactly("sensor.reading");
+        assertThat(descriptor.rules()).hasSize(2);
+        assertThat(descriptor.rules().get(0).when()).isNotNull();
+        assertThat(descriptor.rules().get(0).signal()).isEqualTo(DetectionSignal.DETECTED);
+        assertThat(descriptor.rules().get(0).confidence()).isEqualTo(0.9);
+        assertThat(descriptor.rules().get(1).when()).isNull();
+        assertThat(descriptor.evidenceTemplates()).isEmpty();
+    }
+
+    @Test
+    void expressionRulesWithEvidenceTemplates() {
+        var descriptor = new GanglionDescriptor.ExpressionRules(
+                "checker", Set.of("event.type"),
+                List.of(new GanglionDescriptor.ExpressionRules.Rule(null, DetectionSignal.NOISE, 0.0)),
+                Map.of("severity", new JQExpressionEvaluator(".data.severity")));
+
+        assertThat(descriptor.evidenceTemplates()).containsKey("severity");
+    }
+
+    @Test
+    void naiveBayesWithEvidenceTemplates() {
+        var feature = new GanglionDescriptor.NaiveBayes.Feature(
+                new JQExpressionEvaluator(".data.severity"),
+                List.of("LOW", "HIGH"),
+                new double[][]{{0.8, 0.2}, {0.3, 0.7}});
+        var mapping = new GanglionDescriptor.NaiveBayes.SignalMapping(
+                "ANOMALY", 0.75, 0.30, null);
+
+        var descriptor = new GanglionDescriptor.NaiveBayes(
+                "bayes-1", Set.of("sensor.reading"),
+                List.of("NORMAL", "ANOMALY"), new double[]{0.9, 0.1},
+                Map.of("severity", feature), mapping,
+                Map.of("raw_sev", new JQExpressionEvaluator(".data.severity")));
+
+        assertThat(descriptor.evidenceTemplates()).containsKey("raw_sev");
+    }
+
+
+    @Test
+    void sealedInterfacePermitsNaiveBayesAndExpressionRules() {
         assertThat(GanglionDescriptor.class.isSealed()).isTrue();
         assertThat(GanglionDescriptor.class.getPermittedSubclasses())
-                .hasSize(1)
-                .allSatisfy(c -> assertThat(c.getSimpleName()).isEqualTo("NaiveBayes"));
+                .hasSize(2)
+                .extracting(Class::getSimpleName)
+                .containsExactlyInAnyOrder("NaiveBayes", "ExpressionRules");
     }
 }

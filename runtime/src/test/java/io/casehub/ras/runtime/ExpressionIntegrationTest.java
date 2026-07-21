@@ -3,7 +3,8 @@ package io.casehub.ras.runtime;
 import io.casehub.platform.expression.DefaultExpressionEngineRegistry;
 import io.casehub.platform.expression.JQExpressionEngine;
 import io.casehub.platform.expression.MvelExpressionEngine;
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.DetectionSignal;
+import io.casehub.ras.api.SituationChangeEvent;
 import io.casehub.ras.persistence.memory.InMemorySituationStore;
 import io.casehub.ras.testing.FixedDetectionResult;
 import io.casehub.ras.testing.MockCaseTrigger;
@@ -153,6 +154,88 @@ class ExpressionIntegrationTest {
         assertThat(caseTrigger.firedCases().get(0).context().correlationKey())
                 .isEqualTo("CUSTOM-42");
     }
+
+    @Test
+    void endToEnd_expressionRulesGanglion_withEvidenceTemplates() {
+        String yaml = """
+                      ganglia:
+                        - ganglionId: severity-checker
+                          type: expression-rules
+                          handledEventTypes: [sensor.reading]
+                          rules:
+                            - when:
+                                expression: ".data.severity == \\"HIGH\\""
+                                language: jq
+                              signal: DETECTED
+                              confidence: 0.9
+                            - when:
+                                expression: ".data.severity == \\"MEDIUM\\""
+                                language: jq
+                              signal: WEAK
+                              confidence: 0.5
+                            - otherwise:
+                              signal: NOISE
+                              confidence: 0.0
+                          evidenceTemplates:
+                            severity:
+                              expression: ".data.severity"
+                              language: jq
+                            source:
+                              expression: ".data.source"
+                              language: jq
+                      situations:
+                        - situationId: severity-alert
+                          eventTypes: [sensor.reading]
+                          correlationWindow: PT1H
+                          chainMode:
+                            type: or
+                            ganglia: [severity-checker]
+                          triggerAction:
+                            type: create-case
+                            caseNamespace: ops
+                            caseName: alert
+                            caseVersion: "1"
+                      """;
+        var provider = new YamlSituationDefinitionProvider(
+                new ByteArrayInputStream(yaml.getBytes(StandardCharsets.UTF_8)));
+
+        var exprRegistry = buildExpressionRegistry();
+        var registry = new SituationDefinitionRegistry(
+                List.of(provider), List.of(), exprRegistry,
+                new InMemoryGanglionStateStore(), new SimpleMeterRegistry());
+
+        var store       = new InMemorySituationStore();
+        var caseTrigger = new MockCaseTrigger();
+        var metrics     = new RasMetrics(registry);
+        metrics.setMeterRegistry(new SimpleMeterRegistry());
+        metrics.init();
+        var evaluator = new SituationEvaluator(store, new DefaultRasTriggerPolicy(),
+                                               caseTrigger, registry, 3, new NoOpChangeEvent(), metrics);
+        var engine = new RasEngine(registry, evaluator, metrics);
+
+        CloudEvent highEvent = CloudEventBuilder.v1()
+                                                .withId("evt-1").withSource(URI.create("/sensor"))
+                                                .withType("sensor.reading")
+                                                .withSubject("sensor-42")
+                                                .withTime(OffsetDateTime.now(ZoneOffset.UTC))
+                                                .withExtension("tenancyid", "tenant-A")
+                                                .withData("application/json",
+                                                          "{\"severity\":\"HIGH\",\"source\":\"factory-1\"}".getBytes())
+                                                .build();
+        engine.onCloudEvent(highEvent);
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+        var firedContext = caseTrigger.firedCases().get(0).context();
+        assertThat(firedContext.detections()).hasSize(1);
+
+        var detection = firedContext.detections().get(0).result();
+        assertThat(detection.signal()).isEqualTo(DetectionSignal.DETECTED);
+        assertThat(detection.confidence()).isEqualTo(0.9);
+        assertThat(detection.evidence()).containsEntry("matchedRuleIndex", 0);
+        assertThat(detection.evidence()).containsEntry("severity", "HIGH");
+        assertThat(detection.evidence()).containsEntry("source", "factory-1");
+    }
+
 
     private static DefaultExpressionEngineRegistry buildExpressionRegistry() {
         var registry = new DefaultExpressionEngineRegistry();

@@ -443,7 +443,8 @@ class SituationDefinitionRegistryTest {
                         new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f"),
                         List.of("X", "Y"),
                         new double[][]{{0.8, 0.2}, {0.3, 0.7}})),
-                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("ANOMALY", 0.75, 0.30, null));
+                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("ANOMALY", 0.75, 0.30, null),
+                Map.of());
 
         io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
             public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
@@ -467,7 +468,8 @@ class SituationDefinitionRegistryTest {
                 Map.of("f1", new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.Feature(
                         new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f"),
                         List.of("X"), new double[][]{{0.6}, {0.4}})),
-                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null));
+                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null),
+                Map.of());
 
         io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
             public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
@@ -492,7 +494,8 @@ class SituationDefinitionRegistryTest {
                 Map.of("f1", new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.Feature(
                         new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f"),
                         List.of("X"), new double[][]{{0.6}, {0.4}})),
-                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null));
+                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null),
+                Map.of());
 
         var def = definition("sit-1", Set.of("test.event"), new ChainMode.Or(Set.of("desc-g")));
 
@@ -515,7 +518,8 @@ class SituationDefinitionRegistryTest {
         var descriptor = new io.casehub.ras.api.GanglionDescriptor.NaiveBayes(
                 "bad-g", Set.of("test.event"),
                 List.of("A", "B"), new double[]{0.7, 0.7},
-                Map.of(), new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null));
+                Map.of(), new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null),
+                Map.of());
 
         io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
             public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
@@ -530,6 +534,153 @@ class SituationDefinitionRegistryTest {
                                          .withMessageContaining("bad-g")
                                          .withMessageContaining("priors must sum to 1.0");
     }
+
+    @Test
+    void evidenceTemplatesWrappedInEvidenceExtractingGanglion() {
+        var descriptor = new io.casehub.ras.api.GanglionDescriptor.NaiveBayes(
+                "evid-g", Set.of("test.event"),
+                List.of("A", "B"), new double[]{0.5, 0.5},
+                Map.of("f1", new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.Feature(
+                        new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f"),
+                        List.of("X"), new double[][]{{0.6}, {0.4}})),
+                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null),
+                Map.of("raw", new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f")));
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(descriptor);}
+        };
+
+        var registry = new SituationDefinitionRegistry(
+                List.of(provider), List.of(),
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+
+        assertThat(registry.ganglion("evid-g")).isInstanceOf(EvidenceExtractingGanglion.class);
+    }
+
+    @Test
+    void evidenceTemplatesEmptyNoWrapping() {
+        var descriptor = new io.casehub.ras.api.GanglionDescriptor.NaiveBayes(
+                "no-evid", Set.of("test.event"),
+                List.of("A", "B"), new double[]{0.5, 0.5},
+                Map.of("f1", new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.Feature(
+                        new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f"),
+                        List.of("X"), new double[][]{{0.6}, {0.4}})),
+                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null),
+                Map.of());
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(descriptor);}
+        };
+
+        var registry = new SituationDefinitionRegistry(
+                List.of(provider), List.of(),
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+
+        assertThat(registry.ganglion("no-evid")).isInstanceOf(NaiveBayesGanglion.class);
+    }
+
+    @Test
+    void expressionRulesDescriptorRegisteredAndFindable() {
+        var descriptor = new io.casehub.ras.api.GanglionDescriptor.ExpressionRules(
+                "rules-g", Set.of("test.event"),
+                List.of(new io.casehub.ras.api.GanglionDescriptor.ExpressionRules.Rule(
+                        new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.x == \"Y\""),
+                        io.casehub.ras.api.DetectionSignal.DETECTED, 0.9)),
+                Map.of());
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(descriptor);}
+        };
+
+        var registry = new SituationDefinitionRegistry(
+                List.of(provider), List.of(),
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+
+        assertThat(registry.ganglion("rules-g")).isNotNull();
+        assertThat(registry.ganglion("rules-g")).isInstanceOf(ExpressionRulesGanglion.class);
+    }
+
+    @Test
+    void expressionRulesWithEvidenceTemplatesWrapped() {
+        var descriptor = new io.casehub.ras.api.GanglionDescriptor.ExpressionRules(
+                "rules-evid", Set.of("test.event"),
+                List.of(new io.casehub.ras.api.GanglionDescriptor.ExpressionRules.Rule(
+                        null, io.casehub.ras.api.DetectionSignal.NOISE, 0.0)),
+                Map.of("raw", new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.x")));
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(descriptor);}
+        };
+
+        var registry = new SituationDefinitionRegistry(
+                List.of(provider), List.of(),
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+
+        assertThat(registry.ganglion("rules-evid")).isInstanceOf(EvidenceExtractingGanglion.class);
+    }
+
+    @Test
+    void expressionRulesAndNaiveBayesCoexist() {
+        var nbDescriptor = new io.casehub.ras.api.GanglionDescriptor.NaiveBayes(
+                "nb-g", Set.of("test.event"),
+                List.of("A", "B"), new double[]{0.5, 0.5},
+                Map.of("f1", new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.Feature(
+                        new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f"),
+                        List.of("X"), new double[][]{{0.6}, {0.4}})),
+                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null),
+                Map.of());
+
+        var erDescriptor = new io.casehub.ras.api.GanglionDescriptor.ExpressionRules(
+                "er-g", Set.of("test.event"),
+                List.of(new io.casehub.ras.api.GanglionDescriptor.ExpressionRules.Rule(
+                        null, io.casehub.ras.api.DetectionSignal.NOISE, 0.0)),
+                Map.of());
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(nbDescriptor, erDescriptor);}
+        };
+
+        var registry = new SituationDefinitionRegistry(
+                List.of(provider), List.of(),
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+
+        assertThat(registry.ganglion("nb-g")).isInstanceOf(NaiveBayesGanglion.class);
+        assertThat(registry.ganglion("er-g")).isInstanceOf(ExpressionRulesGanglion.class);
+    }
+
+    @Test
+    void duplicateGanglionIdAcrossExpressionRulesAndCdiThrows() {
+        var descriptor = new io.casehub.ras.api.GanglionDescriptor.ExpressionRules(
+                "dup-g", Set.of("test.event"),
+                List.of(new io.casehub.ras.api.GanglionDescriptor.ExpressionRules.Rule(
+                        null, io.casehub.ras.api.DetectionSignal.NOISE, 0.0)),
+                Map.of());
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<io.casehub.ras.api.SituationRegistration> registrations()    {return List.of();}
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(descriptor);}
+        };
+
+        var cdiGanglion = ganglion("dup-g", "test.event");
+
+        assertThatIllegalStateException().isThrownBy(() ->
+                                                             new SituationDefinitionRegistry(
+                                                                     List.of(provider), List.of(cdiGanglion),
+                                                                     new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null))
+                                         .withMessageContaining("Duplicate ganglionId 'dup-g'");
+    }
+
 
     private static class StubExpressionEngineRegistry implements ExpressionEngineRegistry {
         int compileCount = 0;
