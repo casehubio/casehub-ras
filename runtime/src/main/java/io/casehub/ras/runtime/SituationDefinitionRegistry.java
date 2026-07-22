@@ -142,6 +142,17 @@ public class SituationDefinitionRegistry {
         return list;
     }
 
+    /**
+     * Public factory for unit tests outside this package.
+     * Production code uses the {@code @Inject} constructor via CDI.
+     */
+    public static SituationDefinitionRegistry forTesting(
+            List<SituationDefinitionProvider> providers,
+            List<Ganglion> ganglia) {
+        return new SituationDefinitionRegistry(providers, ganglia);
+    }
+
+
     public List<SituationRegistration> findByEventType(String eventType) {
         return snapshot.byEventType().getOrDefault(eventType, List.of());
     }
