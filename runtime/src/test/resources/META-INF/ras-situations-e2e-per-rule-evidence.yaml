@@ -1,0 +1,30 @@
+ganglia:
+  - ganglionId: e2e-rules
+    type: expression-rules
+    handledEventTypes: [test.e2e]
+    rules:
+      - when:
+          expression: ".data.severity == \"HIGH\""
+          language: jq
+        signal: DETECTED
+        confidence: 0.9
+        evidenceTemplates:
+          reason:
+            expression: ".data.reason"
+            language: jq
+      - otherwise:
+        signal: NOISE
+        confidence: 0.0
+    evidenceTemplates:
+      severity:
+        expression: ".data.severity"
+        language: jq
+
+situations:
+  - situationId: e2e-per-rule
+    eventTypes: [test.e2e]
+    chainMode:
+      type: or
+      ganglia: [e2e-rules]
+    triggerAction:
+      type: notify-only

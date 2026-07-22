@@ -10,9 +10,8 @@ import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.TimestampedDetection;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
-import org.junit.jupiter.api.Test;
-
 import io.smallrye.mutiny.Uni;
+import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.time.Instant;
@@ -52,11 +51,12 @@ class NaiveBayesGanglionTest {
                         List.of("LOW", "MEDIUM", "HIGH"),
                         new double[][]{{0.7, 0.25, 0.05}, {0.1, 0.3, 0.6}})),
                 event -> Map.of("severity", "HIGH"),
-                new NaiveBayesSignalMapping("ANOMALY", 0.75, 0.30, 0.05));
+                new NaiveBayesSignalMapping("ANOMALY", 0.75, 0.30, 0.05),
+                Map.of());
     }
 
     private static NaiveBayesGanglion twoOutcomeGanglion() {
-        return new NaiveBayesGanglion(twoOutcomeConfig(), new InMemoryGanglionStateStore());
+        return new NaiveBayesGanglion(twoOutcomeConfig(), new InMemoryGanglionStateStore(), null);
     }
 
     // --- Basic properties ---
@@ -99,7 +99,7 @@ class NaiveBayesGanglionTest {
                                 List.of("TRUSTED", "UNKNOWN"),
                                 new double[][]{{0.9, 0.1}, {0.3, 0.7}})),
                 event -> Map.of("severity", "HIGH", "source", "UNKNOWN"),
-                new NaiveBayesSignalMapping("ANOMALY", 0.75, 0.30)), new InMemoryGanglionStateStore());
+                new NaiveBayesSignalMapping("ANOMALY", 0.75, 0.30), Map.of()), new InMemoryGanglionStateStore(), null);
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
@@ -138,7 +138,7 @@ class NaiveBayesGanglionTest {
                 Map.of("known", new FeatureLikelihood(
                         List.of("X"), new double[][]{{0.6}, {0.4}})),
                 event -> Map.of("unknown_feature", "value"),
-                new NaiveBayesSignalMapping("B", 0.75, 0.30)), new InMemoryGanglionStateStore());
+                new NaiveBayesSignalMapping("B", 0.75, 0.30), Map.of()), new InMemoryGanglionStateStore(), null);
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
@@ -158,7 +158,7 @@ class NaiveBayesGanglionTest {
                 Map.of("feature", new FeatureLikelihood(
                         List.of("X", "Y"), new double[][]{{0.7, 0.3}, {0.4, 0.6}})),
                 event -> Map.of("feature", "UNKNOWN_VALUE"),
-                new NaiveBayesSignalMapping("B", 0.75, 0.30)), new InMemoryGanglionStateStore());
+                new NaiveBayesSignalMapping("B", 0.75, 0.30), Map.of()), new InMemoryGanglionStateStore(), null);
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
@@ -179,7 +179,7 @@ class NaiveBayesGanglionTest {
                 new double[]{0.1, 0.9},
                 Map.of(),
                 event -> Map.of(),
-                new NaiveBayesSignalMapping("B", 0.75, 0.30)), new InMemoryGanglionStateStore());
+                new NaiveBayesSignalMapping("B", 0.75, 0.30), Map.of()), new InMemoryGanglionStateStore(), null);
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
@@ -198,7 +198,7 @@ class NaiveBayesGanglionTest {
                 new double[]{0.6, 0.4},
                 Map.of(),
                 event -> Map.of(),
-                new NaiveBayesSignalMapping("B", 0.75, 0.30)), new InMemoryGanglionStateStore());
+                new NaiveBayesSignalMapping("B", 0.75, 0.30), Map.of()), new InMemoryGanglionStateStore(), null);
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
@@ -217,7 +217,7 @@ class NaiveBayesGanglionTest {
                 new double[]{0.85, 0.15},
                 Map.of(),
                 event -> Map.of(),
-                new NaiveBayesSignalMapping("B", 0.75, 0.30)), new InMemoryGanglionStateStore());
+                new NaiveBayesSignalMapping("B", 0.75, 0.30), Map.of()), new InMemoryGanglionStateStore(), null);
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
@@ -238,7 +238,7 @@ class NaiveBayesGanglionTest {
                 new double[]{0.97, 0.03},
                 Map.of(),
                 event -> Map.of(),
-                new NaiveBayesSignalMapping("B", 0.75, 0.30, 0.05)), new InMemoryGanglionStateStore());
+                new NaiveBayesSignalMapping("B", 0.75, 0.30, 0.05), Map.of()), new InMemoryGanglionStateStore(), null);
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
@@ -257,7 +257,7 @@ class NaiveBayesGanglionTest {
                 new double[]{0.97, 0.03},
                 Map.of(),
                 event -> Map.of(),
-                new NaiveBayesSignalMapping("B", 0.75, 0.30)), new InMemoryGanglionStateStore());
+                new NaiveBayesSignalMapping("B", 0.75, 0.30), Map.of()), new InMemoryGanglionStateStore(), null);
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
@@ -432,7 +432,7 @@ class NaiveBayesGanglionTest {
     @Test
     void posteriorsSurviveStoreRoundTrip() {
         var stateStore = new InMemoryGanglionStateStore();
-        var ganglion1  = new NaiveBayesGanglion(twoOutcomeConfig(), stateStore);
+        var ganglion1  = new NaiveBayesGanglion(twoOutcomeConfig(), stateStore, null);
         var ctx        = testContext();
         var event      = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
 
@@ -441,7 +441,7 @@ class NaiveBayesGanglionTest {
         DetectionResult r1 = ganglion1.detect(event, ctx).await().indefinitely();
         double          p1 = (double) r1.evidence().get("posterior");
 
-        var             ganglion2 = new NaiveBayesGanglion(twoOutcomeConfig(), stateStore);
+        var             ganglion2 = new NaiveBayesGanglion(twoOutcomeConfig(), stateStore, null);
         DetectionResult r2        = ganglion2.detect(event, ctx).await().indefinitely();
         double          p2        = (double) r2.evidence().get("posterior");
 
@@ -472,7 +472,7 @@ class NaiveBayesGanglionTest {
             }
         };
 
-        var ganglion = new NaiveBayesGanglion(twoOutcomeConfig(), conflictingStore);
+        var ganglion = new NaiveBayesGanglion(twoOutcomeConfig(), conflictingStore, null);
         var ctx      = testContext();
         var event    = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
 
@@ -480,5 +480,93 @@ class NaiveBayesGanglionTest {
 
         assertThat(result).isNotNull();
         assertThat(callCount.get()).isEqualTo(2);
+    }
+
+    @Test
+    void winningOutcomeInEvidence() {
+        var             ganglion = twoOutcomeGanglion();
+        var             event    = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
+        DetectionResult result   = ganglion.detect(event, testContext()).await().indefinitely();
+        assertThat(result.evidence()).containsKey("winningOutcome");
+        String winner = (String) result.evidence().get("winningOutcome");
+        assertThat(winner).isIn("NORMAL", "ANOMALY");
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    @Test
+    void perOutcomeEvidenceEvaluatedForWinningOutcome() {
+        io.casehub.platform.api.expression.CompiledExpression<java.util.Map, Object> template =
+                new io.casehub.platform.api.expression.CompiledExpression<>() {
+                    @Override
+                    public String type()                      {return "test";}
+
+                    @Override
+                    public Object eval(java.util.Map context) {return "extracted";}
+                };
+        var config = new NaiveBayesConfig("g", Set.of("test.event"),
+                                          List.of("A", "B"), new double[]{0.1, 0.9},
+                                          Map.of(), event -> Map.of(),
+                                          new NaiveBayesSignalMapping("B", 0.75, 0.30),
+                                          Map.of("B", Map.of("custom", template)));
+        var             ganglion = new NaiveBayesGanglion(config, new InMemoryGanglionStateStore(), null);
+        var             event    = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
+        DetectionResult result   = ganglion.detect(event, testContext()).await().indefinitely();
+        assertThat(result.evidence()).containsEntry("custom", "extracted");
+        assertThat(result.evidence().get("winningOutcome")).isEqualTo("B");
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    @Test
+    void nonWinningOutcomeTemplatesNotEvaluated() {
+        var shouldNotBeCalled = new java.util.concurrent.atomic.AtomicBoolean(false);
+        io.casehub.platform.api.expression.CompiledExpression<java.util.Map, Object> trap =
+                new io.casehub.platform.api.expression.CompiledExpression<>() {
+                    @Override
+                    public String type()                      {return "test";}
+
+                    @Override
+                    public Object eval(java.util.Map context) {
+                                                                  shouldNotBeCalled.set(true);
+                                                                  return "trap";
+                                                              }
+                };
+        var config = new NaiveBayesConfig("g", Set.of("test.event"),
+                                          List.of("A", "B"), new double[]{0.1, 0.9},
+                                          Map.of(), event -> Map.of(),
+                                          new NaiveBayesSignalMapping("B", 0.75, 0.30),
+                                          Map.of("A", Map.of("trap_key", trap)));
+        var ganglion = new NaiveBayesGanglion(config, new InMemoryGanglionStateStore(), null);
+        ganglion.detect(testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
+                        testContext()).await().indefinitely();
+        assertThat(shouldNotBeCalled.get()).isFalse();
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    @Test
+    void perOutcomeEvidenceErrorMetric() {
+        io.casehub.platform.api.expression.CompiledExpression<java.util.Map, Object> bad =
+                new io.casehub.platform.api.expression.CompiledExpression<>() {
+                    @Override
+                    public String type()                      {return "test";}
+
+                    @Override
+                    public Object eval(java.util.Map context) {throw new RuntimeException("boom");}
+                };
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        var config = new NaiveBayesConfig("g", Set.of("test.event"),
+                                          List.of("A", "B"), new double[]{0.1, 0.9},
+                                          Map.of(), event -> Map.of(),
+                                          new NaiveBayesSignalMapping("B", 0.75, 0.30),
+                                          Map.of("B", Map.of("bad_key", bad)));
+        var ganglion = new NaiveBayesGanglion(config, new InMemoryGanglionStateStore(), registry);
+        ganglion.detect(testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
+                        testContext()).await().indefinitely();
+        var counter = registry.find("ras.expression.error")
+                              .tag("ganglion_id", "g")
+                              .tag("evidence_key", "bad_key")
+                              .tag("outcome", "B")
+                              .tag("expression_point", "outcome_evidence_extraction").counter();
+        assertThat(counter).isNotNull();
+        assertThat(counter.count()).isEqualTo(1.0);
     }
 }

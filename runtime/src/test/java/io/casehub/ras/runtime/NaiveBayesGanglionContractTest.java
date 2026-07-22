@@ -25,7 +25,7 @@ class NaiveBayesGanglionContractTest extends AbstractGanglionContractTest {
                         List.of("X", "Y"),
                         new double[][]{{0.7, 0.3}, {0.4, 0.6}})),
                 event -> Map.of("f", "X"),
-                new NaiveBayesSignalMapping("B", 0.75, 0.30)), new InMemoryGanglionStateStore());
+                new NaiveBayesSignalMapping("B", 0.75, 0.30), Map.of()), new InMemoryGanglionStateStore(), null);
     }
 
     @Override

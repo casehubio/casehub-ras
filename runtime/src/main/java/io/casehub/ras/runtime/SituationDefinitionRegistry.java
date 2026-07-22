@@ -274,7 +274,7 @@ public class SituationDefinitionRegistry {
             }
 
             Set<String> autoKeys = switch (descriptor) {
-                case io.casehub.ras.api.GanglionDescriptor.NaiveBayes ignored -> Set.of("posterior", "features");
+                case io.casehub.ras.api.GanglionDescriptor.NaiveBayes ignored -> Set.of("posterior", "features", "winningOutcome");
                 case io.casehub.ras.api.GanglionDescriptor.ExpressionRules ignored -> Set.of("matchedRuleIndex");
             };
             for (String templateKey : compiled.keySet()) {
@@ -317,13 +317,35 @@ public class SituationDefinitionRegistry {
                 nb.signalMapping().weakThreshold(),
                 nb.signalMapping().antiThreshold());
 
+        Map<String, Map<String, CompiledExpression<Map, Object>>> compiledOutcomeEvidence = Map.of();
+        if (!nb.outcomeEvidenceTemplates().isEmpty()) {
+            var outcomeMap = new LinkedHashMap<String, Map<String, CompiledExpression<Map, Object>>>();
+            Set<String> nbAutoKeys = Set.of("posterior", "features", "winningOutcome");
+            for (var entry : nb.outcomeEvidenceTemplates().entrySet()) {
+                var templateMap = new LinkedHashMap<String, CompiledExpression<Map, Object>>();
+                for (var tmpl : entry.getValue().entrySet()) {
+                    templateMap.put(tmpl.getKey(), compileExpression(
+                            tmpl.getValue(), nb.ganglionId(), Map.class, Object.class));
+                    if (nbAutoKeys.contains(tmpl.getKey())) {
+                        LOG.warning("Per-outcome evidence template key '" + tmpl.getKey()
+                                    + "' for outcome '" + entry.getKey()
+                                    + "' in ganglion '" + nb.ganglionId()
+                                    + "' shadows automatic evidence key — template will overwrite");
+                    }
+                }
+                outcomeMap.put(entry.getKey(), Map.copyOf(templateMap));
+            }
+            compiledOutcomeEvidence = Map.copyOf(outcomeMap);
+        }
+
         var config = new NaiveBayesConfig(
                 nb.ganglionId(), nb.handledEventTypes(),
                 nb.outcomes(), nb.priors(),
-                features, featureExtractor, signalMapping);
+                features, featureExtractor, signalMapping, compiledOutcomeEvidence);
 
         return new NaiveBayesGanglion(config,
-                                      stateStore != null ? stateStore : new InMemoryGanglionStateStore());
+                                      stateStore != null ? stateStore : new InMemoryGanglionStateStore(),
+                                      meterRegistry);
     }
 
     @SuppressWarnings("unchecked")
@@ -335,8 +357,22 @@ public class SituationDefinitionRegistry {
             CompiledExpression<Map, Boolean> compiled = rule.when() != null
                                                         ? compileExpression(rule.when(), er.ganglionId(), Map.class, Boolean.class)
                                                         : null;
+            Map<String, CompiledExpression<Map, Object>> compiledEvidence = Map.of();
+            if (!rule.evidenceTemplates().isEmpty()) {
+                var evidenceMap = new LinkedHashMap<String, CompiledExpression<Map, Object>>();
+                for (var entry : rule.evidenceTemplates().entrySet()) {
+                    evidenceMap.put(entry.getKey(), compileExpression(
+                            entry.getValue(), er.ganglionId(), Map.class, Object.class));
+                    if ("matchedRuleIndex".equals(entry.getKey())) {
+                        LOG.warning("Per-rule evidence template key 'matchedRuleIndex' in rule " + i
+                                    + " of ganglion '" + er.ganglionId()
+                                    + "' shadows automatic evidence key — template will overwrite");
+                    }
+                }
+                compiledEvidence = Map.copyOf(evidenceMap);
+            }
             compiledRules.add(new ExpressionRulesGanglion.CompiledRule(
-                    compiled, rule.signal(), rule.confidence()));
+                    compiled, rule.signal(), rule.confidence(), compiledEvidence));
         }
         return new ExpressionRulesGanglion(
                 er.ganglionId(), er.handledEventTypes(), compiledRules, meterRegistry);

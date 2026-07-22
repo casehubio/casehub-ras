@@ -1127,4 +1127,197 @@ class YamlSituationDefinitionProviderTest {
         java.util.Map<String, String> features = (java.util.Map<String, String>) result.evidence().get("features");
         assertThat(features).containsEntry("severity", "HIGH");
     }
+
+    @Test
+    void parsesPerRuleEvidenceTemplates() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: rule-evid
+                                    type: expression-rules
+                                    handledEventTypes: [test.event]
+                                    rules:
+                                      - when:
+                                          expression: ".data.x == \\"HIGH\\""
+                                          language: jq
+                                        signal: DETECTED
+                                        confidence: 0.9
+                                        evidenceTemplates:
+                                          reason:
+                                            expression: ".data.reason"
+                                            language: jq
+                                      - otherwise:
+                                        signal: NOISE
+                                        confidence: 0.0
+                                """);
+        var er = (io.casehub.ras.api.GanglionDescriptor.ExpressionRules) provider.ganglionDescriptors().getFirst();
+        assertThat(er.rules().get(0).evidenceTemplates()).containsKey("reason");
+        assertThat(er.rules().get(1).evidenceTemplates()).isEmpty();
+    }
+
+    @Test
+    void perRuleEvidenceTemplatesAbsentDefaultsToEmpty() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: no-evid
+                                    type: expression-rules
+                                    handledEventTypes: [test.event]
+                                    rules:
+                                      - when:
+                                          expression: ".data.x"
+                                          language: jq
+                                        signal: DETECTED
+                                        confidence: 0.9
+                                """);
+        var er = (io.casehub.ras.api.GanglionDescriptor.ExpressionRules) provider.ganglionDescriptors().getFirst();
+        assertThat(er.rules().get(0).evidenceTemplates()).isEmpty();
+    }
+
+    @Test
+    void parsesOutcomeEvidenceTemplates() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: outcome-evid
+                                    type: naive-bayes
+                                    handledEventTypes: [test.event]
+                                    outcomes: [A, B]
+                                    priors: [0.5, 0.5]
+                                    features:
+                                      f1:
+                                        expression: ".data.f"
+                                        language: jq
+                                        values: [X]
+                                        likelihoods:
+                                          - [1]
+                                          - [1]
+                                    signalMapping:
+                                      targetOutcome: B
+                                      detectedThreshold: 0.75
+                                      weakThreshold: 0.30
+                                    outcomeEvidenceTemplates:
+                                      A:
+                                        reason:
+                                          expression: ".data.reason"
+                                          language: jq
+                                      B:
+                                        detail:
+                                          expression: ".data.detail"
+                                          language: jq
+                                """);
+        var nb = (io.casehub.ras.api.GanglionDescriptor.NaiveBayes) provider.ganglionDescriptors().getFirst();
+        assertThat(nb.outcomeEvidenceTemplates()).hasSize(2);
+        assertThat(nb.outcomeEvidenceTemplates().get("A")).containsKey("reason");
+        assertThat(nb.outcomeEvidenceTemplates().get("B")).containsKey("detail");
+    }
+
+    @Test
+    void outcomeEvidenceTemplatesAbsentDefaultsToEmpty() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: no-oet
+                                    type: naive-bayes
+                                    handledEventTypes: [test.event]
+                                    outcomes: [A, B]
+                                    priors: [0.5, 0.5]
+                                    features:
+                                      f1:
+                                        expression: ".data.f"
+                                        language: jq
+                                        values: [X]
+                                        likelihoods:
+                                          - [1]
+                                          - [1]
+                                    signalMapping:
+                                      targetOutcome: B
+                                      detectedThreshold: 0.75
+                                      weakThreshold: 0.30
+                                """);
+        var nb = (io.casehub.ras.api.GanglionDescriptor.NaiveBayes) provider.ganglionDescriptors().getFirst();
+        assertThat(nb.outcomeEvidenceTemplates()).isEmpty();
+    }
+
+    @Test
+    void outcomeEvidenceTemplatesUnknownOutcomeThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() -> provider("""
+                                                                       ganglia:
+                                                                         - ganglionId: bad
+                                                                           type: naive-bayes
+                                                                           handledEventTypes: [test.event]
+                                                                           outcomes: [A, B]
+                                                                           priors: [0.5, 0.5]
+                                                                           features:
+                                                                             f1:
+                                                                               expression: ".data.f"
+                                                                               language: jq
+                                                                               values: [X]
+                                                                               likelihoods:
+                                                                                 - [1]
+                                                                                 - [1]
+                                                                           signalMapping:
+                                                                             targetOutcome: B
+                                                                             detectedThreshold: 0.75
+                                                                             weakThreshold: 0.30
+                                                                           outcomeEvidenceTemplates:
+                                                                             UNKNOWN:
+                                                                               reason:
+                                                                                 expression: ".data.x"
+                                                                                 language: jq
+                                                                       """))
+                                            .withMessageContaining("UNKNOWN")
+                                            .withMessageContaining("not in outcomes");
+    }
+
+    @Test
+    void endToEndPerRuleEvidenceTemplates() {
+        var provider = new YamlSituationDefinitionProvider(
+                Thread.currentThread().getContextClassLoader()
+                      .getResourceAsStream("META-INF/ras-situations-e2e-per-rule-evidence.yaml"));
+
+        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        engines.register(new io.casehub.platform.expression.JQExpressionEngine());
+        var registry = new SituationDefinitionRegistry(
+                java.util.List.of(provider), java.util.List.of(), engines, new InMemoryGanglionStateStore(), null);
+
+        var event = io.cloudevents.core.builder.CloudEventBuilder.v1()
+                                                                 .withId("e2e-1").withSource(java.net.URI.create("/test")).withType("test.e2e")
+                                                                 .withSubject("device-1")
+                                                                 .withData("application/json", "{\"severity\":\"HIGH\",\"reason\":\"temperature spike\"}".getBytes())
+                                                                 .build();
+
+        var ganglion = registry.ganglion("e2e-rules");
+        var ctx = io.casehub.ras.api.SituationContext.initial("e2e-per-rule", "device-1", "tenant-1",
+                                                              java.time.Instant.parse("2026-07-22T10:00:00Z"));
+        var result = ganglion.detect(event, ctx).await().indefinitely();
+
+        assertThat(result.evidence()).containsEntry("matchedRuleIndex", 0);
+        assertThat(result.evidence()).containsEntry("reason", "temperature spike");
+        assertThat(result.evidence()).containsEntry("severity", "HIGH");
+    }
+
+    @Test
+    void endToEndPerOutcomeEvidenceTemplates() {
+        var provider = new YamlSituationDefinitionProvider(
+                Thread.currentThread().getContextClassLoader()
+                      .getResourceAsStream("META-INF/ras-situations-e2e-per-outcome-evidence.yaml"));
+
+        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        engines.register(new io.casehub.platform.expression.JQExpressionEngine());
+        var registry = new SituationDefinitionRegistry(
+                java.util.List.of(provider), java.util.List.of(), engines, new InMemoryGanglionStateStore(), null);
+
+        var event = io.cloudevents.core.builder.CloudEventBuilder.v1()
+                                                                 .withId("e2e-1").withSource(java.net.URI.create("/test")).withType("test.e2e")
+                                                                 .withSubject("sensor-1")
+                                                                 .withData("application/json",
+                                                                           "{\"severity\":\"HIGH\",\"anomalyType\":\"overheating\",\"sensorId\":\"S42\"}".getBytes())
+                                                                 .build();
+
+        var ganglion = registry.ganglion("e2e-bayes-outcome");
+        var ctx = io.casehub.ras.api.SituationContext.initial("e2e-per-outcome", "sensor-1", "tenant-1",
+                                                              java.time.Instant.parse("2026-07-22T10:00:00Z"));
+        var result = ganglion.detect(event, ctx).await().indefinitely();
+
+        assertThat(result.evidence()).containsKey("posterior");
+        assertThat(result.evidence()).containsKey("winningOutcome");
+        assertThat(result.evidence()).containsEntry("sensor_id", "S42");
+    }
 }

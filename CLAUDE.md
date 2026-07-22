@@ -42,6 +42,7 @@ Multiple ganglia, one RAS per deployment context.
 - ExpressionEvaluator integration: `docs/superpowers/specs/2026-07-17-expression-evaluator-integration-design.md`
 - JQ Map context + NaiveBayes expressions: `docs/superpowers/specs/2026-07-20-jq-map-context-naivebayes-expressions-design.md`
 - Evidence templates + expression-rule ganglion: `docs/superpowers/specs/2026-07-21-evidence-templates-expression-rules-design.md`
+- Per-decision-path evidence templates: `docs/superpowers/specs/2026-07-22-per-decision-path-evidence-templates-design.md`
 
 ## Build Commands
 
@@ -149,6 +150,10 @@ Concrete class in `runtime/`, configured via `NaiveBayesConfig`. Incrementally a
 `detect()` calls using Naive Bayes. Log-space arithmetic prevents underflow. Implements `compact()` to collapse
 running posteriors into a single detection — necessary for correct Threshold ChainMode interaction. Config types:
 `NaiveBayesConfig`, `FeatureLikelihood`, `NaiveBayesFeatureExtractor`, `NaiveBayesSignalMapping` (with optional ANTI threshold).
+Automatic evidence: `posterior` (target outcome posterior), `features` (extracted feature values),
+`winningOutcome` (outcome with highest posterior). Per-outcome evidence: evaluates
+`outcomeEvidenceTemplates` from `NaiveBayesConfig` for the winning outcome, merged after auto evidence.
+Constructor: 3-arg `(NaiveBayesConfig, GanglionStateStore, MeterRegistry)` — MeterRegistry nullable.
 
 ### CorrelationKeyExtractor — custom correlation key extraction (api/)
 
@@ -175,7 +180,11 @@ Permits `NaiveBayes` (Bayesian classification with per-feature expression extrac
 `ExpressionRules` (ordered boolean condition→signal rules, first match wins). Cross-cutting
 `evidenceTemplates()` default method — any variant can carry expression-based evidence
 extraction templates. Registry wraps descriptor-constructed ganglia in
-`EvidenceExtractingGanglion` when templates are present.
+`EvidenceExtractingGanglion` when templates are present. Per-decision-path evidence:
+`ExpressionRules.Rule` carries per-rule `evidenceTemplates` (evaluated by
+`ExpressionRulesGanglion` for the matched rule). `NaiveBayes` carries
+`outcomeEvidenceTemplates` (evaluated by `NaiveBayesGanglion` for the winning outcome).
+Merge order: automatic evidence → per-decision-path → ganglion-level (wrapper).
 
 ### SituationDefinitionProvider — situation registration SPI (api/)
 
@@ -223,7 +232,7 @@ Bundles a `SituationDefinition` with compiled strategies. `correlationKeyExtract
 | `GanglionState` | Ganglion computation state — `double[] values`, `OptionalLong storeVersion`. Carries log-posteriors (or other numeric accumulation) with optional version for optimistic locking. |
 | `GanglionStateConflictException` | Thrown by `GanglionStateStore.save()` on concurrent modification — ganglion catches and retries internally. Mirrors `SituationConflictException`. |
 | `DroolsSessionStoreException` | Unchecked exception in `ras-drools/` — thrown by `DroolsSessionStore` implementations on storage read failure. Part of the SPI contract. |
-| `GanglionDescriptor` | Sealed interface in api/ for declarative ganglion configuration. `NaiveBayes` variant carries outcomes, priors, per-feature expression + likelihood tables, signal mapping. `ExpressionRules` variant carries ordered boolean condition→signal rules. Cross-cutting `evidenceTemplates()` for expression-based evidence extraction. Registry constructs ganglion instances from descriptors during three-phase startup, wraps with `EvidenceExtractingGanglion` when evidence templates are present. |
+| `GanglionDescriptor` | Sealed interface in api/ for declarative ganglion configuration. `NaiveBayes` variant carries outcomes, priors, per-feature expression + likelihood tables, signal mapping, `outcomeEvidenceTemplates`. `ExpressionRules` variant carries ordered boolean condition→signal rules with per-rule `evidenceTemplates`. Cross-cutting `evidenceTemplates()` for expression-based evidence extraction. Registry constructs ganglion instances from descriptors during three-phase startup, wraps with `EvidenceExtractingGanglion` when ganglion-level evidence templates are present. Merge order: auto evidence → per-decision-path → ganglion-level. |
 
 ## Routing Model — Definition-Driven (Model B)
 
@@ -261,7 +270,9 @@ instances via a `type` discriminator. Supports `type: naive-bayes` (Bayesian cla
 `type: expression-rules` (ordered boolean condition→signal rules, first match wins). All ganglion
 types support optional `evidenceTemplates` — map of `{expression, language}` entries evaluated against
 `CloudEvent` at detection time, merged into `DetectionResult.evidence()`. Expression-rules ganglia
-automatically include `matchedRuleIndex` in evidence. `signal` and `confidence` required per rule,
+automatically include `matchedRuleIndex` in evidence and support per-rule `evidenceTemplates`
+on individual rules. NaiveBayes ganglia support `outcomeEvidenceTemplates` — per-outcome evidence
+keyed by outcome name, evaluated for the winning outcome. `signal` and `confidence` required per rule,
 validated at parse time (0.0–1.0 range, valid enum). `otherwise` must be last rule if present.
 All `{expression, language}` parsing consolidated via shared `parseExpressionEntry()`. Numeric
 YAML values coerced via `Number.doubleValue()`. Expression compilation and ganglion construction handled

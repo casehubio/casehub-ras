@@ -21,7 +21,8 @@ public sealed interface GanglionDescriptor {
             double[] priors,
             Map<String, Feature> features,
             SignalMapping signalMapping,
-            Map<String, ExpressionEvaluator> evidenceTemplates
+            Map<String, ExpressionEvaluator> evidenceTemplates,
+            Map<String, Map<String, ExpressionEvaluator>> outcomeEvidenceTemplates
     ) implements GanglionDescriptor {
 
         public record Feature(
@@ -48,7 +49,8 @@ public sealed interface GanglionDescriptor {
         public record Rule(
                 ExpressionEvaluator when,
                 DetectionSignal signal,
-                double confidence
+                double confidence,
+                Map<String, ExpressionEvaluator> evidenceTemplates
         ) {}
     }
 }

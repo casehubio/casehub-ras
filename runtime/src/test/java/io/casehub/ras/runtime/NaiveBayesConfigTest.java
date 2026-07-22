@@ -6,7 +6,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 class NaiveBayesConfigTest {
 
@@ -26,7 +28,8 @@ class NaiveBayesConfigTest {
                 new double[]{0.6, 0.4},
                 Map.of("feature1", twoOutcomeTwoValues()),
                 NOOP_EXTRACTOR,
-                VALID_MAPPING);
+                VALID_MAPPING,
+                Map.of());
     }
 
     @Test
@@ -43,7 +46,7 @@ class NaiveBayesConfigTest {
         assertThatNullPointerException()
                 .isThrownBy(() -> new NaiveBayesConfig(
                         null, Set.of("e"), List.of("A", "B"),
-                        new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING));
+                        new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING, Map.of()));
     }
 
     @Test
@@ -51,7 +54,7 @@ class NaiveBayesConfigTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new NaiveBayesConfig(
                         "g", Set.of(), List.of("A", "B"),
-                        new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING));
+                        new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING, Map.of()));
     }
 
     @Test
@@ -59,7 +62,7 @@ class NaiveBayesConfigTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new NaiveBayesConfig(
                         "g", Set.of("e"), List.of("A"),
-                        new double[]{1.0}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING));
+                        new double[]{1.0}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING, Map.of()));
     }
 
     @Test
@@ -67,7 +70,7 @@ class NaiveBayesConfigTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new NaiveBayesConfig(
                         "g", Set.of("e"), List.of("A", "B"),
-                        new double[]{0.5, 0.3, 0.2}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING))
+                        new double[]{0.5, 0.3, 0.2}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING, Map.of()))
                 .withMessageContaining("priors length");
     }
 
@@ -76,7 +79,7 @@ class NaiveBayesConfigTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new NaiveBayesConfig(
                         "g", Set.of("e"), List.of("A", "B"),
-                        new double[]{0.3, 0.3}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING))
+                        new double[]{0.3, 0.3}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING, Map.of()))
                 .withMessageContaining("sum to 1.0");
     }
 
@@ -85,7 +88,7 @@ class NaiveBayesConfigTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new NaiveBayesConfig(
                         "g", Set.of("e"), List.of("A", "B"),
-                        new double[]{1.0, 0.0}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING))
+                        new double[]{1.0, 0.0}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING, Map.of()))
                 .withMessageContaining("priors[1]")
                 .withMessageContaining("> 0.0");
     }
@@ -95,7 +98,7 @@ class NaiveBayesConfigTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new NaiveBayesConfig(
                         "g", Set.of("e"), List.of("A", "B"),
-                        new double[]{Double.NaN, 0.5}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING))
+                        new double[]{Double.NaN, 0.5}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING, Map.of()))
                 .withMessageContaining("NaN");
     }
 
@@ -107,7 +110,7 @@ class NaiveBayesConfigTest {
                 .isThrownBy(() -> new NaiveBayesConfig(
                         "g", Set.of("e"), List.of("A", "B"),
                         new double[]{0.5, 0.5}, Map.of("f", wrongRowCount),
-                        NOOP_EXTRACTOR, VALID_MAPPING))
+                        NOOP_EXTRACTOR, VALID_MAPPING, Map.of()))
                 .withMessageContaining("Feature 'f'")
                 .withMessageContaining("3 likelihood rows")
                 .withMessageContaining("2 outcomes");
@@ -118,7 +121,7 @@ class NaiveBayesConfigTest {
         assertThatNullPointerException()
                 .isThrownBy(() -> new NaiveBayesConfig(
                         "g", Set.of("e"), List.of("A", "B"),
-                        new double[]{0.5, 0.5}, Map.of(), null, VALID_MAPPING));
+                        new double[]{0.5, 0.5}, Map.of(), null, VALID_MAPPING, Map.of()));
     }
 
     @Test
@@ -126,7 +129,7 @@ class NaiveBayesConfigTest {
         assertThatNullPointerException()
                 .isThrownBy(() -> new NaiveBayesConfig(
                         "g", Set.of("e"), List.of("A", "B"),
-                        new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, null));
+                        new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, null, Map.of()));
     }
 
     @Test
@@ -135,7 +138,7 @@ class NaiveBayesConfigTest {
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new NaiveBayesConfig(
                         "g", Set.of("e"), List.of("A", "B"),
-                        new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, mismatched))
+                        new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, mismatched, Map.of()))
                 .withMessageContaining("MISSING")
                 .withMessageContaining("not in outcomes");
     }
@@ -144,8 +147,19 @@ class NaiveBayesConfigTest {
     void priorsAreDefensivelyCopied() {
         double[] priors = {0.6, 0.4};
         var config = new NaiveBayesConfig("g", Set.of("e"), List.of("A", "B"),
-                priors, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING);
+                priors, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING, Map.of());
         priors[0] = 999.0;
         assertThat(config.priors()[0]).isEqualTo(0.6);
+    }
+
+    @Test
+    void unknownOutcomeKeyInOutcomeEvidenceTemplatesIsRejected() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new NaiveBayesConfig(
+                        "g", Set.of("e"), List.of("A", "B"),
+                        new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING,
+                        Map.of("C", Map.of())))
+                .withMessageContaining("C")
+                .withMessageContaining("not in outcomes");
     }
 }

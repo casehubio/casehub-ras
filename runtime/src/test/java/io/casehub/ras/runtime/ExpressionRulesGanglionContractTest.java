@@ -24,7 +24,7 @@ class ExpressionRulesGanglionContractTest extends AbstractGanglionContractTest {
                             @Override public String type() { return "test"; }
                             @Override public Boolean eval(Map context) { return true; }
                         },
-                        DetectionSignal.DETECTED, 0.8)),
+                        DetectionSignal.DETECTED, 0.8, Map.of())),
                 null);
     }
 

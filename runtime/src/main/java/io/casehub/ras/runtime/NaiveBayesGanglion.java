@@ -21,18 +21,24 @@ import java.util.Set;
 
 public class NaiveBayesGanglion implements Ganglion {
 
+    private static final java.util.logging.Logger LOG =
+            java.util.logging.Logger.getLogger(NaiveBayesGanglion.class.getName());
+
     private static final int MAX_STATE_RETRIES = 3;
 
-    private final NaiveBayesConfig   config;
-    private final GanglionStateStore stateStore;
-    private final double[]           logPriors;
-    private final int                targetIndex;
+    private final NaiveBayesConfig                              config;
+    private final GanglionStateStore                            stateStore;
+    private final io.micrometer.core.instrument.MeterRegistry   meterRegistry;
+    private final double[]                                      logPriors;
+    private final int                                           targetIndex;
 
-    public NaiveBayesGanglion(NaiveBayesConfig config, GanglionStateStore stateStore) {
-        this.config      = config;
-        this.stateStore  = stateStore;
-        this.logPriors   = Arrays.stream(config.priors()).map(Math::log).toArray();
-        this.targetIndex = config.outcomes().indexOf(config.signalMapping().targetOutcome());
+    public NaiveBayesGanglion(NaiveBayesConfig config, GanglionStateStore stateStore,
+                               io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+        this.config        = config;
+        this.stateStore    = stateStore;
+        this.meterRegistry = meterRegistry;
+        this.logPriors     = Arrays.stream(config.priors()).map(Math::log).toArray();
+        this.targetIndex   = config.outcomes().indexOf(config.signalMapping().targetOutcome());
     }
 
     private static double[] normalizeLogPosteriors(double[] logP) {
@@ -112,8 +118,41 @@ public class NaiveBayesGanglion implements Ganglion {
                 confidence = 0.0;
             }
 
-            var evidence = Map.<String, Object>of(
-                    "posterior", targetPosterior, "features", Map.copyOf(observed));
+            int winnerIndex = 0;
+            for (int i = 1; i < posteriors.length; i++) {
+                if (posteriors[i] > posteriors[winnerIndex]) { winnerIndex = i; }
+            }
+            String winningOutcome = config.outcomes().get(winnerIndex);
+
+            Map<String, Object> evidence = new java.util.LinkedHashMap<>();
+            evidence.put("posterior", targetPosterior);
+            evidence.put("features", Map.copyOf(observed));
+            evidence.put("winningOutcome", winningOutcome);
+
+            var outcomeTemplates = config.outcomeEvidenceTemplates().get(winningOutcome);
+            if (outcomeTemplates != null && !outcomeTemplates.isEmpty()) {
+                Map<String, Object> exprCtx = CloudEventExpressionContext.build(event);
+                for (var entry : outcomeTemplates.entrySet()) {
+                    try {
+                        Object value = entry.getValue().eval(exprCtx);
+                        if (value != null) {
+                            evidence.put(entry.getKey(), value);
+                        }
+                    } catch (Exception e) {
+                        LOG.warning("Outcome '" + winningOutcome + "' evidence template '"
+                                    + entry.getKey() + "' failed for ganglion '"
+                                    + config.ganglionId() + "': " + e.getMessage());
+                        if (meterRegistry != null) {
+                            meterRegistry.counter("ras.expression.error",
+                                    "ganglion_id", config.ganglionId(),
+                                    "evidence_key", entry.getKey(),
+                                    "outcome", winningOutcome,
+                                    "expression_point", "outcome_evidence_extraction").increment();
+                        }
+                    }
+                }
+            }
+
             return Uni.createFrom().item(
                     new DetectionResult(config.ganglionId(), confidence, signal, evidence));
         }

@@ -28,6 +28,7 @@ class GanglionDescriptorTest {
                 new double[]{0.9, 0.1},
                 Map.of("severity", feature),
                 mapping,
+                Map.of(),
                 Map.of());
 
         assertThat(descriptor.ganglionId()).isEqualTo("bayes-1");
@@ -51,9 +52,9 @@ class GanglionDescriptorTest {
     void expressionRulesRecordCarriesAllFields() {
         var rule = new GanglionDescriptor.ExpressionRules.Rule(
                 new JQExpressionEvaluator(".data.severity == \"HIGH\""),
-                DetectionSignal.DETECTED, 0.9);
+                DetectionSignal.DETECTED, 0.9, Map.of());
         var otherwise = new GanglionDescriptor.ExpressionRules.Rule(
-                null, DetectionSignal.NOISE, 0.0);
+                null, DetectionSignal.NOISE, 0.0, Map.of());
 
         var descriptor = new GanglionDescriptor.ExpressionRules(
                 "severity-checker", Set.of("sensor.reading"),
@@ -73,11 +74,21 @@ class GanglionDescriptorTest {
     void expressionRulesWithEvidenceTemplates() {
         var descriptor = new GanglionDescriptor.ExpressionRules(
                 "checker", Set.of("event.type"),
-                List.of(new GanglionDescriptor.ExpressionRules.Rule(null, DetectionSignal.NOISE, 0.0)),
+                List.of(new GanglionDescriptor.ExpressionRules.Rule(null, DetectionSignal.NOISE, 0.0, Map.of())),
                 Map.of("severity", new JQExpressionEvaluator(".data.severity")));
 
         assertThat(descriptor.evidenceTemplates()).containsKey("severity");
     }
+
+    @Test
+    void ruleWithEvidenceTemplates() {
+        var rule = new GanglionDescriptor.ExpressionRules.Rule(
+                new JQExpressionEvaluator(".data.severity == \"HIGH\""),
+                DetectionSignal.DETECTED, 0.9,
+                Map.of("reason", new JQExpressionEvaluator(".data.reason")));
+        assertThat(rule.evidenceTemplates()).containsKey("reason");
+    }
+
 
     @Test
     void naiveBayesWithEvidenceTemplates() {
@@ -92,9 +103,27 @@ class GanglionDescriptorTest {
                 "bayes-1", Set.of("sensor.reading"),
                 List.of("NORMAL", "ANOMALY"), new double[]{0.9, 0.1},
                 Map.of("severity", feature), mapping,
-                Map.of("raw_sev", new JQExpressionEvaluator(".data.severity")));
+                Map.of("raw_sev", new JQExpressionEvaluator(".data.severity")),
+                Map.of());
 
         assertThat(descriptor.evidenceTemplates()).containsKey("raw_sev");
+    }
+
+    @Test
+    void naiveBayesWithOutcomeEvidenceTemplates() {
+        var feature = new GanglionDescriptor.NaiveBayes.Feature(
+                new JQExpressionEvaluator(".data.severity"),
+                List.of("LOW", "HIGH"),
+                new double[][]{{0.8, 0.2}, {0.3, 0.7}});
+        var mapping = new GanglionDescriptor.NaiveBayes.SignalMapping(
+                "ANOMALY", 0.75, 0.30, null);
+        var descriptor = new GanglionDescriptor.NaiveBayes(
+                "bayes-1", Set.of("sensor.reading"),
+                List.of("NORMAL", "ANOMALY"), new double[]{0.9, 0.1},
+                Map.of("severity", feature), mapping, Map.of(),
+                Map.of("ANOMALY", Map.of("type", new JQExpressionEvaluator(".data.anomalyType"))));
+        assertThat(descriptor.outcomeEvidenceTemplates()).containsKey("ANOMALY");
+        assertThat(descriptor.outcomeEvidenceTemplates().get("ANOMALY")).containsKey("type");
     }
 
 

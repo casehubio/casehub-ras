@@ -1,11 +1,14 @@
 package io.casehub.ras.runtime;
 
+import io.casehub.platform.api.expression.CompiledExpression;
+
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+@SuppressWarnings("rawtypes")
 public record NaiveBayesConfig(
         String ganglionId,
         Set<String> handledEventTypes,
@@ -13,7 +16,8 @@ public record NaiveBayesConfig(
         double[] priors,
         Map<String, FeatureLikelihood> features,
         NaiveBayesFeatureExtractor featureExtractor,
-        NaiveBayesSignalMapping signalMapping
+        NaiveBayesSignalMapping signalMapping,
+        Map<String, Map<String, CompiledExpression<Map, Object>>> outcomeEvidenceTemplates
 ) {
     public NaiveBayesConfig {
         Objects.requireNonNull(ganglionId, "ganglionId");
@@ -58,6 +62,15 @@ public record NaiveBayesConfig(
         if (targetIndex < 0) {
             throw new IllegalArgumentException(
                     "targetOutcome '" + signalMapping.targetOutcome() + "' not in outcomes");
+        }
+        outcomeEvidenceTemplates = outcomeEvidenceTemplates != null
+                                   ? Map.copyOf(outcomeEvidenceTemplates) : Map.of();
+        for (String outcomeKey : outcomeEvidenceTemplates.keySet()) {
+            if (!outcomes.contains(outcomeKey)) {
+                throw new IllegalArgumentException(
+                        "outcomeEvidenceTemplates key '" + outcomeKey
+                        + "' is not in outcomes " + outcomes);
+            }
         }
     }
 }

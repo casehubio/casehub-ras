@@ -153,7 +153,8 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         return new GanglionDescriptor.NaiveBayes(
                 ganglionId, new LinkedHashSet<>(eventTypes), outcomes, priors,
                 features, parseSignalMapping(sigMap),
-                parseEvidenceTemplates(map));
+                parseEvidenceTemplates(map),
+                parseOutcomeEvidenceTemplates(map, outcomes, ganglionId));
     }
 
     @SuppressWarnings("unchecked")
@@ -215,7 +216,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                         + " of ganglion '" + ganglionId + "', got: " + confidence);
             }
 
-            rules.add(new GanglionDescriptor.ExpressionRules.Rule(when, signal, confidence));
+            rules.add(new GanglionDescriptor.ExpressionRules.Rule(when, signal, confidence, parseEvidenceTemplates(ruleMap)));
         }
 
         Map<String, ExpressionEvaluator> evidenceTemplates = parseEvidenceTemplates(map);
@@ -400,6 +401,34 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         }
         return Map.copyOf(result);
     }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Map<String, ExpressionEvaluator>> parseOutcomeEvidenceTemplates(
+            Map<String, Object> map, List<String> outcomes, String ganglionId) {
+        Map<String, Object> raw = (Map<String, Object>) map.get("outcomeEvidenceTemplates");
+        if (raw == null) {return Map.of();}
+        Map<String, Map<String, ExpressionEvaluator>> result = new LinkedHashMap<>();
+        for (var entry : raw.entrySet()) {
+            String outcomeName = entry.getKey();
+            if (!outcomes.contains(outcomeName)) {
+                throw new IllegalArgumentException(
+                        "outcomeEvidenceTemplates key '" + outcomeName
+                        + "' is not in outcomes " + outcomes
+                        + " for ganglion '" + ganglionId + "'");
+            }
+            Map<String, Object>              templates = (Map<String, Object>) entry.getValue();
+            Map<String, ExpressionEvaluator> parsed    = new LinkedHashMap<>();
+            for (var tmpl : templates.entrySet()) {
+                parsed.put(tmpl.getKey(), parseExpressionEntry(
+                        (Map<String, Object>) tmpl.getValue(),
+                        "outcomeEvidenceTemplate '" + tmpl.getKey()
+                        + "' for outcome '" + outcomeName + "'"));
+            }
+            result.put(outcomeName, Map.copyOf(parsed));
+        }
+        return Map.copyOf(result);
+    }
+
 
     private static String requireString(Map<String, Object> map, String key) {
         Object value = map.get(key);
