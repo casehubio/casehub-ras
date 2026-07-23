@@ -1,6 +1,5 @@
 package io.casehub.ras.api;
 
-import io.smallrye.mutiny.Uni;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -13,51 +12,46 @@ class SituationStoreDefaultMethodTest {
 
     private final SituationStore anonymous = new SituationStore() {
         @Override
-        public Uni<Optional<SituationContext>> find(String situationId, String correlationKey,
-                                                     String tenancyId) {
-            return Uni.createFrom().item(Optional.empty());
+        public Optional<SituationContext> find(String situationId, String correlationKey,
+                                               String tenancyId) {
+            return Optional.empty();
         }
 
         @Override
-        public Uni<SituationContext> save(SituationContext context) {
-            return Uni.createFrom().item(context);
+        public SituationContext save(SituationContext context) {
+            return context;
         }
 
         @Override
-        public Uni<Void> remove(String situationId, String correlationKey, String tenancyId) {
-            return Uni.createFrom().voidItem();
+        public void remove(String situationId, String correlationKey, String tenancyId) {
         }
 
         @Override
-        public Uni<Integer> removeExpired(Instant cutoff) {
-            return Uni.createFrom().item(0);
+        public int removeExpired(Instant cutoff) {
+            return 0;
         }
 
         @Override
-        public Uni<Void> removeAllForSituation(String situationId) {
-            return Uni.createFrom().voidItem();
+        public void removeAllForSituation(String situationId) {
         }
     };
 
     @Test
     void tryClaimTriggerDefaultReturnsTrue() {
-        Boolean result = anonymous.tryClaimTrigger("sit-1", "key-1", "tenant-a",
-                                                   Instant.now())
-                .await().indefinitely();
+        boolean result = anonymous.tryClaimTrigger("sit-1", "key-1", "tenant-a",
+                                                   Instant.now());
         assertThat(result).isTrue();
     }
 
     @Test
     void resetTriggerClaimDefaultCompletesWithoutError() {
         assertThatNoException().isThrownBy(
-                () -> anonymous.resetTriggerClaim("sit-1", "key-1", "tenant-a")
-                        .await().indefinitely());
+                () -> anonymous.resetTriggerClaim("sit-1", "key-1", "tenant-a"));
     }
 
     @Test
     void removeTriggeredBeforeDefaultReturnsZero() {
-        int result = anonymous.removeTriggeredBefore(Instant.now())
-                              .await().indefinitely();
+        int result = anonymous.removeTriggeredBefore(Instant.now());
         assertThat(result).isZero();
     }
 

@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 public abstract class AbstractGanglionContractTest {
 
@@ -24,12 +24,11 @@ public abstract class AbstractGanglionContractTest {
     }
 
     @Test
-    void detectReturnsCompletingUni() {
+    void detectReturnsNonNull() {
         Ganglion ganglion = createGanglion();
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a",
-                Instant.parse("2026-06-20T10:00:00Z"));
-        DetectionResult result = ganglion.detect(createTestEvent(), ctx)
-                .await().indefinitely();
+                                           Instant.parse("2026-06-20T10:00:00Z"));
+        DetectionResult result = ganglion.detect(createTestEvent(), ctx);
         assertThat(result).isNotNull();
         assertThat(result.ganglionId()).isEqualTo(ganglion.ganglionId());
     }
@@ -37,15 +36,13 @@ public abstract class AbstractGanglionContractTest {
     @Test
     void compactReturnsNonNullContext() {
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a",
-                Instant.parse("2026-06-20T10:00:00Z"));
-        SituationContext compacted = createGanglion().compact(ctx).await().indefinitely();
+                                           Instant.parse("2026-06-20T10:00:00Z"));
+        SituationContext compacted = createGanglion().compact(ctx);
         assertThat(compacted).isNotNull();
     }
 
     @Test
     void closeCompletes() {
-        Void result = createGanglion().close("sit-1", "key-1", "tenant-a")
-                .await().indefinitely();
-        assertThat(result).isNull();
+        createGanglion().close("sit-1", "key-1", "tenant-a");
     }
 }

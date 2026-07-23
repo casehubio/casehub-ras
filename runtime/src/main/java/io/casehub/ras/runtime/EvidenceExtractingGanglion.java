@@ -6,7 +6,6 @@ import io.casehub.ras.api.Ganglion;
 import io.casehub.ras.api.SituationContext;
 import io.cloudevents.CloudEvent;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.smallrye.mutiny.Uni;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -38,18 +37,18 @@ class EvidenceExtractingGanglion implements Ganglion {
     public Set<String> handledEventTypes() {return delegate.handledEventTypes();}
 
     @Override
-    public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
-        return delegate.detect(event, context).map(result -> enrichEvidence(result, event));
+    public DetectionResult detect(CloudEvent event, SituationContext context) {
+        return enrichEvidence(delegate.detect(event, context), event);
     }
 
     @Override
-    public Uni<SituationContext> compact(SituationContext context) {
+    public SituationContext compact(SituationContext context) {
         return delegate.compact(context);
     }
 
     @Override
-    public Uni<Void> close(String situationId, String correlationKey, String tenancyId) {
-        return delegate.close(situationId, correlationKey, tenancyId);
+    public void close(String situationId, String correlationKey, String tenancyId) {
+        delegate.close(situationId, correlationKey, tenancyId);
     }
 
     @SuppressWarnings("unchecked")

@@ -2,9 +2,9 @@ package io.casehub.ras.runtime;
 
 import io.casehub.ras.api.OrphanedResourceCleaner;
 import io.casehub.ras.api.SituationStore;
-import jakarta.enterprise.inject.Instance;
 import io.quarkus.scheduler.Scheduled;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
@@ -52,23 +52,22 @@ public class SituationExpiryJob {
     @Scheduled(every = "PT5M")
     void cleanup() {
         Instant guardCutoff      = Instant.now().minus(triggerGuardPeriod);
-        int     triggeredRemoved = store.removeTriggeredBefore(guardCutoff).await().indefinitely();
+        int     triggeredRemoved = store.removeTriggeredBefore(guardCutoff);
         metrics.triggeredCleaned(triggeredRemoved);
 
         Duration maxWindow = registry.maxCorrelationWindow();
         if (maxWindow != null) {
             Instant cutoff         = Instant.now().minus(maxWindow);
-            int     expiredRemoved = store.removeExpired(cutoff).await().indefinitely();
+            int     expiredRemoved = store.removeExpired(cutoff);
             metrics.expiredCleaned(expiredRemoved);
         }
 
         for (OrphanedResourceCleaner cleaner : resourceCleaners) {
             try {
-                int cleaned = cleaner.removeOrphaned().await().indefinitely();
+                int cleaned = cleaner.removeOrphaned();
                 metrics.orphanedResourcesCleaned(cleaned, cleaner.cleanerType());
             } catch (Exception e) {
                 log.warnf(e, "Orphan cleaner '%s' failed, skipping", cleaner.cleanerType());
             }
-        }
-    }
+        }}
 }

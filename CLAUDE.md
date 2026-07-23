@@ -43,6 +43,7 @@ Multiple ganglia, one RAS per deployment context.
 - JQ Map context + NaiveBayes expressions: `docs/superpowers/specs/2026-07-20-jq-map-context-naivebayes-expressions-design.md`
 - Evidence templates + expression-rule ganglion: `docs/superpowers/specs/2026-07-21-evidence-templates-expression-rules-design.md`
 - Per-decision-path evidence templates: `docs/superpowers/specs/2026-07-22-per-decision-path-evidence-templates-design.md`
+- Retire reactive (Mutiny): `docs/superpowers/specs/2026-07-23-retire-reactive-design.md`
 
 ## Build Commands
 
@@ -55,7 +56,7 @@ mvn --batch-mode deploy -DskipTests   # CI only
 
 | Module | Artifact | Root package | Purpose |
 |--------|----------|-------------|---------|
-| `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. GanglionStateStore SPI + GanglionStateKey, GanglionState, GanglionStateConflictException. OrphanedResourceCleaner SPI. EventFilter interface. GanglionDescriptor sealed interface (NaiveBayes, ExpressionRules variants) for declarative ganglion configuration. Cross-cutting `evidenceTemplates()` default method on GanglionDescriptor. `SituationDefinitionProvider.ganglionDescriptors()` default method. Depends on `casehub-platform-api` (for `CloudEvent`, `ExpressionEvaluator`). Jackson annotations provided (polymorphic serde for sealed types). Mutiny provided. Publishes test-jar for AbstractGanglionContractTest + AbstractGanglionStateStoreContractTest. |
+| `api/` | `casehub-ras-api` | `io.casehub.ras.api` | Core SPIs + domain types + JavaSwitchGanglion. GanglionStateStore SPI + GanglionStateKey, GanglionState, GanglionStateConflictException. OrphanedResourceCleaner SPI. EventFilter interface. GanglionDescriptor sealed interface (NaiveBayes, ExpressionRules variants) for declarative ganglion configuration. Cross-cutting `evidenceTemplates()` default method on GanglionDescriptor. `SituationDefinitionProvider.ganglionDescriptors()` default method. Depends on `casehub-platform-api` (for `CloudEvent`, `ExpressionEvaluator`). Jackson annotations provided (polymorphic serde for sealed types). Publishes test-jar for AbstractGanglionContractTest + AbstractGanglionStateStoreContractTest. |
 | `persistence-memory/` | `casehub-ras-persistence-memory` | `io.casehub.ras.persistence.memory` | InMemorySituationStore — `@Alternative @Priority(100)`, ConcurrentHashMap-backed. Dev/test only. |
 | `persistence-jpa/` | `casehub-ras-persistence-jpa` | `io.casehub.ras.persistence.jpa` | JpaSituationStore — `@ApplicationScoped`, Hibernate ORM + JSONB detections. JpaGanglionStateStore — `@ApplicationScoped`, GanglionStateEntity with JSONB state + `@Version` optimistic locking. Implements `OrphanedResourceCleaner` for SQL join-based orphan cleanup. Consumers add `classpath:db/ras/migration` to `quarkus.flyway.locations`. |
 | `runtime/` | `casehub-ras` | `io.casehub.ras.runtime` | RasEngine, SituationEvaluator, DefaultRasTriggerPolicy, DefaultCaseTrigger, SituationExpiryJob, EventBufferFlushJob, EventReorderBuffer, YamlSituationDefinitionProvider, NaiveBayesGanglion, ExpressionRulesGanglion, EvidenceExtractingGanglion, DefaultSituationSource, RasEndpointRegistration, RasMetrics, InMemoryGanglionStateStore (`@DefaultBean`), CloudEventExpressionContext, SituationContextExpressionContext, ExpressionFeatureExtractor, JqResultUnwrapper. SituationDefinitionRegistry compiles expression descriptors at registration via three-phase constructor (descriptor ganglia → CDI ganglia → situation registrations). Constructs NaiveBayesGanglion from GanglionDescriptor.NaiveBayes, ExpressionRulesGanglion from GanglionDescriptor.ExpressionRules. Wraps with EvidenceExtractingGanglion when evidenceTemplates are present. Micrometer metrics (optional, via `Instance<MeterRegistry>`). `casehub-platform-expression` at test scope only — deployers add it to classpath when expressions are needed. Quarkus extension. |
@@ -72,9 +73,9 @@ mvn --batch-mode deploy -DskipTests   # CI only
 interface Ganglion {
     String ganglionId();
     Set<String> handledEventTypes();
-    Uni<DetectionResult> detect(CloudEvent event, SituationContext context);
-    default Uni<SituationContext> compact(SituationContext context) { ... }
-    default Uni<Void> close(String situationId, String correlationKey, String tenancyId) { ... }
+    DetectionResult detect(CloudEvent event, SituationContext context);
+    default SituationContext compact(SituationContext context) { ... }
+    default void close(String situationId, String correlationKey, String tenancyId) { }
 }
 ```
 
@@ -82,7 +83,7 @@ interface Ganglion {
 
 ```java
 interface RasTriggerPolicy {
-    Uni<TriggerDecision> evaluate(SituationContext context, SituationDefinition definition);
+    PolicyDecision evaluate(SituationContext context, SituationDefinition definition);
     // TriggerDecision: TRIGGER / TRIGGER_AND_CONTINUE / CONTINUE_ACCUMULATING / DISCARD / RESOLVE
 }
 ```
@@ -91,15 +92,15 @@ interface RasTriggerPolicy {
 
 ```java
 interface SituationStore {
-    Uni<Optional<SituationContext>> find(String situationId, String correlationKey, String tenancyId);
-    Uni<SituationContext> save(SituationContext context);
-    Uni<Void> remove(String situationId, String correlationKey, String tenancyId);
-    Uni<Integer> removeExpired(Instant cutoff);
-    Uni<Void> removeAllForSituation(String situationId);
-    default Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey, String tenancyId, Instant triggerTime) { ... }
-    default Uni<Void> resetTriggerClaim(String situationId, String correlationKey, String tenancyId) { ... }
-    default Uni<Integer> removeTriggeredBefore(Instant triggerCutoff) { ... }
-    default Uni<List<SituationContext>> findActive(String tenancyId) { ... }
+    Optional<SituationContext> find(String situationId, String correlationKey, String tenancyId);
+    SituationContext save(SituationContext context);
+    void remove(String situationId, String correlationKey, String tenancyId);
+    int removeExpired(Instant cutoff);
+    void removeAllForSituation(String situationId);
+    default boolean tryClaimTrigger(String situationId, String correlationKey, String tenancyId, Instant triggerTime) { ... }
+    default void resetTriggerClaim(String situationId, String correlationKey, String tenancyId) { }
+    default int removeTriggeredBefore(Instant triggerCutoff) { ... }
+    default List<SituationContext> findActive(String tenancyId) { ... }
 }
 ```
 
@@ -107,10 +108,10 @@ interface SituationStore {
 
 ```java
 interface GanglionStateStore {
-    Uni<Optional<GanglionState>> load(GanglionStateKey key);
-    Uni<Void> save(GanglionStateKey key, GanglionState state);
-    Uni<Void> remove(GanglionStateKey key);
-    Uni<Void> removeForSituation(String situationId);
+    Optional<GanglionState> load(GanglionStateKey key);
+    void save(GanglionStateKey key, GanglionState state);
+    void remove(GanglionStateKey key);
+    void removeForSituation(String situationId);
 }
 ```
 
@@ -121,7 +122,7 @@ Pluggable persistence for simple-state ganglia (numeric accumulation). `Ganglion
 ```java
 interface OrphanedResourceCleaner {
     String cleanerType();
-    Uni<Integer> removeOrphaned();
+    int removeOrphaned();
 }
 ```
 
@@ -141,7 +142,7 @@ Compiled from `SituationDefinition.eventFilter()` expression descriptors by `Sit
 ### JavaSwitchGanglion — synchronous detection base class (api/)
 
 Abstract class in `api/`. Developers subclass and override `evaluate(CloudEvent, SituationContext) → DetectionResult`.
-`detect()` is final — wraps `evaluate()` in `Uni`. Stateless (no-op `compact()`/`close()`). Helper methods:
+`detect()` is final — delegates to `evaluate()`. Stateless (no-op `compact()`/`close()`). Helper methods:
 `detected()`, `weak()`, `noise()`, `anti()` — auto-embed ganglionId. Preferred path for simple stateless detection.
 
 ### NaiveBayesGanglion — Bayesian classification (runtime/)
@@ -220,11 +221,11 @@ Bundles a `SituationDefinition` with compiled strategies. `correlationKeyExtract
 | `SituationDefinition` | Declared situation — `situationId`, `eventTypes`, `correlationWindow` (@Nullable), `eventBufferDelay` (@Nullable), `ChainMode`, `TriggerAction`, `TriggerMode triggerMode`, `ExpressionEvaluator correlationKeyExpression` (@Nullable), `ExpressionEvaluator eventFilter` (@Nullable), `Map<String, ExpressionEvaluator> dynamicCaseData` (defaults empty). 7-arg convenience constructor for non-expression usage. |
 | `ChainMode` | Sealed interface — And, Or, Threshold, Sequence, Count, Streak, Rate. Jackson `@JsonTypeInfo(property="type")` with names matching YAML convention (`and`, `or`, `threshold`, `sequence`, `count`, `streak`, `rate`). All variants carry explicit ganglion references. `referencedGanglia()` default method extracts IDs. |
 | `CaseTriggerConfig` | Case creation parameters — `caseNamespace`, `caseName`, `caseVersion`, `baseCaseData`. String identifiers, no engine-api dependency. |
-| `CaseTrigger` | SPI for case creation — `fire(CaseTriggerConfig, SituationContext) → Uni<UUID>`. Default impl in runtime/ bridges to CaseHub. |
+| `CaseTrigger` | SPI for case creation — `UUID fire(CaseTriggerConfig, SituationContext)`. Default impl in runtime/ bridges to CaseHub via `CompletionStage.join()`. |
 | `TriggerDecision` | Trigger outcome — TRIGGER, TRIGGER_AND_CONTINUE, CONTINUE_ACCUMULATING, DISCARD, RESOLVE |
 | `TriggerMode` | Sealed interface — FireOnce, Repeating(Duration cooldown). Jackson `@JsonTypeInfo(property="type")` with names `fire-once`, `repeating`. Declares post-trigger lifecycle on SituationDefinition. DefaultRasTriggerPolicy maps to TriggerDecision. |
 | `ActiveSituation` | Read-only projection — `situationId`, `correlationKey`, `tenancyId`, `confidence`, `evidence`, `since`, `lastSignal`, `triggerCount`. For external consumers querying active situations. |
-| `SituationSource` | Query SPI — `Uni<List<ActiveSituation>> activeSituations(String tenancyId)`. Implemented by DefaultSituationSource in runtime/. |
+| `SituationSource` | Query SPI — `List<ActiveSituation> activeSituations(String tenancyId)`. Implemented by DefaultSituationSource in runtime/. |
 | `SituationChangeEvent` | CDI event — `tenancyId`, `situationId`, `correlationKey`, `ChangeType` (TRIGGERED/RESOLVED/DISCARDED), `SituationContext context`. Fired by evaluator after state transitions. Context carries detection results for consumer bridges. |
 | `CorrelationKeyExtractor` | Function interface — `String extract(CloudEvent event)`. Domain adapters implement for custom correlation key derivation. |
 | `SituationRegistration` | Record bundling `SituationDefinition` + `CorrelationKeyExtractor`. Returned by `SituationDefinitionProvider`. |

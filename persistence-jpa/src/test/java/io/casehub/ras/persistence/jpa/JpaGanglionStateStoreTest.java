@@ -31,19 +31,19 @@ class JpaGanglionStateStoreTest extends AbstractGanglionStateStoreContractTest {
     @BeforeEach
     @Transactional
     void cleanTable() {
-        jpaStore.removeForSituation("sit-1").await().indefinitely();
-        jpaStore.removeForSituation("sit-A").await().indefinitely();
-        jpaStore.removeForSituation("sit-B").await().indefinitely();
-        jpaStore.removeForSituation("orphan-sit").await().indefinitely();
+        jpaStore.removeForSituation("sit-1");
+        jpaStore.removeForSituation("sit-A");
+        jpaStore.removeForSituation("sit-B");
+        jpaStore.removeForSituation("orphan-sit");
     }
 
     @Test
     void loadReturnsStoreVersion() {
         var key = new GanglionStateKey("g1", "sit-1", "key-1", "tenant-a");
         store.save(key, new GanglionState(new double[]{1.0}, OptionalLong.empty()))
-                .await().indefinitely();
+                ;
 
-        var loaded = store.load(key).await().indefinitely().orElseThrow();
+        var loaded = store.load(key).orElseThrow();
         assertThat(loaded.storeVersion()).isPresent();
     }
 
@@ -51,15 +51,15 @@ class JpaGanglionStateStoreTest extends AbstractGanglionStateStoreContractTest {
     void saveWithStaleVersionThrowsConflictException() {
         var key = new GanglionStateKey("g1", "sit-1", "key-1", "tenant-a");
         store.save(key, new GanglionState(new double[]{1.0}, OptionalLong.empty()))
-                .await().indefinitely();
+                ;
 
-        var loaded = store.load(key).await().indefinitely().orElseThrow();
+        var loaded = store.load(key).orElseThrow();
         store.save(key, new GanglionState(new double[]{2.0}, loaded.storeVersion()))
-                .await().indefinitely();
+                ;
 
         assertThatThrownBy(() ->
                 store.save(key, new GanglionState(new double[]{3.0}, loaded.storeVersion()))
-                        .await().indefinitely())
+                        )
                 .isInstanceOf(GanglionStateConflictException.class);
     }
 
@@ -67,11 +67,11 @@ class JpaGanglionStateStoreTest extends AbstractGanglionStateStoreContractTest {
     void removeOrphanedRemovesEntriesWithNoMatchingSituation() {
         var key = new GanglionStateKey("g1", "orphan-sit", "key-1", "tenant-a");
         store.save(key, new GanglionState(new double[]{1.0}, OptionalLong.empty()))
-                .await().indefinitely();
+                ;
 
-        int removed = ((OrphanedResourceCleaner) jpaStore).removeOrphaned().await().indefinitely();
+        int removed = ((OrphanedResourceCleaner) jpaStore).removeOrphaned();
 
         assertThat(removed).isEqualTo(1);
-        assertThat(store.load(key).await().indefinitely()).isEmpty();
+        assertThat(store.load(key)).isEmpty();
     }
 }

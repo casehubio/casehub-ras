@@ -43,7 +43,7 @@ class DefaultCaseTriggerTest {
         var config = new CaseTriggerConfig("ns", "case-name", "1.0", Map.of());
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
 
-        var caseId = trigger.fire(config, ctx).await().indefinitely();
+        var caseId = trigger.fire(config, ctx);
 
         assertThat(caseId).isNotNull();
     }
@@ -56,7 +56,7 @@ class DefaultCaseTriggerTest {
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> trigger.fire(config, ctx).await().indefinitely())
+                .isThrownBy(() -> trigger.fire(config, ctx))
                 .withMessageContaining("No CaseHub");
     }
 
@@ -69,7 +69,7 @@ class DefaultCaseTriggerTest {
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
 
         assertThatIllegalStateException()
-                .isThrownBy(() -> trigger.fire(config, ctx).await().indefinitely())
+                .isThrownBy(() -> trigger.fire(config, ctx))
                 .withMessageContaining("Multiple CaseHub");
     }
 
@@ -97,7 +97,7 @@ class DefaultCaseTriggerTest {
         var config  = new CaseTriggerConfig("ns", "case-name", "1.0", Map.of());
         var ctx     = SituationContext.initial("sit-1", "device/sensor-1", "tenant-a", T1);
 
-        trigger.fire(config, ctx).await().indefinitely();
+        trigger.fire(config, ctx);
 
         var input = capturedInput.get();
         assertThat(input).isNotNull();
@@ -131,7 +131,7 @@ class DefaultCaseTriggerTest {
         var config  = new CaseTriggerConfig("ns", "case-name", "1.0", Map.of());
         var ctx     = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
 
-        trigger.fire(config, ctx).await().indefinitely();
+        trigger.fire(config, ctx);
 
         var input = capturedInput.get();
         assertThat(input.get("field1")).isEqualTo("value1");
@@ -163,7 +163,7 @@ class DefaultCaseTriggerTest {
                                            Map.of("overridden", "static-value"));
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
 
-        trigger.fire(config, ctx).await().indefinitely();
+        trigger.fire(config, ctx);
 
         assertThat(capturedInput.get().get("overridden")).isEqualTo("dynamic-value");
     }
@@ -190,7 +190,7 @@ class DefaultCaseTriggerTest {
                                            Map.of("key", "value"));
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
 
-        trigger.fire(config, ctx).await().indefinitely();
+        trigger.fire(config, ctx);
 
         var input = capturedInput.get();
         assertThat(input.get("key")).isEqualTo("value");
@@ -247,7 +247,7 @@ class DefaultCaseTriggerTest {
         var ctx     = SituationContext.initial("sit-1", "order-123", "tenant-a", T1);
 
         trigger.fire(new CaseTriggerConfig("ns", "case-name", "1.0", Map.of()), ctx)
-               .await().indefinitely();
+               ;
 
         var input = capture.get();
         assertThat(input).isNotNull();
@@ -285,7 +285,7 @@ class DefaultCaseTriggerTest {
         var ctx     = SituationContext.initial("sit-1", "corr-1", "tenant-a", T1);
 
         trigger.fire(new CaseTriggerConfig("ns", "case-name", "1.0",
-                                           Map.of("static", "value")), ctx).await().indefinitely();
+                                           Map.of("static", "value")), ctx);
 
         var input = capture.get();
         assertThat(input).containsKey("static");
@@ -332,7 +332,7 @@ class DefaultCaseTriggerTest {
         var ctx     = SituationContext.initial("sit-1", "corr-1", "tenant-a", T1);
 
         trigger.fire(new CaseTriggerConfig("ns", "case-name", "1.0",
-                                           Map.of("foo", "static-value")), ctx).await().indefinitely();
+                                           Map.of("foo", "static-value")), ctx);
 
         var input = capture.get();
         assertThat(input.get("foo")).isEqualTo("dynamic-value");

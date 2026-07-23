@@ -3,7 +3,6 @@ package io.casehub.ras.drools.reliability;
 import io.casehub.ras.api.OrphanedResourceCleaner;
 import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.SituationStore;
-import io.smallrye.mutiny.Uni;
 import io.casehub.ras.drools.DroolsSessionKey;
 import io.casehub.ras.drools.DroolsSessionStore;
 import io.casehub.ras.drools.DroolsSessionStoreException;
@@ -108,9 +107,9 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore, OrphanedR
     }
 
     @Override
-    public Uni<Integer> removeOrphaned() {
+    public int removeOrphaned() {
         if (closed) {
-            return Uni.createFrom().item(0);
+            return 0;
         }
         int          removed     = 0;
         List<String> storageKeys = new ArrayList<>(sessionIds.keySet());
@@ -122,8 +121,7 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore, OrphanedR
                     removed++;
                 } else {
                     Optional<SituationContext> ctx = situationStore
-                                                             .find(key.situationId(), key.correlationKey(), key.tenancyId())
-                                                             .await().indefinitely();
+                                                             .find(key.situationId(), key.correlationKey(), key.tenancyId());
                     if (ctx.isEmpty()) {
                         remove(key);
                         removed++;
@@ -133,7 +131,7 @@ public class ReliableDroolsSessionStore implements DroolsSessionStore, OrphanedR
                 log.warn("Orphan cleanup failed for key '{}', skipping", storageKey, e);
             }
         }
-        return Uni.createFrom().item(removed);
+        return removed;
     }
 
 

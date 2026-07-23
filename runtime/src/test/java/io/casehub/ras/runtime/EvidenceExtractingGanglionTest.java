@@ -47,7 +47,7 @@ class EvidenceExtractingGanglionTest {
                 new DetectionResult("g1", 0.8, DetectionSignal.DETECTED, Map.of("inner", "value")));
         Map<String, CompiledExpression<Map, Object>> templates = Map.of("extracted", expr(ctx -> "template-val"));
         var ganglion = new EvidenceExtractingGanglion(delegate, templates, null);
-        var result = ganglion.detect(CloudEventBuilder.v1().withId("e1").withSource(URI.create("/t")).withType("test.event").withTime(OffsetDateTime.of(2026, 7, 21, 10, 0, 0, 0, ZoneOffset.UTC)).withData("application/json", "{\"severity\":\"HIGH\"}".getBytes()).build(), CTX).await().indefinitely();
+        var result = ganglion.detect(CloudEventBuilder.v1().withId("e1").withSource(URI.create("/t")).withType("test.event").withTime(OffsetDateTime.of(2026, 7, 21, 10, 0, 0, 0, ZoneOffset.UTC)).withData("application/json", "{\"severity\":\"HIGH\"}".getBytes()).build(), CTX);
         assertThat(result.evidence()).containsEntry("inner", "value");
         assertThat(result.evidence()).containsEntry("extracted", "template-val");
     }
@@ -58,7 +58,7 @@ class EvidenceExtractingGanglionTest {
                 new DetectionResult("g1", 0.8, DetectionSignal.DETECTED, Map.of("key", "old")));
         Map<String, CompiledExpression<Map, Object>> templates = Map.of("key", expr(ctx -> "new"));
         var ganglion = new EvidenceExtractingGanglion(delegate, templates, null);
-        var result = ganglion.detect(CloudEventBuilder.v1().withId("e1").withSource(URI.create("/t")).withType("test.event").withTime(OffsetDateTime.of(2026, 7, 21, 10, 0, 0, 0, ZoneOffset.UTC)).build(), CTX).await().indefinitely();
+        var result = ganglion.detect(CloudEventBuilder.v1().withId("e1").withSource(URI.create("/t")).withType("test.event").withTime(OffsetDateTime.of(2026, 7, 21, 10, 0, 0, 0, ZoneOffset.UTC)).build(), CTX);
         assertThat(result.evidence()).containsEntry("key", "new");
     }
 
@@ -68,7 +68,7 @@ class EvidenceExtractingGanglionTest {
                 new DetectionResult("g1", 0.8, DetectionSignal.DETECTED, Map.of()));
         Map<String, CompiledExpression<Map, Object>> templates = Map.of("missing", expr(ctx -> null));
         var ganglion = new EvidenceExtractingGanglion(delegate, templates, null);
-        var result = ganglion.detect(CloudEventBuilder.v1().withId("e1").withSource(URI.create("/t")).withType("test.event").withTime(OffsetDateTime.of(2026, 7, 21, 10, 0, 0, 0, ZoneOffset.UTC)).build(), CTX).await().indefinitely();
+        var result = ganglion.detect(CloudEventBuilder.v1().withId("e1").withSource(URI.create("/t")).withType("test.event").withTime(OffsetDateTime.of(2026, 7, 21, 10, 0, 0, 0, ZoneOffset.UTC)).build(), CTX);
         assertThat(result.evidence()).doesNotContainKey("missing");
     }
 
@@ -80,7 +80,7 @@ class EvidenceExtractingGanglionTest {
         templates.put("fails", failingExpr());
         templates.put("succeeds", expr(ctx -> "ok"));
         var ganglion = new EvidenceExtractingGanglion(delegate, Map.copyOf(templates), null);
-        var result = ganglion.detect(CloudEventBuilder.v1().withId("e1").withSource(URI.create("/t")).withType("test.event").withTime(OffsetDateTime.of(2026, 7, 21, 10, 0, 0, 0, ZoneOffset.UTC)).build(), CTX).await().indefinitely();
+        var result = ganglion.detect(CloudEventBuilder.v1().withId("e1").withSource(URI.create("/t")).withType("test.event").withTime(OffsetDateTime.of(2026, 7, 21, 10, 0, 0, 0, ZoneOffset.UTC)).build(), CTX);
         assertThat(result.evidence()).doesNotContainKey("fails");
         assertThat(result.evidence()).containsEntry("succeeds", "ok");
     }
@@ -92,7 +92,7 @@ class EvidenceExtractingGanglionTest {
         Map<String, CompiledExpression<Map, Object>> templates = Map.of("bad", failingExpr());
         var registry = new SimpleMeterRegistry();
         var ganglion = new EvidenceExtractingGanglion(delegate, templates, registry);
-        ganglion.detect(CloudEventBuilder.v1().withId("e1").withSource(URI.create("/t")).withType("test.event").withTime(OffsetDateTime.of(2026, 7, 21, 10, 0, 0, 0, ZoneOffset.UTC)).build(), CTX).await().indefinitely();
+        ganglion.detect(CloudEventBuilder.v1().withId("e1").withSource(URI.create("/t")).withType("test.event").withTime(OffsetDateTime.of(2026, 7, 21, 10, 0, 0, 0, ZoneOffset.UTC)).build(), CTX);
         var counter = registry.find("ras.expression.error").tag("ganglion_id", "g1").tag("evidence_key", "bad").tag("expression_point", "evidence_extraction").counter();
         assertThat(counter).isNotNull();
         assertThat(counter.count()).isEqualTo(1.0);
@@ -119,7 +119,7 @@ class EvidenceExtractingGanglionTest {
         var delegate = new MockGanglion("g1", Set.of("test.event"),
                 new DetectionResult("g1", 0.0, DetectionSignal.NOISE, Map.of()));
         var ganglion = new EvidenceExtractingGanglion(delegate, Map.of(), null);
-        SituationContext compacted = ganglion.compact(CTX).await().indefinitely();
+        SituationContext compacted = ganglion.compact(CTX);
         assertThat(compacted).isNotNull();
     }
 
@@ -128,7 +128,6 @@ class EvidenceExtractingGanglionTest {
         var delegate = new MockGanglion("g1", Set.of("test.event"),
                 new DetectionResult("g1", 0.0, DetectionSignal.NOISE, Map.of()));
         var ganglion = new EvidenceExtractingGanglion(delegate, Map.of(), null);
-        Void result = ganglion.close("sit-1", "key-1", "tenant-a").await().indefinitely();
-        assertThat(result).isNull();
+        ganglion.close("sit-1", "key-1", "tenant-a");
     }
 }

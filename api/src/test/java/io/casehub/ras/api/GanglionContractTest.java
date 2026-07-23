@@ -2,7 +2,6 @@ package io.casehub.ras.api;
 
 import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
-import io.smallrye.mutiny.Uni;
 
 import java.net.URI;
 import java.time.OffsetDateTime;
@@ -15,15 +14,14 @@ class GanglionContractTest extends AbstractGanglionContractTest {
     protected Ganglion createGanglion() {
         return new Ganglion() {
             @Override
-            public String ganglionId() { return "test-ganglion"; }
+            public String ganglionId() {return "test-ganglion";}
 
             @Override
-            public Set<String> handledEventTypes() { return Set.of("test.event"); }
+            public Set<String> handledEventTypes() {return Set.of("test.event");}
 
             @Override
-            public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
-                return Uni.createFrom().item(
-                        new DetectionResult("test-ganglion", 0.5, DetectionSignal.DETECTED, null));
+            public DetectionResult detect(CloudEvent event, SituationContext context) {
+                return new DetectionResult("test-ganglion", 0.5, DetectionSignal.DETECTED, null);
             }
         };
     }

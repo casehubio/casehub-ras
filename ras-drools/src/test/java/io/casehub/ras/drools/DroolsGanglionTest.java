@@ -59,7 +59,7 @@ class DroolsGanglionTest {
         var ganglion = ganglionWithClasspathRule();
         var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
         DetectionResult result = ganglion.detect(event, testContext())
-                .await().indefinitely();
+                ;
         assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
         assertThat(result.confidence()).isEqualTo(0.9);
         assertThat(result.ganglionId()).isEqualTo("test-ganglion");
@@ -70,7 +70,7 @@ class DroolsGanglionTest {
         var ganglion = ganglionWithClasspathRule();
         var event = testEvent("other.event", Instant.parse("2026-06-21T10:00:00Z"));
         DetectionResult result = ganglion.detect(event, testContext())
-                .await().indefinitely();
+                ;
         assertThat(result.signal()).isEqualTo(DetectionSignal.NOISE);
         assertThat(result.confidence()).isEqualTo(0.0);
     }
@@ -84,9 +84,9 @@ class DroolsGanglionTest {
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var ctx = testContext();
         var event1 = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
-        ganglion.detect(event1, ctx).await().indefinitely();
+        ganglion.detect(event1, ctx);
         var event2 = testEvent("test.event", Instant.parse("2026-06-21T10:01:00Z"));
-        DetectionResult r2 = ganglion.detect(event2, ctx).await().indefinitely();
+        DetectionResult r2 = ganglion.detect(event2, ctx);
         assertThat(r2.signal()).isEqualTo(DetectionSignal.DETECTED);
     }
 
@@ -98,12 +98,12 @@ class DroolsGanglionTest {
                 List.of("io/casehub/ras/drools/test-threshold.drl"), List.of());
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
-        ganglion.detect(event, testContext()).await().indefinitely();
-        ganglion.close("sit-1", "key-1", "tenant-a").await().indefinitely();
+        ganglion.detect(event, testContext());
+        ganglion.close("sit-1", "key-1", "tenant-a");
         var newCtx = SituationContext.initial("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-21T11:00:00Z"));
         var event2 = testEvent("test.event", Instant.parse("2026-06-21T11:00:00Z"));
-        DetectionResult r = ganglion.detect(event2, newCtx).await().indefinitely();
+        DetectionResult r = ganglion.detect(event2, newCtx);
         assertThat(r.signal()).isEqualTo(DetectionSignal.DETECTED);
     }
 
@@ -116,9 +116,9 @@ class DroolsGanglionTest {
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var ctx = testContext();
         var event1 = testEvent("test.event", Instant.parse("2026-06-21T10:01:00Z"));
-        ganglion.detect(event1, ctx).await().indefinitely();
+        ganglion.detect(event1, ctx);
         var event2 = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
-        assertThatThrownBy(() -> ganglion.detect(event2, ctx).await().indefinitely())
+        assertThatThrownBy(() -> ganglion.detect(event2, ctx))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Out-of-order");
     }
@@ -144,7 +144,7 @@ class DroolsGanglionTest {
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var event = testEvent("inline.event", Instant.parse("2026-06-21T10:00:00Z"));
         DetectionResult result = ganglion.detect(event, testContext())
-                .await().indefinitely();
+                ;
         assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
         assertThat(result.confidence()).isEqualTo(0.75);
     }
@@ -190,7 +190,7 @@ class DroolsGanglionTest {
 
         var ganglion = new DroolsGanglion(config, sessionStore, List.of(extractor));
         var event = testEvent("sensor.reading", Instant.parse("2026-06-21T10:00:00Z"));
-        var result = ganglion.detect(event, testContext()).await().indefinitely();
+        var result = ganglion.detect(event, testContext());
         assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
         assertThat(result.confidence()).isEqualTo(0.8);
     }
@@ -205,7 +205,7 @@ class DroolsGanglionTest {
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
         DetectionResult result = ganglion.detect(event, testContext())
-                .await().indefinitely();
+                ;
         assertThat(result.confidence()).isEqualTo(0.9);
         assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
     }
@@ -220,7 +220,7 @@ class DroolsGanglionTest {
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
         DetectionResult result = ganglion.detect(event, testContext())
-                .await().indefinitely();
+                ;
         assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
         assertThat(result.confidence()).isEqualTo(0.9);
         assertThat(result.evidence()).containsKeys("rule");
@@ -230,7 +230,7 @@ class DroolsGanglionTest {
     void closeOnEphemeralGanglionIsNoOp() {
         var ganglion = ganglionWithClasspathRule();
         assertThatNoException().isThrownBy(() ->
-                ganglion.close("sit-1", "key-1", "tenant-a").await().indefinitely());
+                ganglion.close("sit-1", "key-1", "tenant-a"));
     }
 
     @Test
@@ -242,16 +242,16 @@ class DroolsGanglionTest {
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var ctx = testContext();
         var event1 = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
-        ganglion.detect(event1, ctx).await().indefinitely();
+        ganglion.detect(event1, ctx);
         var nullTimeEvent = CloudEventBuilder.v1()
                 .withId("evt-null")
                 .withSource(URI.create("/test"))
                 .withType("test.event")
                 .build();
-        DetectionResult r2 = ganglion.detect(nullTimeEvent, ctx).await().indefinitely();
+        DetectionResult r2 = ganglion.detect(nullTimeEvent, ctx);
         assertThat(r2.signal()).isEqualTo(DetectionSignal.DETECTED);
         var event3 = testEvent("test.event", Instant.parse("2026-06-21T10:01:00Z"));
-        DetectionResult r3 = ganglion.detect(event3, ctx).await().indefinitely();
+        DetectionResult r3 = ganglion.detect(event3, ctx);
         assertThat(r3.signal()).isEqualTo(DetectionSignal.DETECTED);
     }
 
@@ -275,7 +275,7 @@ class DroolsGanglionTest {
                 List.of(), List.of(initialDrl));
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
-        var r1 = ganglion.detect(event, testContext()).await().indefinitely();
+        var r1 = ganglion.detect(event, testContext());
         assertThat(r1.confidence()).isEqualTo(0.5);
 
         var newDrl = """
@@ -291,7 +291,7 @@ class DroolsGanglionTest {
                 end
                 """;
         ganglion.reload(List.of(), List.of(newDrl));
-        var r2 = ganglion.detect(event, testContext()).await().indefinitely();
+        var r2 = ganglion.detect(event, testContext());
         assertThat(r2.confidence()).isEqualTo(0.95);
     }
 
@@ -317,7 +317,7 @@ class DroolsGanglionTest {
         assertThatThrownBy(() -> ganglion.reload(List.of(), List.of("not valid DRL")))
                 .isInstanceOf(IllegalStateException.class);
         var event = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
-        var result = ganglion.detect(event, testContext()).await().indefinitely();
+        var result = ganglion.detect(event, testContext());
         assertThat(result.confidence()).isEqualTo(0.5);
     }
 
@@ -350,7 +350,7 @@ class DroolsGanglionTest {
         var ganglion = new DroolsGanglion(config, sessionStore, List.of());
         var ctx = testContext();
         var event1 = testEvent("test.event", Instant.parse("2026-06-21T10:00:00Z"));
-        ganglion.detect(event1, ctx).await().indefinitely();
+        ganglion.detect(event1, ctx);
 
         var newDrl = """
                 package test;
@@ -366,7 +366,7 @@ class DroolsGanglionTest {
                 """;
         ganglion.reload(List.of(), List.of(newDrl));
         var event2 = testEvent("test.event", Instant.parse("2026-06-21T10:01:00Z"));
-        var r2 = ganglion.detect(event2, ctx).await().indefinitely();
+        var r2 = ganglion.detect(event2, ctx);
         assertThat(r2.confidence()).isEqualTo(0.95);
     }
 
@@ -395,7 +395,7 @@ class DroolsGanglionTest {
 
         assertThatThrownBy(() -> ganglion.detect(testEvent("test.event",
                 Instant.parse("2026-07-09T10:00:00Z")), context)
-                .await().indefinitely())
+                )
                 .isInstanceOf(DroolsSessionStoreException.class)
                 .hasMessageContaining("storage read failed")
                 .satisfies(ex -> assertThat(ex.getSuppressed()).hasSize(1));

@@ -1116,7 +1116,7 @@ class YamlSituationDefinitionProviderTest {
         var ctx = io.casehub.ras.api.SituationContext.initial("e2e-situation", "device-1", "tenant-1",
                                                               java.time.Instant.parse("2026-07-20T10:00:00Z"));
 
-        io.casehub.ras.api.DetectionResult result = ganglion.detect(event, ctx).await().indefinitely();
+        io.casehub.ras.api.DetectionResult result = ganglion.detect(event, ctx);
 
         assertThat(result.ganglionId()).isEqualTo("e2e-bayes");
         double posterior = (double) result.evidence().get("posterior");
@@ -1286,7 +1286,7 @@ class YamlSituationDefinitionProviderTest {
         var ganglion = registry.ganglion("e2e-rules");
         var ctx = io.casehub.ras.api.SituationContext.initial("e2e-per-rule", "device-1", "tenant-1",
                                                               java.time.Instant.parse("2026-07-22T10:00:00Z"));
-        var result = ganglion.detect(event, ctx).await().indefinitely();
+        var result = ganglion.detect(event, ctx);
 
         assertThat(result.evidence()).containsEntry("matchedRuleIndex", 0);
         assertThat(result.evidence()).containsEntry("reason", "temperature spike");
@@ -1314,7 +1314,7 @@ class YamlSituationDefinitionProviderTest {
         var ganglion = registry.ganglion("e2e-bayes-outcome");
         var ctx = io.casehub.ras.api.SituationContext.initial("e2e-per-outcome", "sensor-1", "tenant-1",
                                                               java.time.Instant.parse("2026-07-22T10:00:00Z"));
-        var result = ganglion.detect(event, ctx).await().indefinitely();
+        var result = ganglion.detect(event, ctx);
 
         assertThat(result.evidence()).containsKey("posterior");
         assertThat(result.evidence()).containsKey("winningOutcome");

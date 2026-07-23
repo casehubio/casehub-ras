@@ -1,7 +1,7 @@
 package io.casehub.ras.api;
 
 import io.cloudevents.CloudEvent;
-import io.smallrye.mutiny.Uni;
+
 import java.util.Set;
 
 public interface Ganglion {
@@ -19,13 +19,12 @@ public interface Ganglion {
      * decisions on {@code context.detections()} or other accumulated state, as these may
      * differ between detection time and application time.
      */
-    Uni<DetectionResult> detect(CloudEvent event, SituationContext context);
+    DetectionResult detect(CloudEvent event, SituationContext context);
 
-    default Uni<SituationContext> compact(SituationContext context) {
-        return Uni.createFrom().item(context);
+    default SituationContext compact(SituationContext context) {
+        return context;
     }
 
-    default Uni<Void> close(String situationId, String correlationKey, String tenancyId) {
-        return Uni.createFrom().voidItem();
+    default void close(String situationId, String correlationKey, String tenancyId) {
     }
 }

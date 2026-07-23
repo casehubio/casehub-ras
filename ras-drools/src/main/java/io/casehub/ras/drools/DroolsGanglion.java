@@ -1,8 +1,9 @@
 package io.casehub.ras.drools;
 
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.DetectionResult;
+import io.casehub.ras.api.Ganglion;
+import io.casehub.ras.api.SituationContext;
 import io.cloudevents.CloudEvent;
-import io.smallrye.mutiny.Uni;
 import org.drools.model.codegen.ExecutableModelProject;
 import org.kie.api.KieBase;
 import org.kie.api.KieServices;
@@ -17,6 +18,7 @@ import org.kie.api.runtime.KieSessionConfiguration;
 import org.kie.api.runtime.conf.ClockTypeOption;
 import org.kie.api.runtime.rule.FactHandle;
 import org.kie.api.time.SessionPseudoClock;
+
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
@@ -57,13 +59,13 @@ public class DroolsGanglion implements Ganglion {
     public Set<String> handledEventTypes() { return handledEventTypes; }
 
     @Override
-    public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
-        long currentGen = this.reloadGeneration;
+    public DetectionResult detect(CloudEvent event, SituationContext context) {
+        long    currentGen  = this.reloadGeneration;
         KieBase currentBase = this.kieBase;
 
-        String situationId = context.situationId();
+        String situationId    = context.situationId();
         String correlationKey = context.correlationKey();
-        String tenancyId = context.tenancyId();
+        String tenancyId      = context.tenancyId();
 
         KieSession session;
         if (sessionMode == SessionMode.LONG_LIVED) {
@@ -105,20 +107,19 @@ public class DroolsGanglion implements Ganglion {
         }
 
         DetectionResult result = resultCollectionStrategy
-                .resolve(collector.results(), ganglionId);
+                                         .resolve(collector.results(), ganglionId);
 
         session.unregisterChannel(RESULT_CHANNEL);
         if (sessionMode == SessionMode.EPHEMERAL) {
             session.dispose();
         }
 
-        return Uni.createFrom().item(result);
+        return result;
     }
 
     @Override
-    public Uni<Void> close(String situationId, String correlationKey, String tenancyId) {
+    public void close(String situationId, String correlationKey, String tenancyId) {
         sessionStore.remove(new DroolsSessionKey(ganglionId, situationId, correlationKey, tenancyId));
-        return Uni.createFrom().voidItem();
     }
 
     public synchronized void reload(List<String> classpathRules, List<String> programmaticRules) {

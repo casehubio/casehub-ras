@@ -315,7 +315,7 @@ class ReliableDroolsSessionStoreTest {
         store.computeIfAbsent(k2, kieBase, config, 0);
         assertThat(store.activeSessionCount()).isEqualTo(2);
 
-        int removed = ((OrphanedResourceCleaner) store).removeOrphaned().await().indefinitely();
+        int removed = ((OrphanedResourceCleaner) store).removeOrphaned();
 
         assertThat(removed).isEqualTo(2);
         assertThat(store.activeSessionCount()).isEqualTo(0);
@@ -328,11 +328,11 @@ class ReliableDroolsSessionStoreTest {
         store.computeIfAbsent(k1, kieBase, config, 0);
 
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", Instant.now());
-        situationStore.save(ctx).await().indefinitely();
+        situationStore.save(ctx);
 
         store.setSituationStore(situationStore);
 
-        int removed = ((OrphanedResourceCleaner) store).removeOrphaned().await().indefinitely();
+        int removed = ((OrphanedResourceCleaner) store).removeOrphaned();
 
         assertThat(removed).isEqualTo(0);
         assertThat(store.activeSessionCount()).isEqualTo(1);
@@ -347,11 +347,11 @@ class ReliableDroolsSessionStoreTest {
         store.computeIfAbsent(k2, kieBase, config, 0);
 
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", Instant.now());
-        situationStore.save(ctx).await().indefinitely();
+        situationStore.save(ctx);
 
         store.setSituationStore(situationStore);
 
-        int removed = ((OrphanedResourceCleaner) store).removeOrphaned().await().indefinitely();
+        int removed = ((OrphanedResourceCleaner) store).removeOrphaned();
 
         assertThat(removed).isEqualTo(1);
         assertThat(store.activeSessionCount()).isEqualTo(1);
@@ -364,7 +364,7 @@ class ReliableDroolsSessionStoreTest {
 
         store.destroy();
 
-        int removed = ((OrphanedResourceCleaner) store).removeOrphaned().await().indefinitely();
+        int removed = ((OrphanedResourceCleaner) store).removeOrphaned();
         assertThat(removed).isEqualTo(0);
     }
 

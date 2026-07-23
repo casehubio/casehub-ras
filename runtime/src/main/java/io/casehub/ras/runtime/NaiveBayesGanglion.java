@@ -10,7 +10,6 @@ import io.casehub.ras.api.GanglionStateStore;
 import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.TimestampedDetection;
 import io.cloudevents.CloudEvent;
-import io.smallrye.mutiny.Uni;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -65,13 +64,12 @@ public class NaiveBayesGanglion implements Ganglion {
     public Set<String> handledEventTypes() {return config.handledEventTypes();}
 
     @Override
-    public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
+    public DetectionResult detect(CloudEvent event, SituationContext context) {
         var key = new GanglionStateKey(config.ganglionId(), context.situationId(),
                                        context.correlationKey(), context.tenancyId());
 
         for (int attempt = 0; attempt <= MAX_STATE_RETRIES; attempt++) {
             GanglionState loaded = stateStore.load(key)
-                                             .await().indefinitely()
                                              .orElseGet(() -> new GanglionState(
                                                      Arrays.copyOf(logPriors, logPriors.length), OptionalLong.empty()));
 
@@ -89,8 +87,7 @@ public class NaiveBayesGanglion implements Ganglion {
             }
 
             try {
-                stateStore.save(key, new GanglionState(logPosteriors, loaded.storeVersion()))
-                          .await().indefinitely();
+                stateStore.save(key, new GanglionState(logPosteriors, loaded.storeVersion()));
             } catch (GanglionStateConflictException e) {
                 if (attempt == MAX_STATE_RETRIES) {throw e;}
                 continue;
@@ -120,7 +117,7 @@ public class NaiveBayesGanglion implements Ganglion {
 
             int winnerIndex = 0;
             for (int i = 1; i < posteriors.length; i++) {
-                if (posteriors[i] > posteriors[winnerIndex]) { winnerIndex = i; }
+                if (posteriors[i] > posteriors[winnerIndex]) {winnerIndex = i;}
             }
             String winningOutcome = config.outcomes().get(winnerIndex);
 
@@ -144,23 +141,22 @@ public class NaiveBayesGanglion implements Ganglion {
                                     + config.ganglionId() + "': " + e.getMessage());
                         if (meterRegistry != null) {
                             meterRegistry.counter("ras.expression.error",
-                                    "ganglion_id", config.ganglionId(),
-                                    "evidence_key", entry.getKey(),
-                                    "outcome", winningOutcome,
-                                    "expression_point", "outcome_evidence_extraction").increment();
+                                                  "ganglion_id", config.ganglionId(),
+                                                  "evidence_key", entry.getKey(),
+                                                  "outcome", winningOutcome,
+                                                  "expression_point", "outcome_evidence_extraction").increment();
                         }
                     }
                 }
             }
 
-            return Uni.createFrom().item(
-                    new DetectionResult(config.ganglionId(), confidence, signal, evidence));
+            return new DetectionResult(config.ganglionId(), confidence, signal, evidence);
         }
         throw new IllegalStateException("Exhausted retries without success or conflict");
     }
 
     @Override
-    public Uni<SituationContext> compact(SituationContext context) {
+    public SituationContext compact(SituationContext context) {
         TimestampedDetection       latest = null;
         List<TimestampedDetection> kept   = new ArrayList<>();
         for (TimestampedDetection td : context.detections()) {
@@ -171,20 +167,18 @@ public class NaiveBayesGanglion implements Ganglion {
             }
         }
         if (latest == null) {
-            return Uni.createFrom().item(context);
+            return context;
         }
         kept.add(latest);
-        return Uni.createFrom().item(new SituationContext(
+        return new SituationContext(
                 context.situationId(), context.correlationKey(), context.tenancyId(),
                 context.firstSignal(), context.lastSignal(), kept, context.storeVersion(),
-                context.lastTriggered(), context.triggerCount()));
+                context.lastTriggered(), context.triggerCount());
     }
 
     @Override
-    public Uni<Void> close(String situationId, String correlationKey, String tenancyId) {
+    public void close(String situationId, String correlationKey, String tenancyId) {
         stateStore.remove(new GanglionStateKey(config.ganglionId(), situationId,
-                                               correlationKey, tenancyId))
-                  .await().indefinitely();
-        return Uni.createFrom().voidItem();
+                                               correlationKey, tenancyId));
     }
 }

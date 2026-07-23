@@ -24,7 +24,7 @@ class JpaSituationStoreTest extends AbstractSituationStoreContractTest {
 
     @BeforeEach
     void cleanUpData() {
-        store.removeExpired(FAR_FUTURE).await().indefinitely();
+        store.removeExpired(FAR_FUTURE);
     }
 
     // --- JPA-specific tests ---
@@ -40,9 +40,9 @@ class JpaSituationStoreTest extends AbstractSituationStoreContractTest {
         ctx = ctx.withDetection(d2, T2);
         ctx = ctx.withDetection(d3, T3);
 
-        store.save(ctx).await().indefinitely();
+        store.save(ctx);
 
-        var found = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var found = store.find("sit-1", "key-1", "tenant-a");
         assertThat(found).isPresent();
         var detections = found.get().detections();
         assertThat(detections).hasSize(3);
@@ -55,9 +55,9 @@ class JpaSituationStoreTest extends AbstractSituationStoreContractTest {
     @Test
     void findPopulatesStoreVersion() {
         var ctx = SituationContext.initial("sit-v", "key-1", "tenant-a", T1);
-        store.save(ctx).await().indefinitely();
+        store.save(ctx);
 
-        var found = store.find("sit-v", "key-1", "tenant-a").await().indefinitely();
+        var found = store.find("sit-v", "key-1", "tenant-a");
         assertThat(found).isPresent();
         assertThat(found.get().storeVersion()).isPresent();
         assertThat(found.get().storeVersion().getAsLong()).isEqualTo(0L);
@@ -66,61 +66,61 @@ class JpaSituationStoreTest extends AbstractSituationStoreContractTest {
     @Test
     void saveIncrementsStoreVersion() {
         var ctx = SituationContext.initial("sit-v", "key-1", "tenant-a", T1);
-        store.save(ctx).await().indefinitely();
+        store.save(ctx);
 
-        var found1 = store.find("sit-v", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        var found1 = store.find("sit-v", "key-1", "tenant-a").orElseThrow();
         var detection = new DetectionResult("g1", 0.8, DetectionSignal.DETECTED, Map.of());
         var modified = found1.withDetection(detection, T2);
-        store.save(modified).await().indefinitely();
+        store.save(modified);
 
-        var found2 = store.find("sit-v", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        var found2 = store.find("sit-v", "key-1", "tenant-a").orElseThrow();
         assertThat(found2.storeVersion().getAsLong()).isEqualTo(1L);
     }
 
     @Test
     void saveThrowsConflictOnStaleVersion() {
         var ctx = SituationContext.initial("sit-v", "key-1", "tenant-a", T1);
-        store.save(ctx).await().indefinitely();
+        store.save(ctx);
 
-        var found = store.find("sit-v", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        var found = store.find("sit-v", "key-1", "tenant-a").orElseThrow();
         var d1 = new DetectionResult("g1", 0.5, DetectionSignal.WEAK, Map.of());
         var concurrent = found.withDetection(d1, T2);
-        store.save(concurrent).await().indefinitely();
+        store.save(concurrent);
 
         var detection = new DetectionResult("g1", 0.8, DetectionSignal.DETECTED, Map.of());
         var stale = found.withDetection(detection, T2);
-        assertThatThrownBy(() -> store.save(stale).await().indefinitely())
+        assertThatThrownBy(() -> store.save(stale))
                 .isInstanceOf(SituationConflictException.class);
     }
 
     @Test
     void saveThrowsConflictWhenEntityCreatedByAnotherWriter() {
         var ctx1 = SituationContext.initial("sit-race", "key-1", "tenant-a", T1);
-        store.save(ctx1).await().indefinitely();
+        store.save(ctx1);
 
         var ctx2 = SituationContext.initial("sit-race", "key-1", "tenant-a", T1);
-        assertThatThrownBy(() -> store.save(ctx2).await().indefinitely())
+        assertThatThrownBy(() -> store.save(ctx2))
                 .isInstanceOf(SituationConflictException.class);
     }
 
     @Test
     void tryClaimTriggerReturnsFalseForMissingSituation() {
         boolean claimed = store.tryClaimTrigger("nonexistent", "key-1", "tenant-a", T1)
-                .await().indefinitely();
+                ;
         assertThat(claimed).isFalse();
     }
 
     @Test
     void saveThrowsConflictWhenEntityRemovedByAnotherWriter() {
         var ctx = SituationContext.initial("sit-gone", "key-1", "tenant-a", T1);
-        store.save(ctx).await().indefinitely();
-        var found = store.find("sit-gone", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        store.save(ctx);
+        var found = store.find("sit-gone", "key-1", "tenant-a").orElseThrow();
 
-        store.remove("sit-gone", "key-1", "tenant-a").await().indefinitely();
+        store.remove("sit-gone", "key-1", "tenant-a");
 
         var detection = new DetectionResult("g1", 0.8, DetectionSignal.DETECTED, Map.of());
         var stale = found.withDetection(detection, T2);
-        assertThatThrownBy(() -> store.save(stale).await().indefinitely())
+        assertThatThrownBy(() -> store.save(stale))
                 .isInstanceOf(SituationConflictException.class);
     }
 }

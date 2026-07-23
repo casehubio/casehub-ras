@@ -10,7 +10,6 @@ import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.TimestampedDetection;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
-import io.smallrye.mutiny.Uni;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
@@ -75,7 +74,7 @@ class NaiveBayesGanglionTest {
         var ganglion = twoOutcomeGanglion();
         var event = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
 
-        DetectionResult result = ganglion.detect(event, testContext()).await().indefinitely();
+        DetectionResult result = ganglion.detect(event, testContext());
 
         assertThat(result.ganglionId()).isEqualTo("bayes-g");
         double posterior = (double) result.evidence().get("posterior");
@@ -103,7 +102,7 @@ class NaiveBayesGanglionTest {
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
-                testContext()).await().indefinitely();
+                testContext());
 
         double posterior = (double) result.evidence().get("posterior");
         assertThat(posterior).isGreaterThan(0.5);
@@ -117,10 +116,10 @@ class NaiveBayesGanglionTest {
         var ctx = testContext();
         var event = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
 
-        DetectionResult r1 = ganglion.detect(event, ctx).await().indefinitely();
+        DetectionResult r1 = ganglion.detect(event, ctx);
         double p1 = (double) r1.evidence().get("posterior");
 
-        DetectionResult r2 = ganglion.detect(event, ctx).await().indefinitely();
+        DetectionResult r2 = ganglion.detect(event, ctx);
         double p2 = (double) r2.evidence().get("posterior");
 
         assertThat(p2).isGreaterThan(p1);
@@ -142,7 +141,7 @@ class NaiveBayesGanglionTest {
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
-                testContext()).await().indefinitely();
+                testContext());
 
         double posterior = (double) result.evidence().get("posterior");
         assertThat(posterior).isEqualTo(0.5);
@@ -162,7 +161,7 @@ class NaiveBayesGanglionTest {
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
-                testContext()).await().indefinitely();
+                testContext());
 
         double posterior = (double) result.evidence().get("posterior");
         assertThat(posterior).isEqualTo(0.5);
@@ -183,7 +182,7 @@ class NaiveBayesGanglionTest {
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
-                testContext()).await().indefinitely();
+                testContext());
 
         assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
         assertThat(result.confidence()).isCloseTo(0.9, offset(1e-9));
@@ -202,7 +201,7 @@ class NaiveBayesGanglionTest {
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
-                testContext()).await().indefinitely();
+                testContext());
 
         assertThat(result.signal()).isEqualTo(DetectionSignal.WEAK);
         assertThat(result.confidence()).isCloseTo(0.4, offset(1e-9));
@@ -221,7 +220,7 @@ class NaiveBayesGanglionTest {
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
-                testContext()).await().indefinitely();
+                testContext());
 
         assertThat(result.signal()).isEqualTo(DetectionSignal.NOISE);
         assertThat(result.confidence()).isEqualTo(0.0);
@@ -242,7 +241,7 @@ class NaiveBayesGanglionTest {
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
-                testContext()).await().indefinitely();
+                testContext());
 
         assertThat(result.signal()).isEqualTo(DetectionSignal.ANTI);
         assertThat(result.confidence()).isCloseTo(0.97, within(0.01));
@@ -261,7 +260,7 @@ class NaiveBayesGanglionTest {
 
         DetectionResult result = ganglion.detect(
                 testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
-                testContext()).await().indefinitely();
+                testContext());
 
         assertThat(result.signal()).isEqualTo(DetectionSignal.NOISE);
     }
@@ -274,14 +273,14 @@ class NaiveBayesGanglionTest {
         var ctx = testContext();
         var event = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
 
-        ganglion.detect(event, ctx).await().indefinitely();
-        ganglion.detect(event, ctx).await().indefinitely();
-        DetectionResult beforeClose = ganglion.detect(event, ctx).await().indefinitely();
+        ganglion.detect(event, ctx);
+        ganglion.detect(event, ctx);
+        DetectionResult beforeClose = ganglion.detect(event, ctx);
         double posteriorBeforeClose = (double) beforeClose.evidence().get("posterior");
 
-        ganglion.close("sit-1", "key-1", "tenant-a").await().indefinitely();
+        ganglion.close("sit-1", "key-1", "tenant-a");
 
-        DetectionResult afterClose = ganglion.detect(event, ctx).await().indefinitely();
+        DetectionResult afterClose = ganglion.detect(event, ctx);
         double posteriorAfterClose = (double) afterClose.evidence().get("posterior");
 
         assertThat(posteriorAfterClose).isLessThan(posteriorBeforeClose);
@@ -297,7 +296,7 @@ class NaiveBayesGanglionTest {
 
         DetectionResult result = null;
         for (int i = 0; i < 100; i++) {
-            result = ganglion.detect(event, ctx).await().indefinitely();
+            result = ganglion.detect(event, ctx);
         }
 
         assertThat(result).isNotNull();
@@ -319,12 +318,12 @@ class NaiveBayesGanglionTest {
         var ctx2 = SituationContext.initial("sit-2", "key-2", "tenant-a",
                 Instant.parse("2026-06-26T10:00:00Z"));
 
-        ganglion.detect(event, ctx1).await().indefinitely();
-        ganglion.detect(event, ctx1).await().indefinitely();
-        ganglion.detect(event, ctx1).await().indefinitely();
+        ganglion.detect(event, ctx1);
+        ganglion.detect(event, ctx1);
+        ganglion.detect(event, ctx1);
 
-        DetectionResult r1 = ganglion.detect(event, ctx1).await().indefinitely();
-        DetectionResult r2 = ganglion.detect(event, ctx2).await().indefinitely();
+        DetectionResult r1 = ganglion.detect(event, ctx1);
+        DetectionResult r2 = ganglion.detect(event, ctx2);
 
         double p1 = (double) r1.evidence().get("posterior");
         double p2 = (double) r2.evidence().get("posterior");
@@ -339,15 +338,15 @@ class NaiveBayesGanglionTest {
         var event = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
         var ctx = testContext();
 
-        DetectionResult r1 = ganglion.detect(event, ctx).await().indefinitely();
+        DetectionResult r1 = ganglion.detect(event, ctx);
         ctx = ctx.withDetection(r1, Instant.parse("2026-06-26T10:01:00Z"));
 
-        DetectionResult r2 = ganglion.detect(event, ctx).await().indefinitely();
+        DetectionResult r2 = ganglion.detect(event, ctx);
         ctx = ctx.withDetection(r2, Instant.parse("2026-06-26T10:02:00Z"));
 
         assertThat(ctx.detections()).hasSize(2);
 
-        SituationContext compacted = ganglion.compact(ctx).await().indefinitely();
+        SituationContext compacted = ganglion.compact(ctx);
 
         assertThat(compacted.detections()).hasSize(1);
         assertThat(compacted.detections().getFirst().result().ganglionId()).isEqualTo("bayes-g");
@@ -365,12 +364,12 @@ class NaiveBayesGanglionTest {
         var otherResult = new DetectionResult("other-g", 0.5, DetectionSignal.DETECTED, Map.of());
         ctx = ctx.withDetection(otherResult, Instant.parse("2026-06-26T10:00:30Z"));
 
-        DetectionResult bayesResult = ganglion.detect(event, ctx).await().indefinitely();
+        DetectionResult bayesResult = ganglion.detect(event, ctx);
         ctx = ctx.withDetection(bayesResult, Instant.parse("2026-06-26T10:01:00Z"));
 
         assertThat(ctx.detections()).hasSize(2);
 
-        SituationContext compacted = ganglion.compact(ctx).await().indefinitely();
+        SituationContext compacted = ganglion.compact(ctx);
 
         assertThat(compacted.detections()).hasSize(2);
         assertThat(compacted.detections().stream()
@@ -386,7 +385,7 @@ class NaiveBayesGanglionTest {
         var otherResult = new DetectionResult("other-g", 0.5, DetectionSignal.DETECTED, Map.of());
         ctx = ctx.withDetection(otherResult, Instant.parse("2026-06-26T10:00:30Z"));
 
-        SituationContext compacted = ganglion.compact(ctx).await().indefinitely();
+        SituationContext compacted = ganglion.compact(ctx);
 
         assertThat(compacted).isSameAs(ctx);
     }
@@ -397,13 +396,13 @@ class NaiveBayesGanglionTest {
         var event = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
         var ctx = testContext();
 
-        DetectionResult r1 = ganglion.detect(event, ctx).await().indefinitely();
+        DetectionResult r1 = ganglion.detect(event, ctx);
         ctx = ctx.withDetection(r1, Instant.parse("2026-06-26T10:05:00Z"));
 
-        DetectionResult r2 = ganglion.detect(event, ctx).await().indefinitely();
+        DetectionResult r2 = ganglion.detect(event, ctx);
         ctx = ctx.withDetection(r2, Instant.parse("2026-06-26T10:02:00Z"));
 
-        SituationContext compacted = ganglion.compact(ctx).await().indefinitely();
+        SituationContext compacted = ganglion.compact(ctx);
 
         assertThat(compacted.detections()).hasSize(1);
         TimestampedDetection retained = compacted.detections().getFirst();
@@ -420,7 +419,7 @@ class NaiveBayesGanglionTest {
         var ganglion = twoOutcomeGanglion();
         var event = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
 
-        DetectionResult result = ganglion.detect(event, testContext()).await().indefinitely();
+        DetectionResult result = ganglion.detect(event, testContext());
 
         assertThat(result.evidence()).containsKey("posterior");
         assertThat(result.evidence()).containsKey("features");
@@ -436,13 +435,13 @@ class NaiveBayesGanglionTest {
         var ctx        = testContext();
         var event      = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
 
-        ganglion1.detect(event, ctx).await().indefinitely();
-        ganglion1.detect(event, ctx).await().indefinitely();
-        DetectionResult r1 = ganglion1.detect(event, ctx).await().indefinitely();
+        ganglion1.detect(event, ctx);
+        ganglion1.detect(event, ctx);
+        DetectionResult r1 = ganglion1.detect(event, ctx);
         double          p1 = (double) r1.evidence().get("posterior");
 
         var             ganglion2 = new NaiveBayesGanglion(twoOutcomeConfig(), stateStore, null);
-        DetectionResult r2        = ganglion2.detect(event, ctx).await().indefinitely();
+        DetectionResult r2        = ganglion2.detect(event, ctx);
         double          p2        = (double) r2.evidence().get("posterior");
 
         assertThat(p2).isGreaterThan(p1);
@@ -453,22 +452,21 @@ class NaiveBayesGanglionTest {
         var callCount = new java.util.concurrent.atomic.AtomicInteger();
         var delegate  = new InMemoryGanglionStateStore();
         GanglionStateStore conflictingStore = new GanglionStateStore() {
-            public Uni<java.util.Optional<GanglionState>> load(GanglionStateKey key) {
+            public java.util.Optional<GanglionState> load(GanglionStateKey key) {
                 return delegate.load(key);
             }
 
-            public Uni<Void> save(GanglionStateKey key, GanglionState state) {
+            public void save(GanglionStateKey key, GanglionState state) {
                 if (callCount.getAndIncrement() == 0) {
-                    return Uni.createFrom().failure(
-                            new GanglionStateConflictException("test conflict", null));
+                    throw new GanglionStateConflictException("test conflict", null);
                 }
-                return delegate.save(key, state);
+                delegate.save(key, state);
             }
 
-            public Uni<Void> remove(GanglionStateKey key) {return delegate.remove(key);}
+            public void remove(GanglionStateKey key) {delegate.remove(key);}
 
-            public Uni<Void> removeForSituation(String situationId) {
-                return delegate.removeForSituation(situationId);
+            public void removeForSituation(String situationId) {
+                delegate.removeForSituation(situationId);
             }
         };
 
@@ -476,7 +474,7 @@ class NaiveBayesGanglionTest {
         var ctx      = testContext();
         var event    = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
 
-        DetectionResult result = ganglion.detect(event, ctx).await().indefinitely();
+        DetectionResult result = ganglion.detect(event, ctx);
 
         assertThat(result).isNotNull();
         assertThat(callCount.get()).isEqualTo(2);
@@ -486,7 +484,7 @@ class NaiveBayesGanglionTest {
     void winningOutcomeInEvidence() {
         var             ganglion = twoOutcomeGanglion();
         var             event    = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
-        DetectionResult result   = ganglion.detect(event, testContext()).await().indefinitely();
+        DetectionResult result   = ganglion.detect(event, testContext());
         assertThat(result.evidence()).containsKey("winningOutcome");
         String winner = (String) result.evidence().get("winningOutcome");
         assertThat(winner).isIn("NORMAL", "ANOMALY");
@@ -510,7 +508,7 @@ class NaiveBayesGanglionTest {
                                           Map.of("B", Map.of("custom", template)));
         var             ganglion = new NaiveBayesGanglion(config, new InMemoryGanglionStateStore(), null);
         var             event    = testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z"));
-        DetectionResult result   = ganglion.detect(event, testContext()).await().indefinitely();
+        DetectionResult result   = ganglion.detect(event, testContext());
         assertThat(result.evidence()).containsEntry("custom", "extracted");
         assertThat(result.evidence().get("winningOutcome")).isEqualTo("B");
     }
@@ -537,7 +535,7 @@ class NaiveBayesGanglionTest {
                                           Map.of("A", Map.of("trap_key", trap)));
         var ganglion = new NaiveBayesGanglion(config, new InMemoryGanglionStateStore(), null);
         ganglion.detect(testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
-                        testContext()).await().indefinitely();
+                        testContext());
         assertThat(shouldNotBeCalled.get()).isFalse();
     }
 
@@ -560,7 +558,7 @@ class NaiveBayesGanglionTest {
                                           Map.of("B", Map.of("bad_key", bad)));
         var ganglion = new NaiveBayesGanglion(config, new InMemoryGanglionStateStore(), registry);
         ganglion.detect(testEvent("test.event", Instant.parse("2026-06-26T10:00:00Z")),
-                        testContext()).await().indefinitely();
+                        testContext());
         var counter = registry.find("ras.expression.error")
                               .tag("ganglion_id", "g")
                               .tag("evidence_key", "bad_key")

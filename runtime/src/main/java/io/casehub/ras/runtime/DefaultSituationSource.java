@@ -1,9 +1,13 @@
 package io.casehub.ras.runtime;
 
-import io.casehub.ras.api.*;
-import io.smallrye.mutiny.Uni;
+import io.casehub.ras.api.ActiveSituation;
+import io.casehub.ras.api.DetectionSignal;
+import io.casehub.ras.api.SituationContext;
+import io.casehub.ras.api.SituationSource;
+import io.casehub.ras.api.SituationStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+
 import java.util.List;
 import java.util.OptionalDouble;
 
@@ -18,11 +22,10 @@ public class DefaultSituationSource implements SituationSource {
     }
 
     @Override
-    public Uni<List<ActiveSituation>> activeSituations(String tenancyId) {
-        return store.findActive(tenancyId)
-                .map(contexts -> contexts.stream()
-                        .map(this::toActiveSituation)
-                        .toList());
+    public List<ActiveSituation> activeSituations(String tenancyId) {
+        return store.findActive(tenancyId).stream()
+                    .map(this::toActiveSituation)
+                    .toList();
     }
 
     private ActiveSituation toActiveSituation(SituationContext context) {
