@@ -7,7 +7,6 @@ import io.casehub.ras.api.Ganglion;
 import io.casehub.ras.api.SituationContext;
 import io.cloudevents.CloudEvent;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.smallrye.mutiny.Uni;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -54,17 +53,17 @@ class ExpressionRulesGanglion implements Ganglion {
 
     @Override
     @SuppressWarnings("unchecked")
-    public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
+    public DetectionResult detect(CloudEvent event, SituationContext context) {
         Map<String, Object> ctx = CloudEventExpressionContext.build(event);
         for (int i = 0; i < rules.size(); i++) {
             CompiledRule rule = rules.get(i);
             if (rule.when() == null) {
-                return Uni.createFrom().item(buildResult(rule, i, ctx));
+                return buildResult(rule, i, ctx);
             }
             try {
                 Boolean match = rule.when().eval(ctx);
                 if (Boolean.TRUE.equals(match)) {
-                    return Uni.createFrom().item(buildResult(rule, i, ctx));
+                    return buildResult(rule, i, ctx);
                 }
             } catch (RuntimeException ex) {
                 LOG.warning("Rule " + i + " expression failed for ganglion '"
@@ -77,9 +76,10 @@ class ExpressionRulesGanglion implements Ganglion {
                 }
             }
         }
-        return Uni.createFrom().item(new DetectionResult(
+        return new DetectionResult(
                 ganglionId, 0.0, DetectionSignal.NOISE,
-                Map.of("matchedRuleIndex", -1)));}
+                Map.of("matchedRuleIndex", -1));
+    }
 
     @SuppressWarnings("unchecked")
     private DetectionResult buildResult(CompiledRule rule, int index, Map<String, Object> ctx) {

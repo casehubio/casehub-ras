@@ -17,11 +17,6 @@
             <artifactId>casehub-ras-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>io.smallrye.reactive</groupId>
-            <artifactId>mutiny</artifactId>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
             <groupId>jakarta.inject</groupId>
             <artifactId>jakarta.inject-api</artifactId>
             <scope>provided</scope>

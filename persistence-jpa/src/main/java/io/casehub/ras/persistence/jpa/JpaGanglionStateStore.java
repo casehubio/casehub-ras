@@ -7,7 +7,6 @@ import io.casehub.ras.api.GanglionStateConflictException;
 import io.casehub.ras.api.GanglionStateKey;
 import io.casehub.ras.api.GanglionStateStore;
 import io.casehub.ras.api.OrphanedResourceCleaner;
-import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -21,29 +20,29 @@ import java.util.OptionalLong;
 public class JpaGanglionStateStore implements GanglionStateStore, OrphanedResourceCleaner {
 
     private final EntityManager em;
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper  objectMapper;
 
     @Inject
     public JpaGanglionStateStore(EntityManager em, ObjectMapper objectMapper) {
-        this.em = em;
+        this.em           = em;
         this.objectMapper = objectMapper;
     }
 
     @Override
     @Transactional(TxType.REQUIRED)
-    public Uni<Optional<GanglionState>> load(GanglionStateKey key) {
+    public Optional<GanglionState> load(GanglionStateKey key) {
         GanglionStateEntity entity = findEntity(key);
         if (entity == null) {
-            return Uni.createFrom().item(Optional.empty());
+            return Optional.empty();
         }
         double[] values = deserializeState(entity.getState());
-        return Uni.createFrom().item(Optional.of(
-                new GanglionState(values, OptionalLong.of(entity.getVersion()))));
+        return Optional.of(
+                new GanglionState(values, OptionalLong.of(entity.getVersion())));
     }
 
     @Override
     @Transactional(TxType.REQUIRED)
-    public Uni<Void> save(GanglionStateKey key, GanglionState state) {
+    public void save(GanglionStateKey key, GanglionState state) {
         GanglionStateEntity existing = findEntity(key);
 
         if (existing != null && state.storeVersion().isEmpty()) {
@@ -55,7 +54,7 @@ public class JpaGanglionStateStore implements GanglionStateStore, OrphanedResour
                     "Entity removed but state has storeVersion — concurrent delete", null);
         }
         if (existing != null && state.storeVersion().isPresent()
-                && existing.getVersion() != state.storeVersion().getAsLong()) {
+            && existing.getVersion() != state.storeVersion().getAsLong()) {
             throw new GanglionStateConflictException(
                     "storeVersion mismatch: state=" + state.storeVersion().getAsLong()
                     + " entity=" + existing.getVersion(), null);
@@ -81,33 +80,28 @@ public class JpaGanglionStateStore implements GanglionStateStore, OrphanedResour
             }
             throw e;
         }
-
-        return Uni.createFrom().voidItem();
     }
 
     @Override
     @Transactional(TxType.REQUIRED)
-    public Uni<Void> remove(GanglionStateKey key) {
+    public void remove(GanglionStateKey key) {
         em.createQuery("DELETE FROM GanglionStateEntity e " +
                        "WHERE e.ganglionId = :gid AND e.situationId = :sid " +
                        "AND e.correlationKey = :ck AND e.tenancyId = :tid")
-                .setParameter("gid", key.ganglionId())
-                .setParameter("sid", key.situationId())
-                .setParameter("ck", key.correlationKey())
-                .setParameter("tid", key.tenancyId())
-                .executeUpdate();
-        return Uni.createFrom().voidItem();
+          .setParameter("gid", key.ganglionId())
+          .setParameter("sid", key.situationId())
+          .setParameter("ck", key.correlationKey())
+          .setParameter("tid", key.tenancyId())
+          .executeUpdate();
     }
 
     @Override
     @Transactional(TxType.REQUIRED)
-    public Uni<Void> removeForSituation(String situationId) {
+    public void removeForSituation(String situationId) {
         em.createQuery("DELETE FROM GanglionStateEntity e WHERE e.situationId = :sid")
-                .setParameter("sid", situationId)
-                .executeUpdate();
-        return Uni.createFrom().voidItem();
+          .setParameter("sid", situationId)
+          .executeUpdate();
     }
-
 
     @Override
     public String cleanerType() {
@@ -116,29 +110,28 @@ public class JpaGanglionStateStore implements GanglionStateStore, OrphanedResour
 
     @Override
     @Transactional(TxType.REQUIRED)
-    public Uni<Integer> removeOrphaned() {
-        int removed = em.createNativeQuery(
-                "DELETE FROM ras_ganglion_state gs " +
-                "WHERE NOT EXISTS (" +
-                "  SELECT 1 FROM ras_situation s " +
-                "  WHERE s.situation_id = gs.situation_id " +
-                "  AND s.correlation_key = gs.correlation_key " +
-                "  AND s.tenancy_id = gs.tenancy_id)")
-                .executeUpdate();
-        return Uni.createFrom().item(removed);
+    public int removeOrphaned() {
+        return em.createNativeQuery(
+                         "DELETE FROM ras_ganglion_state gs " +
+                         "WHERE NOT EXISTS (" +
+                         "  SELECT 1 FROM ras_situation s " +
+                         "  WHERE s.situation_id = gs.situation_id " +
+                         "  AND s.correlation_key = gs.correlation_key " +
+                         "  AND s.tenancy_id = gs.tenancy_id)")
+                 .executeUpdate();
     }
 
     private GanglionStateEntity findEntity(GanglionStateKey key) {
         return em.createQuery(
-                "SELECT e FROM GanglionStateEntity e " +
-                "WHERE e.ganglionId = :gid AND e.situationId = :sid " +
-                "AND e.correlationKey = :ck AND e.tenancyId = :tid",
-                GanglionStateEntity.class)
-                .setParameter("gid", key.ganglionId())
-                .setParameter("sid", key.situationId())
-                .setParameter("ck", key.correlationKey())
-                .setParameter("tid", key.tenancyId())
-                .getResultStream().findFirst().orElse(null);
+                         "SELECT e FROM GanglionStateEntity e " +
+                         "WHERE e.ganglionId = :gid AND e.situationId = :sid " +
+                         "AND e.correlationKey = :ck AND e.tenancyId = :tid",
+                         GanglionStateEntity.class)
+                 .setParameter("gid", key.ganglionId())
+                 .setParameter("sid", key.situationId())
+                 .setParameter("ck", key.correlationKey())
+                 .setParameter("tid", key.tenancyId())
+                 .getResultStream().findFirst().orElse(null);
     }
 
     private String serializeState(double[] values) {

@@ -17,7 +17,7 @@ class MockGanglionTest {
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-20T10:00:00Z"));
 
-        var result = ganglion.detect(null, ctx).await().indefinitely();
+        var result = ganglion.detect(null, ctx);
         assertThat(result).isEqualTo(expected);
     }
 
@@ -29,8 +29,8 @@ class MockGanglionTest {
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-20T10:00:00Z"));
 
-        ganglion.detect(null, ctx).await().indefinitely();
-        ganglion.detect(null, ctx).await().indefinitely();
+        ganglion.detect(null, ctx);
+        ganglion.detect(null, ctx);
 
         assertThat(ganglion.callCount()).isEqualTo(2);
     }

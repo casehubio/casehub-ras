@@ -1,38 +1,36 @@
 package io.casehub.ras.api;
 
-import io.smallrye.mutiny.Uni;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 public interface SituationStore {
 
-    Uni<Optional<SituationContext>> find(String situationId, String correlationKey, String tenancyId);
+    Optional<SituationContext> find(String situationId, String correlationKey, String tenancyId);
 
-    Uni<SituationContext> save(SituationContext context);
+    SituationContext save(SituationContext context);
 
-    Uni<Void> remove(String situationId, String correlationKey, String tenancyId);
+    void remove(String situationId, String correlationKey, String tenancyId);
 
-    Uni<Integer> removeExpired(Instant cutoff);
+    int removeExpired(Instant cutoff);
 
-    default Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
-                                          String tenancyId, Instant triggerTime) {
-        return Uni.createFrom().item(true);
+    default boolean tryClaimTrigger(String situationId, String correlationKey,
+                                    String tenancyId, Instant triggerTime) {
+        return true;
     }
 
-    default Uni<Void> resetTriggerClaim(String situationId, String correlationKey,
-                                         String tenancyId) {
-        return Uni.createFrom().voidItem();
+    default void resetTriggerClaim(String situationId, String correlationKey,
+                                   String tenancyId) {
     }
 
-    default Uni<Integer> removeTriggeredBefore(Instant triggerCutoff) {
-        return Uni.createFrom().item(0);
+    default int removeTriggeredBefore(Instant triggerCutoff) {
+        return 0;
     }
 
-    default Uni<List<SituationContext>> findActive(String tenancyId) {
-        return Uni.createFrom().item(List.of());
+    default List<SituationContext> findActive(String tenancyId) {
+        return List.of();
     }
 
-    Uni<Void> removeAllForSituation(String situationId);
+    void removeAllForSituation(String situationId);
 }
 

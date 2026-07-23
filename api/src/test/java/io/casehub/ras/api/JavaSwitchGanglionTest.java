@@ -103,7 +103,7 @@ class JavaSwitchGanglionTest {
         var ganglion = new FixedGanglion(expected);
 
         DetectionResult result = ganglion.detect(testEvent(), testContext())
-                .await().indefinitely();
+                ;
 
         assertThat(result).isSameAs(expected);
     }
@@ -113,7 +113,7 @@ class JavaSwitchGanglionTest {
         var ganglion = new FixedGanglion(null);
 
         DetectionResult result = ganglion.detect(testEvent(), testContext())
-                .await().indefinitely();
+                ;
 
         assertThat(result).isNull();
     }
@@ -130,7 +130,7 @@ class JavaSwitchGanglionTest {
         };
 
         DetectionResult result = ganglion.detect(testEvent(), testContext())
-                .await().indefinitely();
+                ;
 
         assertThat(result.ganglionId()).isEqualTo("helper-g");
         assertThat(result.confidence()).isEqualTo(0.85);
@@ -148,7 +148,7 @@ class JavaSwitchGanglionTest {
         };
 
         DetectionResult result = ganglion.detect(testEvent(), testContext())
-                .await().indefinitely();
+                ;
 
         assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
         assertThat(result.confidence()).isEqualTo(0.70);
@@ -165,7 +165,7 @@ class JavaSwitchGanglionTest {
         };
 
         DetectionResult result = ganglion.detect(testEvent(), testContext())
-                .await().indefinitely();
+                ;
 
         assertThat(result.ganglionId()).isEqualTo("helper-g");
         assertThat(result.signal()).isEqualTo(DetectionSignal.WEAK);
@@ -183,7 +183,7 @@ class JavaSwitchGanglionTest {
         };
 
         DetectionResult result = ganglion.detect(testEvent(), testContext())
-                .await().indefinitely();
+                ;
 
         assertThat(result.signal()).isEqualTo(DetectionSignal.WEAK);
         assertThat(result.evidence()).isEmpty();
@@ -199,7 +199,7 @@ class JavaSwitchGanglionTest {
         };
 
         DetectionResult result = ganglion.detect(testEvent(), testContext())
-                .await().indefinitely();
+                ;
 
         assertThat(result.ganglionId()).isEqualTo("helper-g");
         assertThat(result.signal()).isEqualTo(DetectionSignal.NOISE);
@@ -217,7 +217,7 @@ class JavaSwitchGanglionTest {
         };
 
         DetectionResult result = ganglion.detect(testEvent(), testContext())
-                .await().indefinitely();
+                ;
 
         assertThat(result.ganglionId()).isEqualTo("helper-g");
         assertThat(result.signal()).isEqualTo(DetectionSignal.ANTI);
@@ -235,7 +235,7 @@ class JavaSwitchGanglionTest {
         };
 
         DetectionResult result = ganglion.detect(testEvent(), testContext())
-                .await().indefinitely();
+                ;
 
         assertThat(result.signal()).isEqualTo(DetectionSignal.ANTI);
         assertThat(result.confidence()).isEqualTo(0.40);

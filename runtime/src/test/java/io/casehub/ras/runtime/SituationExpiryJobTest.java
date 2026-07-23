@@ -1,9 +1,8 @@
 package io.casehub.ras.runtime;
 
 import io.casehub.ras.api.CaseTriggerConfig;
-import io.casehub.ras.api.OrphanedResourceCleaner;
-import io.smallrye.mutiny.Uni;
 import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.OrphanedResourceCleaner;
 import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.SituationDefinition;
 import io.casehub.ras.api.SituationRegistration;
@@ -32,8 +31,8 @@ class SituationExpiryJobTest {
     @Test
     void removesExpiredSituations() {
         var store = new InMemorySituationStore();
-        store.save(SituationContext.initial("sit-old", "k", "t", OLD)).await().indefinitely();
-        store.save(SituationContext.initial("sit-new", "k", "t", RECENT)).await().indefinitely();
+        store.save(SituationContext.initial("sit-old", "k", "t", OLD));
+        store.save(SituationContext.initial("sit-new", "k", "t", RECENT));
 
         var ganglion = new MockGanglion("g1", Set.of("e"),
                 FixedDetectionResult.noise("g1"));
@@ -46,14 +45,14 @@ class SituationExpiryJobTest {
 
         job.cleanup();
 
-        assertThat(store.find("sit-old", "k", "t").await().indefinitely()).isEmpty();
-        assertThat(store.find("sit-new", "k", "t").await().indefinitely()).isPresent();
+        assertThat(store.find("sit-old", "k", "t")).isEmpty();
+        assertThat(store.find("sit-new", "k", "t")).isPresent();
     }
 
     @Test
     void noOpWhenAllDefinitionsPersistent() {
         var store = new InMemorySituationStore();
-        store.save(SituationContext.initial("sit-1", "k", "t", OLD)).await().indefinitely();
+        store.save(SituationContext.initial("sit-1", "k", "t", OLD));
 
         var ganglion = new MockGanglion("g1", Set.of("e"),
                 FixedDetectionResult.noise("g1"));
@@ -66,7 +65,7 @@ class SituationExpiryJobTest {
 
         job.cleanup();
 
-        assertThat(store.find("sit-1", "k", "t").await().indefinitely()).isPresent();
+        assertThat(store.find("sit-1", "k", "t")).isPresent();
     }
 
     @Test
@@ -82,13 +81,13 @@ class SituationExpiryJobTest {
 
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-25T10:00:00Z"));
-        store.save(ctx).await().indefinitely();
+        store.save(ctx);
         store.tryClaimTrigger("sit-1", "key-1", "tenant-a",
-                Instant.parse("2026-06-25T10:00:00Z")).await().indefinitely();
+                Instant.parse("2026-06-25T10:00:00Z"));
 
         var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry), List.of());
 
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
+        assertThat(store.find("sit-1", "key-1", "tenant-a")).isPresent();
 
         // Guard period has NOT elapsed — cleanup should keep entity
         // (We can't easily test time-based cleanup in unit tests without mocking Instant.now,
@@ -121,8 +120,8 @@ class SituationExpiryJobTest {
     @Test
     void expiredCleanedCounterReflectsRemovedCount() {
         var store = new InMemorySituationStore();
-        store.save(SituationContext.initial("sit-old", "k", "t", OLD)).await().indefinitely();
-        store.save(SituationContext.initial("sit-new", "k", "t", RECENT)).await().indefinitely();
+        store.save(SituationContext.initial("sit-old", "k", "t", OLD));
+        store.save(SituationContext.initial("sit-new", "k", "t", RECENT));
 
         var ganglion = new MockGanglion("g1", Set.of("e"),
                                         FixedDetectionResult.noise("g1"));
@@ -172,7 +171,7 @@ class SituationExpiryJobTest {
             public String cleanerType()          {return "test";}
 
             @Override
-            public Uni<Integer> removeOrphaned() {return Uni.createFrom().item(3);}
+            public int removeOrphaned() {return 3;}
         };
 
         var job = new SituationExpiryJob(store, registry,
@@ -200,14 +199,14 @@ class SituationExpiryJobTest {
             public String cleanerType()          {return "failing";}
 
             @Override
-            public Uni<Integer> removeOrphaned() {throw new RuntimeException("boom");}
+            public int removeOrphaned() {throw new RuntimeException("boom");}
         };
         OrphanedResourceCleaner workingCleaner = new OrphanedResourceCleaner() {
             @Override
             public String cleanerType()          {return "working";}
 
             @Override
-            public Uni<Integer> removeOrphaned() {return Uni.createFrom().item(2);}
+            public int removeOrphaned() {return 2;}
         };
 
         var job = new SituationExpiryJob(store, registry,

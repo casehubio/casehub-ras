@@ -6,7 +6,6 @@ import io.casehub.ras.api.CaseInputContributor;
 import io.casehub.ras.api.CaseTrigger;
 import io.casehub.ras.api.CaseTriggerConfig;
 import io.casehub.ras.api.SituationContext;
-import io.smallrye.mutiny.Uni;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
@@ -17,7 +16,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletionStage;
 
 @ApplicationScoped
 public class DefaultCaseTrigger implements CaseTrigger {
@@ -58,11 +56,10 @@ public class DefaultCaseTrigger implements CaseTrigger {
     }
 
     @Override
-    public Uni<UUID> fire(CaseTriggerConfig triggerConfig, SituationContext context) {
-        CaseHub               hub       = findCaseHub(triggerConfig);
-        Map<String, Object>   inputData = buildInputData(triggerConfig, context);
-        CompletionStage<UUID> cs        = hub.startCase(inputData);
-        return Uni.createFrom().completionStage(cs);
+    public UUID fire(CaseTriggerConfig triggerConfig, SituationContext context) {
+        CaseHub             hub       = findCaseHub(triggerConfig);
+        Map<String, Object> inputData = buildInputData(triggerConfig, context);
+        return hub.startCase(inputData).toCompletableFuture().join();
     }
 
     private CaseHub findCaseHub(CaseTriggerConfig config) {

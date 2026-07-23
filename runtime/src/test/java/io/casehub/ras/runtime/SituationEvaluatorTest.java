@@ -24,7 +24,6 @@ import io.casehub.ras.testing.MockGanglion;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.event.Event;
 import jakarta.enterprise.event.NotificationOptions;
 import jakarta.enterprise.util.TypeLiteral;
@@ -106,7 +105,7 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
         assertThat(caseTrigger.firedCases()).hasSize(1);
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
+        assertThat(store.find("sit-1", "key-1", "tenant-a")).isPresent();
     }
 
     @Test
@@ -122,11 +121,11 @@ class SituationEvaluatorTest {
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
         assertThat(caseTrigger.firedCases()).isEmpty();
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
+        assertThat(store.find("sit-1", "key-1", "tenant-a")).isPresent();
 
         evaluator.evaluate(event("vibration.reading", T2), def, "key-1", "tenant-a");
         assertThat(caseTrigger.firedCases()).hasSize(1);
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
+        assertThat(store.find("sit-1", "key-1", "tenant-a")).isPresent();
     }
 
     @Test
@@ -140,7 +139,7 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
         assertThat(caseTrigger.firedCases()).isEmpty();
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
+        assertThat(store.find("sit-1", "key-1", "tenant-a")).isPresent();
     }
 
     @Test
@@ -152,14 +151,14 @@ class SituationEvaluatorTest {
         buildEvaluator(List.of(ganglion), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely())
+        assertThat(store.find("sit-1", "key-1", "tenant-a"))
                 .isPresent().get().satisfies(ctx ->
                         assertThat(ctx.detections()).hasSize(1));
 
         // T1 + 2 minutes > 1 minute window → expired → fresh context
         Instant expired = T1.plus(Duration.ofMinutes(2));
         evaluator.evaluate(event("temp.reading", expired), def, "key-1", "tenant-a");
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely())
+        assertThat(store.find("sit-1", "key-1", "tenant-a"))
                 .isPresent().get().satisfies(ctx ->
                         assertThat(ctx.detections()).hasSize(1));
     }
@@ -207,13 +206,12 @@ class SituationEvaluatorTest {
         var failOnceTrigger = new CaseTrigger() {
             private int callCount = 0;
             @Override
-            public io.smallrye.mutiny.Uni<java.util.UUID> fire(CaseTriggerConfig config, SituationContext context) {
+            public java.util.UUID fire(CaseTriggerConfig config, SituationContext context) {
                 callCount++;
                 if (callCount == 1) {
-                    return io.smallrye.mutiny.Uni.createFrom().failure(
-                            new RuntimeException("Transient failure"));
+                    throw new RuntimeException("Transient failure");
                 }
-                return io.smallrye.mutiny.Uni.createFrom().item(java.util.UUID.randomUUID());
+                return java.util.UUID.randomUUID();
             }
         };
 
@@ -225,16 +223,16 @@ class SituationEvaluatorTest {
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         assertThat(saved.get().detections()).hasSize(1);
         assertThat(saved.get().detections().get(0).result().signal()).isEqualTo(DetectionSignal.DETECTED);
 
         evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
-        var afterRetry = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var afterRetry = store.find("sit-1", "key-1", "tenant-a");
         assertThat(afterRetry).isPresent();
         boolean claimTaken = !store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T2)
-                .await().indefinitely();
+                ;
         assertThat(claimTaken).isTrue();
     }
 
@@ -244,16 +242,16 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.4)) {
             @Override
-            public Uni<SituationContext> compact(SituationContext context) {
+            public SituationContext compact(SituationContext context) {
                 compactCalls.incrementAndGet();
                 if (context.detections().size() > 1) {
                     var latest = context.detections().get(context.detections().size() - 1);
-                    return Uni.createFrom().item(new SituationContext(
+                    return new SituationContext(
                             context.situationId(), context.correlationKey(), context.tenancyId(),
                             context.firstSignal(), context.lastSignal(), List.of(latest),
-                            context.storeVersion(), null, 0));
+                            context.storeVersion(), null, 0);
                 }
-                return Uni.createFrom().item(context);
+                return context;
             }
         };
         // null correlationWindow → persistent situation
@@ -265,7 +263,7 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
 
         assertThat(compactCalls.get()).isEqualTo(2);
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         // compact() kept only the latest detection each time
         assertThat(saved.get().detections()).hasSize(1);
@@ -277,9 +275,9 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.4)) {
             @Override
-            public Uni<SituationContext> compact(SituationContext context) {
+            public SituationContext compact(SituationContext context) {
                 compactCalls.incrementAndGet();
-                return Uni.createFrom().item(context);
+                return context;
             }
         };
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
@@ -290,7 +288,7 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
 
         assertThat(compactCalls.get()).isZero();
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         assertThat(saved.get().detections()).hasSize(2);
     }
@@ -314,11 +312,10 @@ class SituationEvaluatorTest {
         var ganglion = new Ganglion() {
             @Override public String ganglionId() { return "g1"; }
             @Override public Set<String> handledEventTypes() { return Set.of("temp.reading"); }
-            @Override public io.smallrye.mutiny.Uni<DetectionResult> detect(
+            @Override public DetectionResult detect(
                     io.cloudevents.CloudEvent event, SituationContext context) {
                 detections.add(event.getTime().toInstant());
-                return io.smallrye.mutiny.Uni.createFrom().item(
-                        FixedDetectionResult.detected("g1", 0.4));
+                return FixedDetectionResult.detected("g1", 0.4);
             }
         };
         // 5-second buffer, Count(g1, 3) so it accumulates
@@ -368,11 +365,10 @@ class SituationEvaluatorTest {
         var ganglion = new Ganglion() {
             @Override public String ganglionId() { return "g1"; }
             @Override public Set<String> handledEventTypes() { return Set.of("temp.reading"); }
-            @Override public io.smallrye.mutiny.Uni<DetectionResult> detect(
+            @Override public DetectionResult detect(
                     io.cloudevents.CloudEvent event, SituationContext context) {
                 callCount.incrementAndGet();
-                return io.smallrye.mutiny.Uni.createFrom().item(
-                        FixedDetectionResult.detected("g1", 0.9));
+                return FixedDetectionResult.detected("g1", 0.9);
             }
         };
         // Or mode with 1 ganglion → first detection triggers TRIGGER
@@ -433,11 +429,11 @@ class SituationEvaluatorTest {
 
         assertThat(caseTrigger.firedCases()).hasSize(1);
         // Situation retained for continued accumulation
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         // Claim reset — reclaimable after cooldown
         boolean reclaimable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T2)
-                .await().indefinitely();
+                ;
         assertThat(reclaimable).isTrue();
     }
 
@@ -477,7 +473,7 @@ class SituationEvaluatorTest {
 
         // Second event: claim fails (loser), but NOT terminated — continues accumulating
         evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         assertThat(saved.get().detections()).hasSizeGreaterThanOrEqualTo(1);
     }
@@ -488,16 +484,16 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.9)) {
             @Override
-            public Uni<SituationContext> compact(SituationContext context) {
+            public SituationContext compact(SituationContext context) {
                 compactCalls.incrementAndGet();
                 if (context.detections().size() > 1) {
                     var latest = context.detections().get(context.detections().size() - 1);
-                    return Uni.createFrom().item(new SituationContext(
+                    return new SituationContext(
                             context.situationId(), context.correlationKey(), context.tenancyId(),
                             context.firstSignal(), context.lastSignal(), List.of(latest),
-                            context.storeVersion(), null, 0));
+                            context.storeVersion(), null, 0);
                 }
-                return Uni.createFrom().item(context);
+                return context;
             }
         };
         // Persistent situation (null window) with repeating trigger
@@ -524,8 +520,8 @@ class SituationEvaluatorTest {
         var resolvingPolicy = new RasTriggerPolicy() {
             private int calls = 0;
             @Override
-            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
-                return Uni.createFrom().item(new PolicyDecision(++calls >= 3
+            public PolicyDecision evaluate(SituationContext ctx, SituationDefinition d) {
+                return (new PolicyDecision(++calls >= 3
                         ? TriggerDecision.RESOLVE : TriggerDecision.CONTINUE_ACCUMULATING));
             }
         };
@@ -538,10 +534,10 @@ class SituationEvaluatorTest {
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isPresent();
+        assertThat(store.find("sit-1", "key-1", "tenant-a")).isPresent();
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(store.find("sit-1", "key-1", "tenant-a")).isEmpty();
         assertThat(caseTrigger.firedCases()).isEmpty();
     }
 
@@ -578,8 +574,8 @@ class SituationEvaluatorTest {
 
         var resolvingPolicy = new RasTriggerPolicy() {
             @Override
-            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
-                return Uni.createFrom().item(new PolicyDecision(TriggerDecision.RESOLVE));
+            public PolicyDecision evaluate(SituationContext ctx, SituationDefinition d) {
+                return (new PolicyDecision(TriggerDecision.RESOLVE));
             }
         };
 
@@ -606,8 +602,8 @@ class SituationEvaluatorTest {
 
         var discardingPolicy = new RasTriggerPolicy() {
             @Override
-            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
-                return Uni.createFrom().item(new PolicyDecision(TriggerDecision.DISCARD));
+            public PolicyDecision evaluate(SituationContext ctx, SituationDefinition d) {
+                return (new PolicyDecision(TriggerDecision.DISCARD));
             }
         };
 
@@ -635,8 +631,8 @@ class SituationEvaluatorTest {
 
         var suppressPolicy = new RasTriggerPolicy() {
             @Override
-            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
-                return Uni.createFrom().item(new PolicyDecision(TriggerDecision.SUPPRESS,
+            public PolicyDecision evaluate(SituationContext ctx, SituationDefinition d) {
+                return (new PolicyDecision(TriggerDecision.SUPPRESS,
                                                                 Map.of("suppression.tier", "full", "suppression.dismissalRate", 0.92)));
             }
         };
@@ -651,7 +647,7 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
         assertThat(caseTrigger.firedCases()).isEmpty();
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(store.find("sit-1", "key-1", "tenant-a")).isEmpty();
         assertThat(changeEvent.firedEvents()).hasSize(1);
         assertThat(changeEvent.firedEvents().get(0).changeType())
                 .isEqualTo(SituationChangeEvent.ChangeType.SUPPRESSED);
@@ -672,8 +668,8 @@ class SituationEvaluatorTest {
 
         var annotatePolicy = new RasTriggerPolicy() {
             @Override
-            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
-                return Uni.createFrom().item(new PolicyDecision(TriggerDecision.TRIGGER,
+            public PolicyDecision evaluate(SituationContext ctx, SituationDefinition d) {
+                return (new PolicyDecision(TriggerDecision.TRIGGER,
                                                                 Map.of("suppression.tier", "annotate", "suppression.dismissalRate", 0.45)));
             }
         };
@@ -720,8 +716,8 @@ class SituationEvaluatorTest {
 
         var annotatePolicy = new RasTriggerPolicy() {
             @Override
-            public Uni<PolicyDecision> evaluate(SituationContext ctx, SituationDefinition d) {
-                return Uni.createFrom().item(new PolicyDecision(TriggerDecision.TRIGGER,
+            public PolicyDecision evaluate(SituationContext ctx, SituationDefinition d) {
+                return (new PolicyDecision(TriggerDecision.TRIGGER,
                                                                 Map.of("suppression.tier", "annotate")));
             }
         };
@@ -797,7 +793,7 @@ class SituationEvaluatorTest {
 
         // Event lost — nothing saved, no case triggered
         assertThat(caseTrigger.firedCases()).isEmpty();
-        assertThat(store.find("sit-1", "key-1", "tenant-a").await().indefinitely()).isEmpty();
+        assertThat(store.find("sit-1", "key-1", "tenant-a")).isEmpty();
     }
 
     @Test
@@ -806,9 +802,9 @@ class SituationEvaluatorTest {
         var ganglion = new Ganglion() {
             @Override public String ganglionId() { return "g1"; }
             @Override public Set<String> handledEventTypes() { return Set.of("temp.reading"); }
-            @Override public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
+            @Override public DetectionResult detect(CloudEvent event, SituationContext context) {
                 detectCount.incrementAndGet();
-                return Uni.createFrom().item(FixedDetectionResult.detected("g1", 0.4));
+                return (FixedDetectionResult.detected("g1", 0.4));
             }
         };
         var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
@@ -832,9 +828,9 @@ class SituationEvaluatorTest {
         var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
                 FixedDetectionResult.detected("g1", 0.4)) {
             @Override
-            public Uni<SituationContext> compact(SituationContext context) {
+            public SituationContext compact(SituationContext context) {
                 compactCalls.incrementAndGet();
-                return Uni.createFrom().item(context);
+                return context;
             }
         };
         // null correlationWindow → persistent → compact invoked
@@ -868,35 +864,34 @@ class SituationEvaluatorTest {
             private boolean conflicted = false;
 
             @Override
-            public Uni<Optional<SituationContext>> find(String situationId, String correlationKey, String tenancyId) {
+            public Optional<SituationContext> find(String situationId, String correlationKey, String tenancyId) {
                 return delegate.find(situationId, correlationKey, tenancyId);
             }
 
             @Override
-            public Uni<SituationContext> save(SituationContext context) {
+            public SituationContext save(SituationContext context) {
                 if (!conflicted) {
                     conflicted = true;
-                    // Simulate winner saving and then removing (TRIGGER path)
-                    delegate.save(context).await().indefinitely();
-                    delegate.remove(context.situationId(), context.correlationKey(), context.tenancyId()).await().indefinitely();
+                    delegate.save(context);
+                    delegate.remove(context.situationId(), context.correlationKey(), context.tenancyId());
                     throw new SituationConflictException("Simulated conflict", null);
                 }
                 return delegate.save(context);
             }
 
             @Override
-            public Uni<Void> remove(String situationId, String correlationKey, String tenancyId) {
-                return delegate.remove(situationId, correlationKey, tenancyId);
+            public void remove(String situationId, String correlationKey, String tenancyId) {
+                delegate.remove(situationId, correlationKey, tenancyId);
             }
 
             @Override
-            public Uni<Integer> removeExpired(Instant cutoff) {
+            public int removeExpired(Instant cutoff) {
                 return delegate.removeExpired(cutoff);
             }
 
             @Override
-            public Uni<Void> removeAllForSituation(String situationId) {
-                return delegate.removeAllForSituation(situationId);
+            public void removeAllForSituation(String situationId) {
+                delegate.removeAllForSituation(situationId);
             }
         };
 
@@ -909,7 +904,7 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
         // Retry created fresh context, applied detection, CONTINUE_ACCUMULATING → saved
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         assertThat(saved.get().detections()).hasSize(1);
         assertThat(saved.get().storeVersion()).isPresent();
@@ -928,10 +923,10 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
         assertThat(caseTrigger.firedCases()).hasSize(1);
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         boolean secondClaim = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
-                .await().indefinitely();
+                ;
         assertThat(secondClaim).isFalse();
     }
 
@@ -968,15 +963,15 @@ class SituationEvaluatorTest {
         buildEvaluator(List.of(g1, g2), def);
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
-        var afterFirst = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        var afterFirst = store.find("sit-1", "key-1", "tenant-a").orElseThrow();
         Instant firstLastSignal = afterFirst.lastSignal();
 
-        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1).await().indefinitely();
+        store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1);
 
         evaluator.evaluate(event("vibration.reading", T2), def, "key-1", "tenant-a");
         assertThat(caseTrigger.firedCases()).isEmpty();
 
-        var afterSecond = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        var afterSecond = store.find("sit-1", "key-1", "tenant-a").orElseThrow();
         assertThat(afterSecond.lastSignal()).isEqualTo(firstLastSignal);
     }
 
@@ -989,8 +984,8 @@ class SituationEvaluatorTest {
 
         var failingTrigger = new CaseTrigger() {
             @Override
-            public Uni<java.util.UUID> fire(CaseTriggerConfig config, SituationContext context) {
-                return Uni.createFrom().failure(new RuntimeException("Trigger failed"));
+            public java.util.UUID fire(CaseTriggerConfig config, SituationContext context) {
+                throw (new RuntimeException("Trigger failed"));
             }
         };
 
@@ -1002,10 +997,10 @@ class SituationEvaluatorTest {
 
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         boolean reclaimable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
-                .await().indefinitely();
+                ;
         assertThat(reclaimable).isTrue();
     }
 
@@ -1019,11 +1014,11 @@ class SituationEvaluatorTest {
 
         var failOnceTrigger = new CaseTrigger() {
             @Override
-            public Uni<java.util.UUID> fire(CaseTriggerConfig config, SituationContext context) {
+            public java.util.UUID fire(CaseTriggerConfig config, SituationContext context) {
                 if (callCount.incrementAndGet() == 1) {
-                    return Uni.createFrom().failure(new RuntimeException("Transient"));
+                    throw (new RuntimeException("Transient"));
                 }
-                return Uni.createFrom().item(java.util.UUID.randomUUID());
+                return (java.util.UUID.randomUUID());
             }
         };
 
@@ -1051,13 +1046,13 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
         assertThat(caseTrigger.firedCases()).hasSize(1);
 
-        var afterTrigger = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        var afterTrigger = store.find("sit-1", "key-1", "tenant-a").orElseThrow();
         Instant originalLastSignal = afterTrigger.lastSignal();
 
         evaluator.evaluate(event("temp.reading", T2), def, "key-1", "tenant-a");
         assertThat(caseTrigger.firedCases()).hasSize(1);
 
-        var afterSecond = store.find("sit-1", "key-1", "tenant-a").await().indefinitely().orElseThrow();
+        var afterSecond = store.find("sit-1", "key-1", "tenant-a").orElseThrow();
         assertThat(afterSecond.lastSignal()).isEqualTo(originalLastSignal);
     }
 
@@ -1069,12 +1064,12 @@ class SituationEvaluatorTest {
                 Duration.ofMinutes(5), null, new ChainMode.Count("g1", 2), new TriggerAction.CreateCase(TRIGGER_CONFIG), null);
 
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
-        store.save(ctx).await().indefinitely();
+        store.save(ctx);
 
         var conflictOnSecondSave = new ClaimTrackingStore(store) {
             private int saveCount = 0;
             @Override
-            public Uni<SituationContext> save(SituationContext context) {
+            public SituationContext save(SituationContext context) {
                 saveCount++;
                 if (saveCount == 2) {
                     throw new SituationConflictException("Simulated version conflict", null);
@@ -1092,27 +1087,27 @@ class SituationEvaluatorTest {
         evaluator.evaluate(event("temp.reading", T1), def, "key-1", "tenant-a");
 
         boolean claimAvailable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
-                .await().indefinitely();
+                ;
         assertThat(claimAvailable).isTrue();
     }
 
     private static class ConflictSimulatingStore implements SituationStore {
         private final SituationStore delegate;
-        private int conflictsRemaining;
+        private       int            conflictsRemaining;
 
         ConflictSimulatingStore(SituationStore delegate, int conflictCount) {
-            this.delegate = delegate;
+            this.delegate           = delegate;
             this.conflictsRemaining = conflictCount;
         }
 
         @Override
-        public Uni<Optional<SituationContext>> find(String situationId, String correlationKey,
-                                                     String tenancyId) {
+        public Optional<SituationContext> find(String situationId, String correlationKey,
+                                               String tenancyId) {
             return delegate.find(situationId, correlationKey, tenancyId);
         }
 
         @Override
-        public Uni<SituationContext> save(SituationContext context) {
+        public SituationContext save(SituationContext context) {
             if (conflictsRemaining > 0) {
                 conflictsRemaining--;
                 throw new SituationConflictException("Simulated conflict", null);
@@ -1121,30 +1116,30 @@ class SituationEvaluatorTest {
         }
 
         @Override
-        public Uni<Void> remove(String situationId, String correlationKey, String tenancyId) {
-            return delegate.remove(situationId, correlationKey, tenancyId);
+        public void remove(String situationId, String correlationKey, String tenancyId) {
+            delegate.remove(situationId, correlationKey, tenancyId);
         }
 
         @Override
-        public Uni<Integer> removeExpired(Instant cutoff) {
+        public int removeExpired(Instant cutoff) {
             return delegate.removeExpired(cutoff);
         }
 
         @Override
-        public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
-                                             String tenancyId, Instant triggerTime) {
+        public boolean tryClaimTrigger(String situationId, String correlationKey,
+                                       String tenancyId, Instant triggerTime) {
             return delegate.tryClaimTrigger(situationId, correlationKey, tenancyId, triggerTime);
         }
 
         @Override
-        public Uni<Void> resetTriggerClaim(String situationId, String correlationKey,
-                                            String tenancyId) {
-            return delegate.resetTriggerClaim(situationId, correlationKey, tenancyId);
+        public void resetTriggerClaim(String situationId, String correlationKey,
+                                      String tenancyId) {
+            delegate.resetTriggerClaim(situationId, correlationKey, tenancyId);
         }
 
         @Override
-        public Uni<Void> removeAllForSituation(String situationId) {
-            return delegate.removeAllForSituation(situationId);
+        public void removeAllForSituation(String situationId) {
+            delegate.removeAllForSituation(situationId);
         }
     }
 
@@ -1156,41 +1151,41 @@ class SituationEvaluatorTest {
         }
 
         @Override
-        public Uni<Optional<SituationContext>> find(String situationId, String correlationKey,
-                                                     String tenancyId) {
+        public Optional<SituationContext> find(String situationId, String correlationKey,
+                                               String tenancyId) {
             return delegate.find(situationId, correlationKey, tenancyId);
         }
 
         @Override
-        public Uni<SituationContext> save(SituationContext context) {
+        public SituationContext save(SituationContext context) {
             return delegate.save(context);
         }
 
         @Override
-        public Uni<Void> remove(String situationId, String correlationKey, String tenancyId) {
-            return delegate.remove(situationId, correlationKey, tenancyId);
+        public void remove(String situationId, String correlationKey, String tenancyId) {
+            delegate.remove(situationId, correlationKey, tenancyId);
         }
 
         @Override
-        public Uni<Integer> removeExpired(Instant cutoff) {
+        public int removeExpired(Instant cutoff) {
             return delegate.removeExpired(cutoff);
         }
 
         @Override
-        public Uni<Boolean> tryClaimTrigger(String situationId, String correlationKey,
-                                             String tenancyId, Instant triggerTime) {
+        public boolean tryClaimTrigger(String situationId, String correlationKey,
+                                       String tenancyId, Instant triggerTime) {
             return delegate.tryClaimTrigger(situationId, correlationKey, tenancyId, triggerTime);
         }
 
         @Override
-        public Uni<Void> resetTriggerClaim(String situationId, String correlationKey,
-                                            String tenancyId) {
-            return delegate.resetTriggerClaim(situationId, correlationKey, tenancyId);
+        public void resetTriggerClaim(String situationId, String correlationKey,
+                                      String tenancyId) {
+            delegate.resetTriggerClaim(situationId, correlationKey, tenancyId);
         }
 
         @Override
-        public Uni<Void> removeAllForSituation(String situationId) {
-            return delegate.removeAllForSituation(situationId);
+        public void removeAllForSituation(String situationId) {
+            delegate.removeAllForSituation(situationId);
         }
     }
 
@@ -1239,10 +1234,10 @@ class SituationEvaluatorTest {
         assertThat(caseTrigger.firedCases()).isEmpty();
         assertThat(failingChangeEvent.firedEvents()).hasSize(1);
 
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         boolean reclaimable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
-                .await().indefinitely();
+                ;
         assertThat(reclaimable).isTrue();
     }
 
@@ -1264,7 +1259,7 @@ class SituationEvaluatorTest {
         assertThat(evt.changeType()).isEqualTo(SituationChangeEvent.ChangeType.TRIGGERED);
         assertThat(evt.context()).isNotNull();
 
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
     }
 
@@ -1296,10 +1291,10 @@ class SituationEvaluatorTest {
         assertThat(caseTrigger.firedCases()).isEmpty();
         assertThat(failingChangeEvent.firedEvents()).hasSize(1);
 
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         boolean reclaimable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
-                .await().indefinitely();
+                ;
         assertThat(reclaimable).isTrue();
     }
 
@@ -1330,10 +1325,10 @@ class SituationEvaluatorTest {
         assertThat(caseTrigger.firedCases()).hasSize(1);
         assertThat(failingChangeEvent.firedEvents()).hasSize(1);
 
-        var saved = store.find("sit-1", "key-1", "tenant-a").await().indefinitely();
+        var saved = store.find("sit-1", "key-1", "tenant-a");
         assertThat(saved).isPresent();
         boolean reclaimable = store.tryClaimTrigger("sit-1", "key-1", "tenant-a", T1)
-                .await().indefinitely();
+                ;
         assertThat(reclaimable).isFalse();
     }
 
@@ -1369,8 +1364,8 @@ class SituationEvaluatorTest {
         var failingGanglion = new Ganglion() {
             @Override public String ganglionId() { return "g-fail"; }
             @Override public Set<String> handledEventTypes() { return Set.of("test.event"); }
-            @Override public Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
-                return Uni.createFrom().failure(new RuntimeException("ganglion failed"));
+            @Override public DetectionResult detect(CloudEvent event, SituationContext context) {
+                throw (new RuntimeException("ganglion failed"));
             }
         };
         var workingGanglion = new MockGanglion("g-ok", Set.of("test.event"),
@@ -1463,7 +1458,7 @@ class SituationEvaluatorTest {
     void metricsGanglionDetectFailed() {
         var failing = new MockGanglion("g-fail", Set.of("temp.reading"), null) {
             @Override
-            public io.smallrye.mutiny.Uni<DetectionResult> detect(
+            public DetectionResult detect(
                     io.cloudevents.CloudEvent event, SituationContext context) {
                 throw new RuntimeException("boom");
             }
@@ -1542,8 +1537,9 @@ class SituationEvaluatorTest {
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(ganglion));
         initMetrics(registry);
-        CaseTrigger failingTrigger = (config, ctx) ->
-                                             io.smallrye.mutiny.Uni.createFrom().failure(new RuntimeException("fire failed"));
+        CaseTrigger failingTrigger = (config, ctx) -> {
+            throw new RuntimeException("fire failed");
+        };
         initMetrics(registry);
         evaluator = new SituationEvaluator(store, policy, failingTrigger, registry, 3, changeEvent, metrics);
 

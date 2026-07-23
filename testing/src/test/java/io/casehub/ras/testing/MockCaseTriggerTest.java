@@ -16,7 +16,7 @@ class MockCaseTriggerTest {
         var config = new CaseTriggerConfig("ns", "case-name", "1.0", Map.of());
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
 
-        var caseId = trigger.fire(config, ctx).await().indefinitely();
+        var caseId = trigger.fire(config, ctx);
 
         assertThat(caseId).isNotNull();
         assertThat(trigger.firedCases()).hasSize(1);
@@ -31,7 +31,7 @@ class MockCaseTriggerTest {
         var trigger = new MockCaseTrigger();
         var config = new CaseTriggerConfig("ns", "name", "1.0", Map.of());
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
-        trigger.fire(config, ctx).await().indefinitely();
+        trigger.fire(config, ctx);
 
         trigger.reset();
 
@@ -43,8 +43,8 @@ class MockCaseTriggerTest {
         var trigger = new MockCaseTrigger();
         var config = new CaseTriggerConfig("ns", "name", "1.0", Map.of());
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a", T1);
-        trigger.fire(config, ctx).await().indefinitely();
-        trigger.fire(config, ctx).await().indefinitely();
+        trigger.fire(config, ctx);
+        trigger.fire(config, ctx);
 
         assertThat(trigger.firedCases()).hasSize(2);
     }

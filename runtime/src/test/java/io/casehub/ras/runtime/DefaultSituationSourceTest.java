@@ -26,9 +26,9 @@ class DefaultSituationSourceTest {
                 Instant.parse("2026-06-25T10:00:00Z"))
                 .withDetection(new DetectionResult("g1", 0.8, DetectionSignal.DETECTED, Map.of()),
                                Instant.parse("2026-06-25T10:00:00Z"));
-        store.save(ctx).await().indefinitely();
+        store.save(ctx);
 
-        var active = source.activeSituations("tenant-a").await().indefinitely();
+        var active = source.activeSituations("tenant-a");
         assertThat(active).hasSize(1);
         assertThat(active.get(0).situationId()).isEqualTo("sit-1");
         assertThat(active.get(0).confidence()).isEqualTo(0.8);
@@ -39,15 +39,15 @@ class DefaultSituationSourceTest {
     void excludesTriggeredSituations() {
         var ctx = SituationContext.initial("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-25T10:00:00Z"));
-        store.save(ctx).await().indefinitely();
+        store.save(ctx);
         store.tryClaimTrigger("sit-1", "key-1", "tenant-a",
-                Instant.parse("2026-06-25T10:00:00Z")).await().indefinitely();
+                Instant.parse("2026-06-25T10:00:00Z"));
 
-        assertThat(source.activeSituations("tenant-a").await().indefinitely()).isEmpty();
+        assertThat(source.activeSituations("tenant-a")).isEmpty();
     }
 
     @Test
     void emptyForUnknownTenant() {
-        assertThat(source.activeSituations("unknown").await().indefinitely()).isEmpty();
+        assertThat(source.activeSituations("unknown")).isEmpty();
     }
 }

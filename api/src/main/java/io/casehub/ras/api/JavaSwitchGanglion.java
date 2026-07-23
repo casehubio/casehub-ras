@@ -1,7 +1,6 @@
 package io.casehub.ras.api;
 
 import io.cloudevents.CloudEvent;
-import io.smallrye.mutiny.Uni;
 
 import java.util.Map;
 import java.util.Objects;
@@ -29,8 +28,8 @@ public abstract class JavaSwitchGanglion implements Ganglion {
     protected abstract DetectionResult evaluate(CloudEvent event, SituationContext context);
 
     @Override
-    public final Uni<DetectionResult> detect(CloudEvent event, SituationContext context) {
-        return Uni.createFrom().item(evaluate(event, context));
+    public final DetectionResult detect(CloudEvent event, SituationContext context) {
+        return evaluate(event, context);
     }
 
     protected DetectionResult detected(double confidence, Map<String, Object> evidence) {
