@@ -29,6 +29,7 @@ class ExpressionRulesGanglion implements Ganglion {
             CompiledExpression<Map, Boolean> when,
             DetectionSignal signal,
             double confidence,
+            CompiledExpression<Map, Object> confidenceExpression,
             Map<String, CompiledExpression<Map, Object>> evidenceTemplates
     ) {}
 
@@ -105,7 +106,65 @@ class ExpressionRulesGanglion implements Ganglion {
                 }
             }
         }
-        return new DetectionResult(ganglionId, rule.confidence(), rule.signal(), evidence);
+        return new DetectionResult(ganglionId, resolveConfidence(rule, index, ctx), rule.signal(), evidence);
+    }
+
+    @SuppressWarnings("unchecked")
+    private double resolveConfidence(CompiledRule rule, int index, Map<String, Object> ctx) {
+        if (rule.confidenceExpression() == null) {
+            return rule.confidence();
+        }
+        try {
+            Object result = rule.confidenceExpression().eval(ctx);
+            if (result instanceof Number n) {
+                double val = n.doubleValue();
+                if (Double.isNaN(val) || Double.isInfinite(val)) {
+                    LOG.warning("Confidence expression returned " + val + " for rule " + index
+                                + " in ganglion '" + ganglionId + "', using fallback");
+                    if (meterRegistry != null) {
+                        meterRegistry.counter("ras.expression.error",
+                                              "ganglion_id", ganglionId,
+                                              "rule_index", String.valueOf(index),
+                                              "expression_point", "confidence_evaluation").increment();
+                    }
+                    return rule.confidence();
+                }
+                if (val < 0.0 || val > 1.0) {
+                    LOG.warning("Confidence expression returned " + val + " for rule " + index
+                                + " in ganglion '" + ganglionId + "', clamping to [0.0, 1.0]");
+                    if (meterRegistry != null) {
+                        meterRegistry.counter("ras.expression.error",
+                                              "ganglion_id", ganglionId,
+                                              "rule_index", String.valueOf(index),
+                                              "expression_point", "confidence_clamped").increment();
+                    }
+                    return Math.max(0.0, Math.min(1.0, val));
+                }
+                return val;
+            } else {
+                if (result != null) {
+                    LOG.warning("Confidence expression returned non-numeric " + result.getClass().getSimpleName()
+                                + " for rule " + index + " in ganglion '" + ganglionId + "', using fallback");
+                    if (meterRegistry != null) {
+                        meterRegistry.counter("ras.expression.error",
+                                              "ganglion_id", ganglionId,
+                                              "rule_index", String.valueOf(index),
+                                              "expression_point", "confidence_evaluation").increment();
+                    }
+                }
+                return rule.confidence();
+            }
+        } catch (RuntimeException ex) {
+            LOG.warning("Confidence expression failed for rule " + index
+                        + " in ganglion '" + ganglionId + "': " + ex.getMessage());
+            if (meterRegistry != null) {
+                meterRegistry.counter("ras.expression.error",
+                                      "ganglion_id", ganglionId,
+                                      "rule_index", String.valueOf(index),
+                                      "expression_point", "confidence_evaluation").increment();
+            }
+            return rule.confidence();
+        }
     }
 
 }

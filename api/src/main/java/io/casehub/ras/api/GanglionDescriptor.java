@@ -50,6 +50,7 @@ public sealed interface GanglionDescriptor {
                 ExpressionEvaluator when,
                 DetectionSignal signal,
                 double confidence,
+                ExpressionEvaluator confidenceExpression,
                 Map<String, ExpressionEvaluator> evidenceTemplates
         ) {}
     }

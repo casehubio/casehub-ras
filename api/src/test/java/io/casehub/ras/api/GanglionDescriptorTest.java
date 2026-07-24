@@ -52,9 +52,9 @@ class GanglionDescriptorTest {
     void expressionRulesRecordCarriesAllFields() {
         var rule = new GanglionDescriptor.ExpressionRules.Rule(
                 new JQExpressionEvaluator(".data.severity == \"HIGH\""),
-                DetectionSignal.DETECTED, 0.9, Map.of());
+                DetectionSignal.DETECTED, 0.9, null, Map.of());
         var otherwise = new GanglionDescriptor.ExpressionRules.Rule(
-                null, DetectionSignal.NOISE, 0.0, Map.of());
+                null, DetectionSignal.NOISE, 0.0, null, Map.of());
 
         var descriptor = new GanglionDescriptor.ExpressionRules(
                 "severity-checker", Set.of("sensor.reading"),
@@ -66,6 +66,7 @@ class GanglionDescriptorTest {
         assertThat(descriptor.rules().get(0).when()).isNotNull();
         assertThat(descriptor.rules().get(0).signal()).isEqualTo(DetectionSignal.DETECTED);
         assertThat(descriptor.rules().get(0).confidence()).isEqualTo(0.9);
+        assertThat(descriptor.rules().get(0).confidenceExpression()).isNull();
         assertThat(descriptor.rules().get(1).when()).isNull();
         assertThat(descriptor.evidenceTemplates()).isEmpty();
     }
@@ -74,7 +75,7 @@ class GanglionDescriptorTest {
     void expressionRulesWithEvidenceTemplates() {
         var descriptor = new GanglionDescriptor.ExpressionRules(
                 "checker", Set.of("event.type"),
-                List.of(new GanglionDescriptor.ExpressionRules.Rule(null, DetectionSignal.NOISE, 0.0, Map.of())),
+                List.of(new GanglionDescriptor.ExpressionRules.Rule(null, DetectionSignal.NOISE, 0.0, null, Map.of())),
                 Map.of("severity", new JQExpressionEvaluator(".data.severity")));
 
         assertThat(descriptor.evidenceTemplates()).containsKey("severity");
@@ -84,9 +85,20 @@ class GanglionDescriptorTest {
     void ruleWithEvidenceTemplates() {
         var rule = new GanglionDescriptor.ExpressionRules.Rule(
                 new JQExpressionEvaluator(".data.severity == \"HIGH\""),
-                DetectionSignal.DETECTED, 0.9,
+                DetectionSignal.DETECTED, 0.9, null,
                 Map.of("reason", new JQExpressionEvaluator(".data.reason")));
         assertThat(rule.evidenceTemplates()).containsKey("reason");
+    }
+
+    @Test
+    void ruleWithConfidenceExpression() {
+        var rule = new GanglionDescriptor.ExpressionRules.Rule(
+                new JQExpressionEvaluator(".data.severity == \"HIGH\""),
+                DetectionSignal.DETECTED, 0.5,
+                new JQExpressionEvaluator(".data.score / 100"),
+                Map.of());
+        assertThat(rule.confidenceExpression()).isNotNull();
+        assertThat(rule.confidence()).isEqualTo(0.5);
     }
 
 

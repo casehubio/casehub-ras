@@ -80,12 +80,32 @@ class ExpressionRulesGanglionTest {
         };
     }
 
+    private static CompiledExpression<Map, Object> confidenceReturning(Object value) {
+        return new CompiledExpression<>() {
+            @Override
+            public String type()            {return "test";}
+
+            @Override
+            public Object eval(Map context) {return value;}
+        };
+    }
+
+    private static CompiledExpression<Map, Object> confidenceThrowing() {
+        return new CompiledExpression<>() {
+            @Override
+            public String type()            {return "test";}
+
+            @Override
+            public Object eval(Map context) {throw new RuntimeException("boom");}
+        };
+    }
+
 
     @Test
     void firstMatchingRuleWins() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.DETECTED, 0.9, Map.of()),
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.WEAK, 0.5, Map.of())), null);
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.DETECTED, 0.9, null, Map.of()),
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.WEAK, 0.5, null, Map.of())), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
         assertThat(result.confidence()).isEqualTo(0.9);
@@ -94,8 +114,8 @@ class ExpressionRulesGanglionTest {
     @Test
     void secondRuleMatchesWhenFirstDoesNot() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, Map.of()),
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.WEAK, 0.5, Map.of())), null);
+                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, null, Map.of()),
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.WEAK, 0.5, null, Map.of())), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.signal()).isEqualTo(DetectionSignal.WEAK);
         assertThat(result.confidence()).isEqualTo(0.5);
@@ -104,8 +124,8 @@ class ExpressionRulesGanglionTest {
     @Test
     void otherwiseMatchesWhenNoRuleMatches() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, Map.of()),
-                new ExpressionRulesGanglion.CompiledRule(null, DetectionSignal.NOISE, 0.0, Map.of())), null);
+                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, null, Map.of()),
+                new ExpressionRulesGanglion.CompiledRule(null, DetectionSignal.NOISE, 0.0, null, Map.of())), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.signal()).isEqualTo(DetectionSignal.NOISE);
         assertThat(result.confidence()).isEqualTo(0.0);
@@ -114,7 +134,7 @@ class ExpressionRulesGanglionTest {
     @Test
     void noRuleNoOtherwiseReturnsNoise() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, Map.of())), null);
+                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, null, Map.of())), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.signal()).isEqualTo(DetectionSignal.NOISE);
         assertThat(result.confidence()).isEqualTo(0.0);
@@ -123,8 +143,8 @@ class ExpressionRulesGanglionTest {
     @Test
     void matchedRuleIndexInEvidence() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, Map.of()),
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.WEAK, 0.5, Map.of())), null);
+                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, null, Map.of()),
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.WEAK, 0.5, null, Map.of())), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.evidence()).containsEntry("matchedRuleIndex", 1);
     }
@@ -132,7 +152,7 @@ class ExpressionRulesGanglionTest {
     @Test
     void matchedRuleIndexMinusOneForImplicitFallback() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, Map.of())), null);
+                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, null, Map.of())), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.evidence()).containsEntry("matchedRuleIndex", -1);
     }
@@ -140,8 +160,8 @@ class ExpressionRulesGanglionTest {
     @Test
     void nullExpressionResultTreatedAsNoMatch() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(nullReturning(), DetectionSignal.DETECTED, 0.9, Map.of()),
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.WEAK, 0.3, Map.of())), null);
+                new ExpressionRulesGanglion.CompiledRule(nullReturning(), DetectionSignal.DETECTED, 0.9, null, Map.of()),
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.WEAK, 0.3, null, Map.of())), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.signal()).isEqualTo(DetectionSignal.WEAK);
     }
@@ -149,8 +169,8 @@ class ExpressionRulesGanglionTest {
     @Test
     void expressionExceptionSkipsRuleTrysNext() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(throwing(), DetectionSignal.DETECTED, 0.9, Map.of()),
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.WEAK, 0.5, Map.of())), null);
+                new ExpressionRulesGanglion.CompiledRule(throwing(), DetectionSignal.DETECTED, 0.9, null, Map.of()),
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.WEAK, 0.5, null, Map.of())), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.signal()).isEqualTo(DetectionSignal.WEAK);
     }
@@ -159,7 +179,7 @@ class ExpressionRulesGanglionTest {
     void expressionErrorMetricIncremented() {
         var registry = new SimpleMeterRegistry();
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(throwing(), DetectionSignal.DETECTED, 0.9, Map.of())), registry);
+                new ExpressionRulesGanglion.CompiledRule(throwing(), DetectionSignal.DETECTED, 0.9, null, Map.of())), registry);
         ganglion.detect(event(), CTX);
         var counter = registry.find("ras.expression.error").tag("ganglion_id", "g1").tag("rule_index", "0").tag("expression_point", "rule_evaluation").counter();
         assertThat(counter).isNotNull();
@@ -169,7 +189,7 @@ class ExpressionRulesGanglionTest {
     @Test
     void antiSignalSupported() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.ANTI, 0.7, Map.of())), null);
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.ANTI, 0.7, null, Map.of())), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.signal()).isEqualTo(DetectionSignal.ANTI);
         assertThat(result.confidence()).isEqualTo(0.7);
@@ -190,7 +210,7 @@ class ExpressionRulesGanglionTest {
     @Test
     void perRuleEvidenceEvaluatedForMatchedRule() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.DETECTED, 0.9,
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.DETECTED, 0.9, null,
                                                          Map.of("custom_key", evidenceReturning("extracted-value")))), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.evidence()).containsEntry("matchedRuleIndex", 0);
@@ -200,7 +220,7 @@ class ExpressionRulesGanglionTest {
     @Test
     void perRuleEvidenceNullResultOmitsKey() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.DETECTED, 0.9,
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.DETECTED, 0.9, null,
                                                          Map.of("absent_key", evidenceReturning(null)))), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.evidence()).doesNotContainKey("absent_key");
@@ -209,7 +229,7 @@ class ExpressionRulesGanglionTest {
     @Test
     void perRuleEvidenceTemplateErrorIsolation() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.DETECTED, 0.9,
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.DETECTED, 0.9, null,
                                                          Map.of("bad_key", evidenceThrowing(), "good_key", evidenceReturning("ok")))), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.evidence()).containsEntry("good_key", "ok");
@@ -220,7 +240,7 @@ class ExpressionRulesGanglionTest {
     void perRuleEvidenceErrorMetric() {
         var registry = new SimpleMeterRegistry();
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.DETECTED, 0.9,
+                new ExpressionRulesGanglion.CompiledRule(matching(), DetectionSignal.DETECTED, 0.9, null,
                                                          Map.of("bad_key", evidenceThrowing()))), registry);
         ganglion.detect(event(), CTX);
         var counter = registry.find("ras.expression.error")
@@ -235,12 +255,168 @@ class ExpressionRulesGanglionTest {
     @Test
     void otherwiseRuleWithEvidenceTemplates() {
         var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
-                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, Map.of()),
-                new ExpressionRulesGanglion.CompiledRule(null, DetectionSignal.NOISE, 0.0,
+                new ExpressionRulesGanglion.CompiledRule(nonMatching(), DetectionSignal.DETECTED, 0.9, null, Map.of()),
+                new ExpressionRulesGanglion.CompiledRule(null, DetectionSignal.NOISE, 0.0, null,
                                                          Map.of("fallback", evidenceReturning("fallback-value")))), null);
         DetectionResult result = ganglion.detect(event(), CTX);
         assertThat(result.signal()).isEqualTo(DetectionSignal.NOISE);
         assertThat(result.evidence()).containsEntry("matchedRuleIndex", 1);
         assertThat(result.evidence()).containsEntry("fallback", "fallback-value");
+    }
+
+    @Test
+    void dynamicConfidenceUsedWhenExpressionReturnsValidNumber() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceReturning(0.85), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(0.85);
+        assertThat(result.signal()).isEqualTo(DetectionSignal.DETECTED);
+    }
+
+    @Test
+    void dynamicConfidenceClampedAboveOne() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceReturning(1.5), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(1.0);
+    }
+
+    @Test
+    void dynamicConfidenceClampedBelowZero() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceReturning(-0.3), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(0.0);
+    }
+
+    @Test
+    void dynamicConfidenceNanFallsBackToStatic() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceReturning(Double.NaN), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(0.5);
+    }
+
+    @Test
+    void dynamicConfidencePositiveInfinityFallsBackToStatic() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceReturning(Double.POSITIVE_INFINITY), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(0.5);
+    }
+
+    @Test
+    void dynamicConfidenceNegativeInfinityFallsBackToStatic() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceReturning(Double.NEGATIVE_INFINITY), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(0.5);
+    }
+
+    @Test
+    void dynamicConfidenceNullFallsBackToStatic() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceReturning(null), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(0.5);
+    }
+
+    @Test
+    void dynamicConfidenceNonNumericFallsBackToStatic() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceReturning("not-a-number"), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(0.5);
+    }
+
+    @Test
+    void dynamicConfidenceExceptionFallsBackToStatic() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceThrowing(), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(0.5);
+    }
+
+    @Test
+    void dynamicConfidenceOnOtherwiseRule() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        nonMatching(), DetectionSignal.DETECTED, 0.9, null, Map.of()),
+                new ExpressionRulesGanglion.CompiledRule(
+                        null, DetectionSignal.NOISE, 0.1,
+                        confidenceReturning(0.3), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.signal()).isEqualTo(DetectionSignal.NOISE);
+        assertThat(result.confidence()).isEqualTo(0.3);
+    }
+
+    @Test
+    void dynamicConfidenceErrorMetricIncremented() {
+        var registry = new SimpleMeterRegistry();
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceThrowing(), Map.of())), registry);
+        ganglion.detect(event(), CTX);
+        var counter = registry.find("ras.expression.error")
+                              .tag("ganglion_id", "g1")
+                              .tag("rule_index", "0")
+                              .tag("expression_point", "confidence_evaluation").counter();
+        assertThat(counter).isNotNull();
+        assertThat(counter.count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void dynamicConfidenceClampedMetricIncremented() {
+        var registry = new SimpleMeterRegistry();
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceReturning(1.5), Map.of())), registry);
+        ganglion.detect(event(), CTX);
+        var counter = registry.find("ras.expression.error")
+                              .tag("ganglion_id", "g1")
+                              .tag("rule_index", "0")
+                              .tag("expression_point", "confidence_clamped").counter();
+        assertThat(counter).isNotNull();
+        assertThat(counter.count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void staticConfidenceUnchangedWhenNoExpression() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.9,
+                        null, Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(0.9);
+    }
+
+    @Test
+    void dynamicConfidenceIntegerCoercion() {
+        var ganglion = new ExpressionRulesGanglion("g1", Set.of("test.event"), List.of(
+                new ExpressionRulesGanglion.CompiledRule(
+                        matching(), DetectionSignal.DETECTED, 0.5,
+                        confidenceReturning(1), Map.of())), null);
+        DetectionResult result = ganglion.detect(event(), CTX);
+        assertThat(result.confidence()).isEqualTo(1.0);
     }
 }

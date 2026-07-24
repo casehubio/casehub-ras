@@ -371,8 +371,13 @@ public class SituationDefinitionRegistry {
                 }
                 compiledEvidence = Map.copyOf(evidenceMap);
             }
+            CompiledExpression<Map, Object> compiledConfidence = null;
+            if (rule.confidenceExpression() != null) {
+                compiledConfidence = compileExpression(
+                        rule.confidenceExpression(), er.ganglionId(), Map.class, Object.class);
+            }
             compiledRules.add(new ExpressionRulesGanglion.CompiledRule(
-                    compiled, rule.signal(), rule.confidence(), compiledEvidence));
+                    compiled, rule.signal(), rule.confidence(), compiledConfidence, compiledEvidence));
         }
         return new ExpressionRulesGanglion(
                 er.ganglionId(), er.handledEventTypes(), compiledRules, meterRegistry);

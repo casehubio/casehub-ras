@@ -216,7 +216,9 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                         + " of ganglion '" + ganglionId + "', got: " + confidence);
             }
 
-            rules.add(new GanglionDescriptor.ExpressionRules.Rule(when, signal, confidence, parseEvidenceTemplates(ruleMap)));
+            ExpressionEvaluator confidenceExpr = parseExpressionEvaluator(ruleMap, "confidenceExpression");
+
+            rules.add(new GanglionDescriptor.ExpressionRules.Rule(when, signal, confidence, confidenceExpr, parseEvidenceTemplates(ruleMap)));
         }
 
         Map<String, ExpressionEvaluator> evidenceTemplates = parseEvidenceTemplates(map);

@@ -1320,4 +1320,77 @@ class YamlSituationDefinitionProviderTest {
         assertThat(result.evidence()).containsKey("winningOutcome");
         assertThat(result.evidence()).containsEntry("sensor_id", "S42");
     }
+
+    @Test
+    void expressionRulesWithConfidenceExpression() {
+        var yaml = """
+                   ganglia:
+                     - ganglionId: dyn-conf
+                       type: expression-rules
+                       handledEventTypes: [test.event]
+                       rules:
+                         - when:
+                             expression: ".data.severity == \\"HIGH\\""
+                             language: jq
+                           signal: DETECTED
+                           confidence: 0.5
+                           confidenceExpression:
+                             expression: ".data.score / 100"
+                             language: jq
+                         - otherwise:
+                           signal: NOISE
+                           confidence: 0.0
+                   """;
+        var provider = new YamlSituationDefinitionProvider(
+                new java.io.ByteArrayInputStream(yaml.getBytes()));
+        var descriptors = provider.ganglionDescriptors();
+        assertThat(descriptors).hasSize(1);
+        var er = (io.casehub.ras.api.GanglionDescriptor.ExpressionRules) descriptors.get(0);
+        assertThat(er.rules().get(0).confidenceExpression()).isNotNull();
+        assertThat(er.rules().get(1).confidenceExpression()).isNull();
+    }
+
+    @Test
+    void expressionRulesWithoutConfidenceExpressionRemainsNull() {
+        var yaml = """
+                   ganglia:
+                     - ganglionId: static-conf
+                       type: expression-rules
+                       handledEventTypes: [test.event]
+                       rules:
+                         - when:
+                             expression: ".data.severity == \\"HIGH\\""
+                             language: jq
+                           signal: DETECTED
+                           confidence: 0.9
+                   """;
+        var provider = new YamlSituationDefinitionProvider(
+                new java.io.ByteArrayInputStream(yaml.getBytes()));
+        var descriptors = provider.ganglionDescriptors();
+        var er          = (io.casehub.ras.api.GanglionDescriptor.ExpressionRules) descriptors.get(0);
+        assertThat(er.rules().get(0).confidenceExpression()).isNull();
+    }
+
+    @Test
+    void expressionRulesConfidenceExpressionInvalidLanguage() {
+        var yaml = """
+                   ganglia:
+                     - ganglionId: bad-lang
+                       type: expression-rules
+                       handledEventTypes: [test.event]
+                       rules:
+                         - when:
+                             expression: ".data.x"
+                             language: jq
+                           signal: DETECTED
+                           confidence: 0.5
+                           confidenceExpression:
+                             expression: "score"
+                             language: unknown
+                   """;
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new YamlSituationDefinitionProvider(
+                   new java.io.ByteArrayInputStream(yaml.getBytes())))
+                                       .isInstanceOf(IllegalArgumentException.class)
+                                       .hasMessageContaining("Unknown expression language");
+    }
 }

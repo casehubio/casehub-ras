@@ -44,6 +44,7 @@ Multiple ganglia, one RAS per deployment context.
 - Evidence templates + expression-rule ganglion: `docs/superpowers/specs/2026-07-21-evidence-templates-expression-rules-design.md`
 - Per-decision-path evidence templates: `docs/superpowers/specs/2026-07-22-per-decision-path-evidence-templates-design.md`
 - Retire reactive (Mutiny): `docs/superpowers/specs/2026-07-23-retire-reactive-design.md`
+- Dynamic confidence expressions: `docs/superpowers/specs/2026-07-23-dynamic-confidence-expressions-design.md`
 
 ## Build Commands
 
@@ -183,7 +184,9 @@ Permits `NaiveBayes` (Bayesian classification with per-feature expression extrac
 extraction templates. Registry wraps descriptor-constructed ganglia in
 `EvidenceExtractingGanglion` when templates are present. Per-decision-path evidence:
 `ExpressionRules.Rule` carries per-rule `evidenceTemplates` (evaluated by
-`ExpressionRulesGanglion` for the matched rule). `NaiveBayes` carries
+`ExpressionRulesGanglion` for the matched rule) and optional `confidenceExpression`
+(nullable `ExpressionEvaluator` — dynamic confidence override with static fallback,
+clamped to [0.0, 1.0], Infinity/NaN fall back to static). `NaiveBayes` carries
 `outcomeEvidenceTemplates` (evaluated by `NaiveBayesGanglion` for the winning outcome).
 Merge order: automatic evidence → per-decision-path → ganglion-level (wrapper).
 
@@ -233,7 +236,7 @@ Bundles a `SituationDefinition` with compiled strategies. `correlationKeyExtract
 | `GanglionState` | Ganglion computation state — `double[] values`, `OptionalLong storeVersion`. Carries log-posteriors (or other numeric accumulation) with optional version for optimistic locking. |
 | `GanglionStateConflictException` | Thrown by `GanglionStateStore.save()` on concurrent modification — ganglion catches and retries internally. Mirrors `SituationConflictException`. |
 | `DroolsSessionStoreException` | Unchecked exception in `ras-drools/` — thrown by `DroolsSessionStore` implementations on storage read failure. Part of the SPI contract. |
-| `GanglionDescriptor` | Sealed interface in api/ for declarative ganglion configuration. `NaiveBayes` variant carries outcomes, priors, per-feature expression + likelihood tables, signal mapping, `outcomeEvidenceTemplates`. `ExpressionRules` variant carries ordered boolean condition→signal rules with per-rule `evidenceTemplates`. Cross-cutting `evidenceTemplates()` for expression-based evidence extraction. Registry constructs ganglion instances from descriptors during three-phase startup, wraps with `EvidenceExtractingGanglion` when ganglion-level evidence templates are present. Merge order: auto evidence → per-decision-path → ganglion-level. |
+| `GanglionDescriptor` | Sealed interface in api/ for declarative ganglion configuration. `NaiveBayes` variant carries outcomes, priors, per-feature expression + likelihood tables, signal mapping, `outcomeEvidenceTemplates`. `ExpressionRules` variant carries ordered boolean condition→signal rules with per-rule `evidenceTemplates` and optional per-rule `confidenceExpression` (dynamic confidence override). Cross-cutting `evidenceTemplates()` for expression-based evidence extraction. Registry constructs ganglion instances from descriptors during three-phase startup, wraps with `EvidenceExtractingGanglion` when ganglion-level evidence templates are present. Merge order: auto evidence → per-decision-path → ganglion-level. |
 
 ## Routing Model — Definition-Driven (Model B)
 
@@ -272,7 +275,10 @@ instances via a `type` discriminator. Supports `type: naive-bayes` (Bayesian cla
 types support optional `evidenceTemplates` — map of `{expression, language}` entries evaluated against
 `CloudEvent` at detection time, merged into `DetectionResult.evidence()`. Expression-rules ganglia
 automatically include `matchedRuleIndex` in evidence and support per-rule `evidenceTemplates`
-on individual rules. NaiveBayes ganglia support `outcomeEvidenceTemplates` — per-outcome evidence
+on individual rules. Optional per-rule `confidenceExpression` (`{expression, language}`) computes
+confidence dynamically from event data — static `confidence` is the fallback on null/error/non-numeric;
+finite out-of-range values clamp to [0.0, 1.0]; Infinity/NaN fall back to static.
+NaiveBayes ganglia support `outcomeEvidenceTemplates` — per-outcome evidence
 keyed by outcome name, evaluated for the winning outcome. `signal` and `confidence` required per rule,
 validated at parse time (0.0–1.0 range, valid enum). `otherwise` must be last rule if present.
 All `{expression, language}` parsing consolidated via shared `parseExpressionEntry()`. Numeric

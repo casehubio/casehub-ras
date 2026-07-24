@@ -1,0 +1,25 @@
+ganglia:
+  - ganglionId: dyn-confidence
+    type: expression-rules
+    handledEventTypes: [test.dynamic]
+    rules:
+      - when:
+          expression: ".data.severity == \"HIGH\""
+          language: jq
+        signal: DETECTED
+        confidence: 0.5
+        confidenceExpression:
+          expression: ".data.score / 100"
+          language: jq
+      - otherwise:
+        signal: NOISE
+        confidence: 0.0
+
+situations:
+  - situationId: dyn-confidence-sit
+    eventTypes: [test.dynamic]
+    chainMode:
+      type: or
+      ganglia: [dyn-confidence]
+    triggerAction:
+      type: notify-only
