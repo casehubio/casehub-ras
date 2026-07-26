@@ -45,6 +45,8 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
     YamlSituationDefinitionProvider(
             @ConfigProperty(name = "ras.situations.yaml",
                             defaultValue = "META-INF/ras-situations.yaml") String resourcePath) {
+        Map<String, SituationTemplate> builtInTemplates = loadBuiltInTemplates();
+
         InputStream is = Thread.currentThread().getContextClassLoader()
                                .getResourceAsStream(resourcePath);
         if (is == null) {
@@ -53,7 +55,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
             this.ganglionDescriptors = List.of();
         } else {
             try (is) {
-                var parsed = parseAll(is);
+                var parsed = parseAll(is, builtInTemplates);
                 this.registrations       = parsed.registrations();
                 this.ganglionDescriptors = parsed.ganglionDescriptors();
             } catch (IOException e) {
@@ -63,7 +65,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
     }
 
     YamlSituationDefinitionProvider(InputStream yaml) {
-        var parsed = parseAll(yaml);
+        var parsed = parseAll(yaml, loadBuiltInTemplates());
         this.registrations       = parsed.registrations();
         this.ganglionDescriptors = parsed.ganglionDescriptors();
     }
@@ -92,15 +94,34 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
     record ParameterDef(boolean required, Object defaultValue) {}
 
 
+    private static Map<String, SituationTemplate> loadBuiltInTemplates() {
+        InputStream is = Thread.currentThread().getContextClassLoader()
+                               .getResourceAsStream("META-INF/ras-situation-templates.yaml");
+        if (is == null) {return Map.of();}
+        try (is) {
+            Map<String, Object> root = new Yaml().load(is);
+            return root != null ? parseTemplates(root) : Map.of();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read built-in templates", e);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static ParseResult parseAll(InputStream yaml) {
+        return parseAll(yaml, Map.of());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ParseResult parseAll(InputStream yaml,
+                                        Map<String, SituationTemplate> builtInTemplates) {
         Map<String, Object> root = new Yaml().load(yaml);
         if (root == null) {
             return new ParseResult(List.of(), List.of());
         }
-        Map<String, SituationTemplate> templates  = parseTemplates(root);
-        List<GanglionDescriptor>       ganglia    = parseGanglia(root);
-        List<SituationRegistration>    situations = parseSituations(root, templates);
+        Map<String, SituationTemplate> templates = new LinkedHashMap<>(builtInTemplates);
+        templates.putAll(parseTemplates(root));
+        List<GanglionDescriptor>    ganglia    = parseGanglia(root);
+        List<SituationRegistration> situations = parseSituations(root, templates);
         return new ParseResult(situations, ganglia);
     }
 

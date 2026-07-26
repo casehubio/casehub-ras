@@ -1,0 +1,94 @@
+templates:
+  - id: streak-breach
+    description: "Triggers when same ganglion fires N times consecutively"
+    parameters:
+      ganglionId: {required: true}
+      requiredCount: {default: 3}
+      window: {default: PT10M}
+      caseNamespace: {required: true}
+      caseName: {required: true}
+      caseVersion: {default: "1"}
+    definition:
+      chainMode:
+        type: streak
+        ganglionId: ${ganglionId}
+        requiredCount: ${requiredCount}
+      correlationWindow: ${window}
+      triggerAction:
+        type: create-case
+        caseNamespace: ${caseNamespace}
+        caseName: ${caseName}
+        caseVersion: ${caseVersion}
+      triggerMode:
+        type: fire-once
+
+  - id: threshold-crossing
+    description: "Triggers when ganglion confidence exceeds threshold"
+    parameters:
+      ganglia: {required: true}
+      minConfidence: {default: 0.8}
+      window: {default: PT5M}
+      caseNamespace: {required: true}
+      caseName: {required: true}
+      caseVersion: {default: "1"}
+    definition:
+      chainMode:
+        type: threshold
+        ganglia: ${ganglia}
+        minConfidence: ${minConfidence}
+      correlationWindow: ${window}
+      triggerAction:
+        type: create-case
+        caseNamespace: ${caseNamespace}
+        caseName: ${caseName}
+        caseVersion: ${caseVersion}
+      triggerMode:
+        type: fire-once
+
+  - id: count-accumulation
+    description: "Triggers when ganglion fires N times in a window"
+    parameters:
+      ganglionId: {required: true}
+      requiredCount: {default: 5}
+      window: {default: PT10M}
+      caseNamespace: {required: true}
+      caseName: {required: true}
+      caseVersion: {default: "1"}
+    definition:
+      chainMode:
+        type: count
+        ganglionId: ${ganglionId}
+        requiredCount: ${requiredCount}
+      correlationWindow: ${window}
+      triggerAction:
+        type: create-case
+        caseNamespace: ${caseNamespace}
+        caseName: ${caseName}
+        caseVersion: ${caseVersion}
+      triggerMode:
+        type: fire-once
+
+  - id: rate-breach
+    description: "Triggers when ganglion fire rate exceeds threshold in sliding window"
+    parameters:
+      ganglia: {required: true}
+      minRate: {default: 0.6}
+      windowSize: {default: 10}
+      window: {default: PT30M}
+      caseNamespace: {required: true}
+      caseName: {required: true}
+      caseVersion: {default: "1"}
+    definition:
+      chainMode:
+        type: rate
+        ganglia: ${ganglia}
+        minRate: ${minRate}
+        windowSize: ${windowSize}
+      correlationWindow: ${window}
+      triggerAction:
+        type: create-case
+        caseNamespace: ${caseNamespace}
+        caseName: ${caseName}
+        caseVersion: ${caseVersion}
+      triggerMode:
+        type: fire-once

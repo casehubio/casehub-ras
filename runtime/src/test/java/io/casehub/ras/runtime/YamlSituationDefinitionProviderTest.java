@@ -1622,4 +1622,118 @@ class YamlSituationDefinitionProviderTest {
         assertThat(def.eventFilter()).isInstanceOf(JQExpressionEvaluator.class);
     }
 
+    @Test
+    void builtInTemplateStreakBreachAvailableWithoutDeclaration() {
+        var regs = provider("""
+                            situations:
+                              - fromTemplate: streak-breach
+                                situationId: test-builtin
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglionId: g1
+                                  caseNamespace: ns
+                                  caseName: cn
+                            """).registrations();
+
+        assertThat(regs).hasSize(1);
+        var def = regs.get(0).definition();
+        assertThat(def.chainMode()).isInstanceOf(ChainMode.Streak.class);
+        assertThat(((ChainMode.Streak) def.chainMode()).requiredCount()).isEqualTo(3);
+        assertThat(def.correlationWindow()).isEqualTo(Duration.ofMinutes(10));
+    }
+
+    @Test
+    void builtInTemplateThresholdCrossingAvailable() {
+        var regs = provider("""
+                            situations:
+                              - fromTemplate: threshold-crossing
+                                situationId: test-threshold
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglia: [g1]
+                                  caseNamespace: ns
+                                  caseName: cn
+                            """).registrations();
+
+        var def = regs.get(0).definition();
+        assertThat(def.chainMode()).isInstanceOf(ChainMode.Threshold.class);
+        assertThat(((ChainMode.Threshold) def.chainMode()).minConfidence()).isEqualTo(0.8);
+        assertThat(def.correlationWindow()).isEqualTo(Duration.ofMinutes(5));
+    }
+
+    @Test
+    void builtInTemplateCountAccumulationAvailable() {
+        var regs = provider("""
+                            situations:
+                              - fromTemplate: count-accumulation
+                                situationId: test-count
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglionId: g1
+                                  caseNamespace: ns
+                                  caseName: cn
+                            """).registrations();
+
+        var def = regs.get(0).definition();
+        assertThat(def.chainMode()).isInstanceOf(ChainMode.Count.class);
+        assertThat(((ChainMode.Count) def.chainMode()).requiredCount()).isEqualTo(5);
+    }
+
+    @Test
+    void builtInTemplateRateBreachAvailable() {
+        var regs = provider("""
+                            situations:
+                              - fromTemplate: rate-breach
+                                situationId: test-rate
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglia: [g1]
+                                  caseNamespace: ns
+                                  caseName: cn
+                            """).registrations();
+
+        var def = regs.get(0).definition();
+        assertThat(def.chainMode()).isInstanceOf(ChainMode.Rate.class);
+        var rate = (ChainMode.Rate) def.chainMode();
+        assertThat(rate.minRate()).isEqualTo(0.6);
+        assertThat(rate.windowSize()).isEqualTo(10);
+        assertThat(def.correlationWindow()).isEqualTo(Duration.ofMinutes(30));
+    }
+
+    @Test
+    void consumerTemplateOverridesBuiltInWithSameId() {
+        var regs = provider("""
+                            templates:
+                              - id: streak-breach
+                                parameters:
+                                  ganglionId: {required: true}
+                                  caseNamespace: {required: true}
+                                  caseName: {required: true}
+                                definition:
+                                  chainMode:
+                                    type: streak
+                                    ganglionId: ${ganglionId}
+                                    requiredCount: 99
+                                  correlationWindow: PT99M
+                                  triggerAction:
+                                    type: create-case
+                                    caseNamespace: ${caseNamespace}
+                                    caseName: ${caseName}
+                                    caseVersion: "1"
+                            situations:
+                              - fromTemplate: streak-breach
+                                situationId: test-override
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglionId: g1
+                                  caseNamespace: ns
+                                  caseName: cn
+                            """).registrations();
+
+        var streak = (ChainMode.Streak) regs.get(0).definition().chainMode();
+        assertThat(streak.requiredCount()).isEqualTo(99);
+        assertThat(regs.get(0).definition().correlationWindow()).isEqualTo(Duration.ofMinutes(99));
+    }
+
+
 }
