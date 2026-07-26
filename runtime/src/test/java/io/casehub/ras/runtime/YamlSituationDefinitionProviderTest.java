@@ -1735,5 +1735,143 @@ class YamlSituationDefinitionProviderTest {
         assertThat(regs.get(0).definition().correlationWindow()).isEqualTo(Duration.ofMinutes(99));
     }
 
+    @Test
+    void templateBundledGanglionReturned() {
+        var provider = provider("""
+                                templates:
+                                  - id: with-ganglion
+                                    parameters:
+                                      ganglionId: {required: true}
+                                      eventTypes: {required: true}
+                                      caseNamespace: {required: true}
+                                      caseName: {required: true}
+                                    ganglia:
+                                      - ganglionId: ${ganglionId}
+                                        type: expression-rules
+                                        handledEventTypes: ${eventTypes}
+                                        rules:
+                                          - when:
+                                              expression: "true"
+                                              language: mvel
+                                            signal: DETECTED
+                                            confidence: 0.9
+                                    definition:
+                                      chainMode:
+                                        type: or
+                                        ganglia:
+                                          - ${ganglionId}
+                                      correlationWindow: PT5M
+                                      triggerAction:
+                                        type: create-case
+                                        caseNamespace: ${caseNamespace}
+                                        caseName: ${caseName}
+                                        caseVersion: "1"
+                                situations:
+                                  - fromTemplate: with-ganglion
+                                    situationId: test-bundled
+                                    eventTypes: [sensor.reading]
+                                    parameters:
+                                      ganglionId: bundled-g
+                                      eventTypes: [sensor.reading]
+                                      caseNamespace: ns
+                                      caseName: cn
+                                """);
+
+        assertThat(provider.registrations()).hasSize(1);
+        assertThat(provider.ganglionDescriptors()).hasSize(1);
+        var descriptor = provider.ganglionDescriptors().get(0);
+        assertThat(descriptor).isInstanceOf(io.casehub.ras.api.GanglionDescriptor.ExpressionRules.class);
+        assertThat(descriptor.ganglionId()).isEqualTo("bundled-g");
+        assertThat(descriptor.handledEventTypes()).containsExactly("sensor.reading");
+    }
+
+    @Test
+    void templateWithoutGangliaSectionEmitsNoDescriptors() {
+        var provider = provider("""
+                                templates:
+                                  - id: no-ganglia
+                                    parameters:
+                                      ganglionId: {required: true}
+                                      caseNamespace: {required: true}
+                                      caseName: {required: true}
+                                    definition:
+                                      chainMode:
+                                        type: streak
+                                        ganglionId: ${ganglionId}
+                                        requiredCount: 3
+                                      correlationWindow: PT10M
+                                      triggerAction:
+                                        type: create-case
+                                        caseNamespace: ${caseNamespace}
+                                        caseName: ${caseName}
+                                        caseVersion: "1"
+                                situations:
+                                  - fromTemplate: no-ganglia
+                                    situationId: test-no-ganglia
+                                    eventTypes: [test.event]
+                                    parameters:
+                                      ganglionId: g1
+                                      caseNamespace: ns
+                                      caseName: cn
+                                """);
+
+        assertThat(provider.registrations()).hasSize(1);
+        assertThat(provider.ganglionDescriptors()).isEmpty();
+    }
+
+    @Test
+    void templateBundledGangliaCoexistWithTopLevelGanglia() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: top-level-g
+                                    type: expression-rules
+                                    handledEventTypes: [top.event]
+                                    rules:
+                                      - otherwise: true
+                                        signal: NOISE
+                                        confidence: 0.1
+                                templates:
+                                  - id: with-ganglia
+                                    parameters:
+                                      ganglionId: {required: true}
+                                      eventTypes: {required: true}
+                                      caseNamespace: {required: true}
+                                      caseName: {required: true}
+                                    ganglia:
+                                      - ganglionId: ${ganglionId}
+                                        type: expression-rules
+                                        handledEventTypes: ${eventTypes}
+                                        rules:
+                                          - otherwise: true
+                                            signal: NOISE
+                                            confidence: 0.1
+                                    definition:
+                                      chainMode:
+                                        type: or
+                                        ganglia:
+                                          - ${ganglionId}
+                                      correlationWindow: PT5M
+                                      triggerAction:
+                                        type: create-case
+                                        caseNamespace: ${caseNamespace}
+                                        caseName: ${caseName}
+                                        caseVersion: "1"
+                                situations:
+                                  - fromTemplate: with-ganglia
+                                    situationId: test-coexist
+                                    eventTypes: [bundled.event]
+                                    parameters:
+                                      ganglionId: bundled-g
+                                      eventTypes: [bundled.event]
+                                      caseNamespace: ns
+                                      caseName: cn
+                                """);
+
+        assertThat(provider.ganglionDescriptors()).hasSize(2);
+        assertThat(provider.ganglionDescriptors().stream()
+                           .map(io.casehub.ras.api.GanglionDescriptor::ganglionId))
+                .containsExactlyInAnyOrder("top-level-g", "bundled-g");
+    }
+
 
 }

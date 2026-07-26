@@ -93,6 +93,11 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
 
     record ParameterDef(boolean required, Object defaultValue) {}
 
+    private record SituationParseResult(
+            List<SituationRegistration> registrations,
+            List<GanglionDescriptor> bundledGanglia
+    ) {}
+
 
     private static Map<String, SituationTemplate> loadBuiltInTemplates() {
         InputStream is = Thread.currentThread().getContextClassLoader()
@@ -120,17 +125,22 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         }
         Map<String, SituationTemplate> templates = new LinkedHashMap<>(builtInTemplates);
         templates.putAll(parseTemplates(root));
-        List<GanglionDescriptor>    ganglia    = parseGanglia(root);
-        List<SituationRegistration> situations = parseSituations(root, templates);
-        return new ParseResult(situations, ganglia);
+        List<GanglionDescriptor> ganglia    = parseGanglia(root);
+        SituationParseResult     sitResult  = parseSituations(root, templates);
+        List<GanglionDescriptor> allGanglia = new ArrayList<>(ganglia);
+        allGanglia.addAll(sitResult.bundledGanglia());
+        return new ParseResult(sitResult.registrations(), List.copyOf(allGanglia));
     }
 
     @SuppressWarnings("unchecked")
-    private static List<SituationRegistration> parseSituations(Map<String, Object> root,
-                                                               Map<String, SituationTemplate> templates) {
-        if (!root.containsKey("situations")) {return List.of();}
-        List<Map<String, Object>>   situations = (List<Map<String, Object>>) root.get("situations");
-        List<SituationRegistration> result     = new ArrayList<>(situations.size());
+    private static SituationParseResult parseSituations(Map<String, Object> root,
+                                                        Map<String, SituationTemplate> templates) {
+        if (!root.containsKey("situations")) {
+            return new SituationParseResult(List.of(), List.of());
+        }
+        List<Map<String, Object>>   situations     = (List<Map<String, Object>>) root.get("situations");
+        List<SituationRegistration> result         = new ArrayList<>(situations.size());
+        List<GanglionDescriptor>    bundledGanglia = new ArrayList<>();
         for (Map<String, Object> sit : situations) {
             if (sit.containsKey("fromTemplate")) {
                 String              templateId = (String) sit.get("fromTemplate");
@@ -143,6 +153,17 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                             "Error resolving template '" + templateId
                             + "' for situation '" + sitId + "': " + e.getMessage(), e);
                 }
+                SituationTemplate template = templates.get(templateId);
+                if (template.ganglia() != null && !template.ganglia().isEmpty()) {
+                    Map<String, Object> resolvedParams      = buildResolvedParams(sit, template);
+                    List<Object>        resolvedGangliaList = new ArrayList<>();
+                    for (Map<String, Object> g : template.ganglia()) {
+                        resolvedGangliaList.add(substituteParams(new LinkedHashMap<>(g), resolvedParams));
+                    }
+                    checkUnresolved(resolvedGangliaList, templateId);
+                    Map<String, Object> gangliaRoot = Map.of("ganglia", resolvedGangliaList);
+                    bundledGanglia.addAll(parseGanglia(gangliaRoot));
+                }
                 try {
                     result.add(parseSituation(resolved));
                 } catch (Exception e) {
@@ -154,7 +175,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                 result.add(parseSituation(sit));
             }
         }
-        return List.copyOf(result);
+        return new SituationParseResult(List.copyOf(result), List.copyOf(bundledGanglia));
     }
 
     @SuppressWarnings("unchecked")
@@ -425,15 +446,10 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         return result;
     }
 
-    @SuppressWarnings("unchecked")
-    static Map<String, Object> resolveTemplate(Map<String, Object> situationMap,
-                                               Map<String, SituationTemplate> templates) {
-        String            templateId = (String) situationMap.get("fromTemplate");
-        SituationTemplate template   = templates.get(templateId);
-        if (template == null) {
-            throw new IllegalArgumentException("Unknown template: '" + templateId + "'");
-        }
 
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> buildResolvedParams(Map<String, Object> situationMap,
+                                                           SituationTemplate template) {
         String situationId = requireString(situationMap, "situationId");
         Object eventTypes  = situationMap.get("eventTypes");
 
@@ -452,6 +468,23 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         Map<String, Object> consumerParams = (Map<String, Object>) situationMap.get("parameters");
         if (consumerParams != null) {
             resolvedParams.putAll(consumerParams);
+        }
+        return resolvedParams;
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> resolveTemplate(Map<String, Object> situationMap,
+                                               Map<String, SituationTemplate> templates) {
+        String            templateId = (String) situationMap.get("fromTemplate");
+        SituationTemplate template   = templates.get(templateId);
+        if (template == null) {
+            throw new IllegalArgumentException("Unknown template: '" + templateId + "'");
+        }
+
+        Map<String, Object> resolvedParams = buildResolvedParams(situationMap, template);
+
+        Map<String, Object> consumerParams = (Map<String, Object>) situationMap.get("parameters");
+        if (consumerParams != null) {
             for (String key : consumerParams.keySet()) {
                 if (!template.parameters().containsKey(key)) {
                     LOG.warning("Unknown parameter '" + key + "' for template '" + templateId + "'");
@@ -482,6 +515,8 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
             resolved = deepMerge(resolved, overrides);
         }
 
+        String situationId = requireString(situationMap, "situationId");
+        Object eventTypes  = situationMap.get("eventTypes");
         resolved.put("situationId", situationId);
         resolved.put("eventTypes", eventTypes);
         return resolved;
