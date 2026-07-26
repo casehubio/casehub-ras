@@ -1127,4 +1127,499 @@ class YamlSituationDefinitionProviderTest {
         java.util.Map<String, String> features = (java.util.Map<String, String>) result.evidence().get("features");
         assertThat(features).containsEntry("severity", "HIGH");
     }
+
+    @Test
+    void templateInstantiationProducesCorrectDefinition() {
+        var regs = provider("""
+                            templates:
+                              - id: streak-breach
+                                parameters:
+                                  ganglionId: {required: true}
+                                  caseNamespace: {required: true}
+                                  caseName: {required: true}
+                                definition:
+                                  chainMode:
+                                    type: streak
+                                    ganglionId: ${ganglionId}
+                                    requiredCount: 3
+                                  correlationWindow: PT10M
+                                  triggerAction:
+                                    type: create-case
+                                    caseNamespace: ${caseNamespace}
+                                    caseName: ${caseName}
+                                    caseVersion: "1"
+                                  triggerMode:
+                                    type: fire-once
+                            
+                            situations:
+                              - fromTemplate: streak-breach
+                                situationId: test-sit
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglionId: my-ganglion
+                                  caseNamespace: test-ns
+                                  caseName: my-case
+                            """).registrations();
+
+        assertThat(regs).hasSize(1);
+        var def = regs.get(0).definition();
+        assertThat(def.situationId()).isEqualTo("test-sit");
+        assertThat(def.eventTypes()).containsExactly("test.event");
+        assertThat(def.chainMode()).isInstanceOf(ChainMode.Streak.class);
+        var streak = (ChainMode.Streak) def.chainMode();
+        assertThat(streak.ganglionId()).isEqualTo("my-ganglion");
+        assertThat(streak.requiredCount()).isEqualTo(3);
+        assertThat(def.correlationWindow()).isEqualTo(Duration.ofMinutes(10));
+        assertThat(def.triggerAction()).isInstanceOf(TriggerAction.CreateCase.class);
+        var createCase = (TriggerAction.CreateCase) def.triggerAction();
+        assertThat(createCase.config().caseNamespace()).isEqualTo("test-ns");
+        assertThat(createCase.config().caseName()).isEqualTo("my-case");
+    }
+
+    @Test
+    void templateDefaultParameterValuesApplied() {
+        var regs = provider("""
+                            templates:
+                              - id: with-defaults
+                                parameters:
+                                  ganglionId: {required: true}
+                                  count: {default: 5}
+                                  window: {default: PT30M}
+                                  caseNamespace: {required: true}
+                                  caseName: {required: true}
+                                definition:
+                                  chainMode:
+                                    type: count
+                                    ganglionId: ${ganglionId}
+                                    requiredCount: ${count}
+                                  correlationWindow: ${window}
+                                  triggerAction:
+                                    type: create-case
+                                    caseNamespace: ${caseNamespace}
+                                    caseName: ${caseName}
+                                    caseVersion: "1"
+                            situations:
+                              - fromTemplate: with-defaults
+                                situationId: test-defaults
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglionId: g1
+                                  caseNamespace: ns
+                                  caseName: cn
+                            """).registrations();
+
+        var def = regs.get(0).definition();
+        assertThat(def.chainMode()).isInstanceOf(ChainMode.Count.class);
+        assertThat(((ChainMode.Count) def.chainMode()).requiredCount()).isEqualTo(5);
+        assertThat(def.correlationWindow()).isEqualTo(Duration.ofMinutes(30));
+    }
+
+    @Test
+    void templateWholeValueSubstitutionPreservesListType() {
+        var regs = provider("""
+                            templates:
+                              - id: list-param
+                                parameters:
+                                  ganglia: {required: true}
+                                  caseNamespace: {required: true}
+                                  caseName: {required: true}
+                                definition:
+                                  chainMode:
+                                    type: threshold
+                                    ganglia: ${ganglia}
+                                    minConfidence: 0.8
+                                  correlationWindow: PT5M
+                                  triggerAction:
+                                    type: create-case
+                                    caseNamespace: ${caseNamespace}
+                                    caseName: ${caseName}
+                                    caseVersion: "1"
+                            situations:
+                              - fromTemplate: list-param
+                                situationId: test-list
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglia: [g1, g2]
+                                  caseNamespace: ns
+                                  caseName: cn
+                            """).registrations();
+
+        var threshold = (ChainMode.Threshold) regs.get(0).definition().chainMode();
+        assertThat(threshold.ganglia()).containsExactlyInAnyOrder("g1", "g2");
+    }
+
+    @Test
+    void templateSubstringInterpolationProducesString() {
+        var regs = provider("""
+                            templates:
+                              - id: substring
+                                parameters:
+                                  env: {required: true}
+                                  ganglionId: {required: true}
+                                  caseNamespace: {required: true}
+                                definition:
+                                  chainMode:
+                                    type: streak
+                                    ganglionId: ${ganglionId}
+                                    requiredCount: 3
+                                  correlationWindow: PT10M
+                                  triggerAction:
+                                    type: create-case
+                                    caseNamespace: ${caseNamespace}
+                                    caseName: sla-${env}-breach
+                                    caseVersion: "1"
+                            situations:
+                              - fromTemplate: substring
+                                situationId: test-sub
+                                eventTypes: [test.event]
+                                parameters:
+                                  env: prod
+                                  ganglionId: g1
+                                  caseNamespace: ns
+                            """).registrations();
+
+        var cc = (TriggerAction.CreateCase) regs.get(0).definition().triggerAction();
+        assertThat(cc.config().caseName()).isEqualTo("sla-prod-breach");
+    }
+
+    @Test
+    void templateMissingRequiredParameterThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() -> provider("""
+                                                                       templates:
+                                                                         - id: needs-ganglion
+                                                                           parameters:
+                                                                             ganglionId: {required: true}
+                                                                             caseNamespace: {required: true}
+                                                                             caseName: {required: true}
+                                                                           definition:
+                                                                             chainMode:
+                                                                               type: streak
+                                                                               ganglionId: ${ganglionId}
+                                                                               requiredCount: 3
+                                                                             correlationWindow: PT10M
+                                                                             triggerAction:
+                                                                               type: create-case
+                                                                               caseNamespace: ${caseNamespace}
+                                                                               caseName: ${caseName}
+                                                                               caseVersion: "1"
+                                                                       situations:
+                                                                         - fromTemplate: needs-ganglion
+                                                                           situationId: test-missing
+                                                                           eventTypes: [test.event]
+                                                                           parameters:
+                                                                             caseNamespace: ns
+                                                                             caseName: cn
+                                                                       """))
+                                            .withMessageContaining("ganglionId")
+                                            .withMessageContaining("needs-ganglion");
+    }
+
+    @Test
+    void templateUnknownTemplateThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() -> provider("""
+                                                                       situations:
+                                                                         - fromTemplate: nonexistent
+                                                                           situationId: test-unknown
+                                                                           eventTypes: [test.event]
+                                                                           parameters: {}
+                                                                       """))
+                                            .withMessageContaining("nonexistent");
+    }
+
+    @Test
+    void templateUnresolvedPlaceholderThrows() {
+        assertThatIllegalArgumentException().isThrownBy(() -> provider("""
+                                                                       templates:
+                                                                         - id: typo
+                                                                           parameters:
+                                                                             ganglionId: {required: true}
+                                                                             caseNamespace: {required: true}
+                                                                             caseName: {required: true}
+                                                                           definition:
+                                                                             chainMode:
+                                                                               type: streak
+                                                                               ganglionId: ${ganglonId}
+                                                                               requiredCount: 3
+                                                                             correlationWindow: PT10M
+                                                                             triggerAction:
+                                                                               type: create-case
+                                                                               caseNamespace: ${caseNamespace}
+                                                                               caseName: ${caseName}
+                                                                               caseVersion: "1"
+                                                                       situations:
+                                                                         - fromTemplate: typo
+                                                                           situationId: test-typo
+                                                                           eventTypes: [test.event]
+                                                                           parameters:
+                                                                             ganglionId: g1
+                                                                             caseNamespace: ns
+                                                                             caseName: cn
+                                                                       """))
+                                            .withMessageContaining("${ganglonId}");
+    }
+
+    @Test
+    void templateConsumerOverridesTemplateField() {
+        var regs = provider("""
+                            templates:
+                              - id: overridable
+                                parameters:
+                                  ganglionId: {required: true}
+                                  caseNamespace: {required: true}
+                                  caseName: {required: true}
+                                definition:
+                                  chainMode:
+                                    type: streak
+                                    ganglionId: ${ganglionId}
+                                    requiredCount: 3
+                                  correlationWindow: PT10M
+                                  triggerAction:
+                                    type: create-case
+                                    caseNamespace: ${caseNamespace}
+                                    caseName: ${caseName}
+                                    caseVersion: "1"
+                                  triggerMode:
+                                    type: fire-once
+                            situations:
+                              - fromTemplate: overridable
+                                situationId: test-override
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglionId: g1
+                                  caseNamespace: ns
+                                  caseName: cn
+                                triggerMode:
+                                  type: repeating
+                                  cooldown: PT5M
+                            """).registrations();
+
+        var def = regs.get(0).definition();
+        assertThat(def.triggerMode()).isInstanceOf(TriggerMode.Repeating.class);
+        assertThat(((TriggerMode.Repeating) def.triggerMode()).cooldown())
+                .isEqualTo(Duration.ofMinutes(5));
+    }
+
+    @Test
+    void templateDeepMergeOverridesSingleNestedKey() {
+        var regs = provider("""
+                            templates:
+                              - id: merge-test
+                                parameters:
+                                  ganglionId: {required: true}
+                                definition:
+                                  chainMode:
+                                    type: streak
+                                    ganglionId: ${ganglionId}
+                                    requiredCount: 3
+                                  correlationWindow: PT10M
+                                  triggerAction:
+                                    type: create-case
+                                    caseNamespace: default-ns
+                                    caseName: default-case
+                                    caseVersion: "1"
+                            situations:
+                              - fromTemplate: merge-test
+                                situationId: test-merge
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglionId: g1
+                                triggerAction:
+                                  caseName: overridden-case
+                            """).registrations();
+
+        var cc = (TriggerAction.CreateCase) regs.get(0).definition().triggerAction();
+        assertThat(cc.config().caseNamespace()).isEqualTo("default-ns");
+        assertThat(cc.config().caseName()).isEqualTo("overridden-case");
+    }
+
+    @Test
+    void templateIdentityFieldInjectsIntoParameters() {
+        var regs = provider("""
+                            templates:
+                              - id: identity-test
+                                parameters:
+                                  ganglionId: {required: true}
+                                  situationId: {required: true}
+                                  caseNamespace: {required: true}
+                                definition:
+                                  chainMode:
+                                    type: streak
+                                    ganglionId: ${ganglionId}
+                                    requiredCount: 3
+                                  correlationWindow: PT10M
+                                  triggerAction:
+                                    type: create-case
+                                    caseNamespace: ${caseNamespace}
+                                    caseName: case-for-${situationId}
+                                    caseVersion: "1"
+                            situations:
+                              - fromTemplate: identity-test
+                                situationId: my-sit-id
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglionId: g1
+                                  caseNamespace: ns
+                            """).registrations();
+
+        var cc = (TriggerAction.CreateCase) regs.get(0).definition().triggerAction();
+        assertThat(cc.config().caseName()).isEqualTo("case-for-my-sit-id");
+    }
+
+    @Test
+    void templateAndHandWrittenProduceIdenticalDefinition() {
+        var fromTemplate = provider("""
+                                    templates:
+                                      - id: streak-pattern
+                                        parameters:
+                                          ganglionId: {required: true}
+                                          caseNamespace: {required: true}
+                                          caseName: {required: true}
+                                        definition:
+                                          chainMode:
+                                            type: streak
+                                            ganglionId: ${ganglionId}
+                                            requiredCount: 3
+                                          correlationWindow: PT10M
+                                          triggerAction:
+                                            type: create-case
+                                            caseNamespace: ${caseNamespace}
+                                            caseName: ${caseName}
+                                            caseVersion: "1"
+                                          triggerMode:
+                                            type: fire-once
+                                    situations:
+                                      - fromTemplate: streak-pattern
+                                        situationId: equiv-sit
+                                        eventTypes: [e1, e2]
+                                        parameters:
+                                          ganglionId: my-g
+                                          caseNamespace: my-ns
+                                          caseName: my-case
+                                    """).registrations().get(0).definition();
+
+        var handWritten = provider("""
+                                   situations:
+                                     - situationId: equiv-sit
+                                       eventTypes: [e1, e2]
+                                       chainMode:
+                                         type: streak
+                                         ganglionId: my-g
+                                         requiredCount: 3
+                                       correlationWindow: PT10M
+                                       triggerAction:
+                                         type: create-case
+                                         caseNamespace: my-ns
+                                         caseName: my-case
+                                         caseVersion: "1"
+                                       triggerMode:
+                                         type: fire-once
+                                   """).registrations().get(0).definition();
+
+        assertThat(fromTemplate).isEqualTo(handWritten);
+    }
+
+    @Test
+    void templateErrorWrapsWithTemplateContext() {
+        assertThatIllegalArgumentException().isThrownBy(() -> provider("""
+                                                                       templates:
+                                                                         - id: bad-template
+                                                                           parameters:
+                                                                             ganglionId: {required: true}
+                                                                           definition:
+                                                                             chainMode:
+                                                                               type: streak
+                                                                               ganglionId: ${ganglionId}
+                                                                               requiredCount: 3
+                                                                       situations:
+                                                                         - fromTemplate: bad-template
+                                                                           situationId: test-error
+                                                                           eventTypes: [test.event]
+                                                                           parameters:
+                                                                             ganglionId: g1
+                                                                       """))
+                                            .withMessageContaining("bad-template")
+                                            .withMessageContaining("test-error");
+    }
+
+    @Test
+    void templateMixedWithHandWrittenSituations() {
+        var regs = provider("""
+                            templates:
+                              - id: simple
+                                parameters:
+                                  ganglionId: {required: true}
+                                  caseNamespace: {required: true}
+                                  caseName: {required: true}
+                                definition:
+                                  chainMode:
+                                    type: streak
+                                    ganglionId: ${ganglionId}
+                                    requiredCount: 3
+                                  correlationWindow: PT10M
+                                  triggerAction:
+                                    type: create-case
+                                    caseNamespace: ${caseNamespace}
+                                    caseName: ${caseName}
+                                    caseVersion: "1"
+                            situations:
+                              - fromTemplate: simple
+                                situationId: templated-sit
+                                eventTypes: [t.event]
+                                parameters:
+                                  ganglionId: tg1
+                                  caseNamespace: tns
+                                  caseName: tcn
+                              - situationId: hand-written-sit
+                                eventTypes: [h.event]
+                                chainMode:
+                                  type: or
+                                  ganglia: [hg1]
+                                correlationWindow: PT5M
+                                triggerAction:
+                                  type: notify-only
+                            """).registrations();
+
+        assertThat(regs).hasSize(2);
+        assertThat(regs.get(0).definition().situationId()).isEqualTo("templated-sit");
+        assertThat(regs.get(1).definition().situationId()).isEqualTo("hand-written-sit");
+    }
+
+    @Test
+    void templateConsumerOverrideAddsEventFilter() {
+        var regs = provider("""
+                            templates:
+                              - id: filterable
+                                parameters:
+                                  ganglionId: {required: true}
+                                  caseNamespace: {required: true}
+                                  caseName: {required: true}
+                                definition:
+                                  chainMode:
+                                    type: streak
+                                    ganglionId: ${ganglionId}
+                                    requiredCount: 3
+                                  correlationWindow: PT10M
+                                  triggerAction:
+                                    type: create-case
+                                    caseNamespace: ${caseNamespace}
+                                    caseName: ${caseName}
+                                    caseVersion: "1"
+                            situations:
+                              - fromTemplate: filterable
+                                situationId: test-filter
+                                eventTypes: [test.event]
+                                parameters:
+                                  ganglionId: g1
+                                  caseNamespace: ns
+                                  caseName: cn
+                                eventFilter:
+                                  expression: ".data.severity"
+                                  language: jq
+                            """).registrations();
+
+        var def = regs.get(0).definition();
+        assertThat(def.eventFilter()).isNotNull();
+        assertThat(def.eventFilter()).isInstanceOf(JQExpressionEvaluator.class);
+    }
+
 }

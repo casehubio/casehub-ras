@@ -17,7 +17,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletionStage;
 
 @ApplicationScoped
 public class DefaultCaseTrigger implements CaseTrigger {
@@ -59,10 +58,10 @@ public class DefaultCaseTrigger implements CaseTrigger {
 
     @Override
     public Uni<UUID> fire(CaseTriggerConfig triggerConfig, SituationContext context) {
-        CaseHub               hub       = findCaseHub(triggerConfig);
-        Map<String, Object>   inputData = buildInputData(triggerConfig, context);
-        CompletionStage<UUID> cs        = hub.startCase(inputData);
-        return Uni.createFrom().completionStage(cs);
+        CaseHub             hub       = findCaseHub(triggerConfig);
+        Map<String, Object> inputData = buildInputData(triggerConfig, context);
+        UUID                caseId    = hub.startCase(inputData);
+        return Uni.createFrom().item(caseId);
     }
 
     private CaseHub findCaseHub(CaseTriggerConfig config) {
