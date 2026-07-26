@@ -1873,5 +1873,48 @@ class YamlSituationDefinitionProviderTest {
                 .containsExactlyInAnyOrder("top-level-g", "bundled-g");
     }
 
+    @Test
+    void endToEndTemplateInstantiatedSituationRegistersAndDetects() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: e2e-template-g
+                                    type: expression-rules
+                                    handledEventTypes: [test.template.e2e]
+                                    rules:
+                                      - when:
+                                          expression: ".data.severity == \\"HIGH\\""
+                                          language: jq
+                                        signal: DETECTED
+                                        confidence: 0.9
+                                      - otherwise: true
+                                        signal: NOISE
+                                        confidence: 0.1
+                                situations:
+                                  - fromTemplate: streak-breach
+                                    situationId: e2e-template-sit
+                                    eventTypes: [test.template.e2e]
+                                    parameters:
+                                      ganglionId: e2e-template-g
+                                      caseNamespace: e2e
+                                      caseName: template-test
+                                """);
+
+        var jqEngine = new io.casehub.platform.expression.JQExpressionEngine();
+        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        engines.register(jqEngine);
+
+        var registry = new SituationDefinitionRegistry(
+                java.util.List.of(provider), java.util.List.of(), engines);
+
+        assertThat(registry.definitionCount()).isEqualTo(1);
+        var regs = registry.findByEventType("test.template.e2e");
+        assertThat(regs).hasSize(1);
+        assertThat(regs.get(0).definition().situationId()).isEqualTo("e2e-template-sit");
+
+        var ganglion = registry.ganglion("e2e-template-g");
+        assertThat(ganglion).isNotNull();
+        assertThat(ganglion.ganglionId()).isEqualTo("e2e-template-g");
+    }
+
 
 }
