@@ -268,6 +268,19 @@ YAML values coerced via `Number.doubleValue()`. Expression compilation and gangl
 by `SituationDefinitionRegistry` during three-phase startup. YAML ganglia coexist with CDI-declared
 ganglia — duplicate `ganglionId` is a startup error.
 
+### YAML Situation Templates (runtime/)
+
+`YamlSituationDefinitionProvider` supports reusable situation templates with typed parameters.
+Templates defined in `templates:` section (parsed before `ganglia:` and `situations:`). Built-in
+templates loaded from `META-INF/ras-situation-templates.yaml` before consumer YAML. Consumers
+instantiate via `fromTemplate:` + `parameters:`. Resolution happens at parse time — registry sees
+fully resolved `SituationRegistration` objects. `${param}` placeholders support whole-value typed
+substitution (int/double/list preserved) and substring interpolation. Consumer overrides deep-merge
+into resolved template. Identity fields (`situationId`, `eventTypes`) implicitly available as
+parameter values. Templates can optionally bundle `ganglia:` section for parameterised ganglion
+descriptors. Built-in templates: `streak-breach`, `threshold-crossing`, `count-accumulation`,
+`rate-breach`. Consumer templates with same `id` replace built-in entirely.
+
 ## Dynamic Situation Registration (runtime/)
 
 `SituationDefinitionRegistry` supports runtime registration and deregistration of situation definitions
