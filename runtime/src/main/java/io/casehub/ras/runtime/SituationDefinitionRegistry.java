@@ -165,6 +165,10 @@ public class SituationDefinitionRegistry {
         return g;
     }
 
+    public java.util.Optional<SituationRegistration> findBySituationId(String situationId) {
+        return java.util.Optional.ofNullable(snapshot.bySituationId().get(situationId));
+    }
+
     public Duration maxCorrelationWindow() {
         return snapshot.maxCorrelationWindow();
     }
