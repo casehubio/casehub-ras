@@ -32,6 +32,11 @@ import java.util.logging.Logger;
 public class YamlSituationDefinitionProvider implements SituationDefinitionProvider {
 
     private static final Logger LOG = Logger.getLogger(YamlSituationDefinitionProvider.class.getName());
+    private static final java.util.regex.Pattern WHOLE_PARAM_PATTERN =
+            java.util.regex.Pattern.compile("^\\$\\{([^}]+)}$");
+    private static final java.util.regex.Pattern PARAM_PATTERN =
+            java.util.regex.Pattern.compile("\\$\\{([^}]+)}");
+
 
     private final List<SituationRegistration> registrations;
     private final List<GanglionDescriptor>    ganglionDescriptors;
@@ -40,6 +45,8 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
     YamlSituationDefinitionProvider(
             @ConfigProperty(name = "ras.situations.yaml",
                             defaultValue = "META-INF/ras-situations.yaml") String resourcePath) {
+        Map<String, SituationTemplate> builtInTemplates = loadBuiltInTemplates();
+
         InputStream is = Thread.currentThread().getContextClassLoader()
                                .getResourceAsStream(resourcePath);
         if (is == null) {
@@ -48,7 +55,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
             this.ganglionDescriptors = List.of();
         } else {
             try (is) {
-                var parsed = parseAll(is);
+                var parsed = parseAll(is, builtInTemplates);
                 this.registrations       = parsed.registrations();
                 this.ganglionDescriptors = parsed.ganglionDescriptors();
             } catch (IOException e) {
@@ -58,7 +65,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
     }
 
     YamlSituationDefinitionProvider(InputStream yaml) {
-        var parsed = parseAll(yaml);
+        var parsed = parseAll(yaml, loadBuiltInTemplates());
         this.registrations       = parsed.registrations();
         this.ganglionDescriptors = parsed.ganglionDescriptors();
     }
@@ -76,28 +83,99 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
     private record ParseResult(List<SituationRegistration> registrations,
                                List<GanglionDescriptor> ganglionDescriptors) {}
 
+    record SituationTemplate(
+            String id,
+            String description,
+            Map<String, ParameterDef> parameters,
+            Map<String, Object> definition,
+            List<Map<String, Object>> ganglia
+    ) {}
+
+    record ParameterDef(boolean required, Object defaultValue) {}
+
+    private record SituationParseResult(
+            List<SituationRegistration> registrations,
+            List<GanglionDescriptor> bundledGanglia
+    ) {}
+
+
+    private static Map<String, SituationTemplate> loadBuiltInTemplates() {
+        InputStream is = Thread.currentThread().getContextClassLoader()
+                               .getResourceAsStream("META-INF/ras-situation-templates.yaml");
+        if (is == null) {return Map.of();}
+        try (is) {
+            Map<String, Object> root = new Yaml().load(is);
+            return root != null ? parseTemplates(root) : Map.of();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read built-in templates", e);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static ParseResult parseAll(InputStream yaml) {
+        return parseAll(yaml, Map.of());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ParseResult parseAll(InputStream yaml,
+                                        Map<String, SituationTemplate> builtInTemplates) {
         Map<String, Object> root = new Yaml().load(yaml);
         if (root == null) {
             return new ParseResult(List.of(), List.of());
         }
-        List<GanglionDescriptor>    ganglia    = parseGanglia(root);
-        List<SituationRegistration> situations = parseSituations(root);
-        return new ParseResult(situations, ganglia);
+        Map<String, SituationTemplate> templates = new LinkedHashMap<>(builtInTemplates);
+        templates.putAll(parseTemplates(root));
+        List<GanglionDescriptor> ganglia    = parseGanglia(root);
+        SituationParseResult     sitResult  = parseSituations(root, templates);
+        List<GanglionDescriptor> allGanglia = new ArrayList<>(ganglia);
+        allGanglia.addAll(sitResult.bundledGanglia());
+        return new ParseResult(sitResult.registrations(), List.copyOf(allGanglia));
     }
 
     @SuppressWarnings("unchecked")
-    private static List<SituationRegistration> parseSituations(Map<String, Object> root) {
+    private static SituationParseResult parseSituations(Map<String, Object> root,
+                                                        Map<String, SituationTemplate> templates) {
         if (!root.containsKey("situations")) {
-            return List.of();
+            return new SituationParseResult(List.of(), List.of());
         }
-        List<Map<String, Object>>   situations = (List<Map<String, Object>>) root.get("situations");
-        List<SituationRegistration> result     = new ArrayList<>(situations.size());
+        List<Map<String, Object>>   situations     = (List<Map<String, Object>>) root.get("situations");
+        List<SituationRegistration> result         = new ArrayList<>(situations.size());
+        List<GanglionDescriptor>    bundledGanglia = new ArrayList<>();
         for (Map<String, Object> sit : situations) {
-            result.add(parseSituation(sit));
+            if (sit.containsKey("fromTemplate")) {
+                String              templateId = (String) sit.get("fromTemplate");
+                String              sitId      = String.valueOf(sit.getOrDefault("situationId", "<missing>"));
+                Map<String, Object> resolved;
+                try {
+                    resolved = resolveTemplate(sit, templates);
+                } catch (Exception e) {
+                    throw new IllegalArgumentException(
+                            "Error resolving template '" + templateId
+                            + "' for situation '" + sitId + "': " + e.getMessage(), e);
+                }
+                SituationTemplate template = templates.get(templateId);
+                if (template.ganglia() != null && !template.ganglia().isEmpty()) {
+                    Map<String, Object> resolvedParams      = buildResolvedParams(sit, template);
+                    List<Object>        resolvedGangliaList = new ArrayList<>();
+                    for (Map<String, Object> g : template.ganglia()) {
+                        resolvedGangliaList.add(substituteParams(new LinkedHashMap<>(g), resolvedParams));
+                    }
+                    checkUnresolved(resolvedGangliaList, templateId);
+                    Map<String, Object> gangliaRoot = Map.of("ganglia", resolvedGangliaList);
+                    bundledGanglia.addAll(parseGanglia(gangliaRoot));
+                }
+                try {
+                    result.add(parseSituation(resolved));
+                } catch (Exception e) {
+                    throw new IllegalArgumentException(
+                            "Error parsing resolved template '" + templateId
+                            + "' for situation '" + sitId + "': " + e.getMessage(), e);
+                }
+            } else {
+                result.add(parseSituation(sit));
+            }
         }
-        return List.copyOf(result);
+        return new SituationParseResult(List.copyOf(result), List.copyOf(bundledGanglia));
     }
 
     @SuppressWarnings("unchecked")
@@ -262,6 +340,189 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                       ? ((Number) map.get("antiThreshold")).doubleValue()
                       : null;
         return new GanglionDescriptor.NaiveBayes.SignalMapping(targetOutcome, detected, weak, anti);
+    }
+
+
+    @SuppressWarnings("unchecked")
+    static Map<String, SituationTemplate> parseTemplates(Map<String, Object> root) {
+        List<Map<String, Object>> templates = (List<Map<String, Object>>) root.get("templates");
+        if (templates == null) {return Map.of();}
+        Map<String, SituationTemplate> result = new LinkedHashMap<>();
+        for (Map<String, Object> t : templates) {
+            String id          = requireString(t, "id");
+            String description = (String) t.get("description");
+            Map<String, ParameterDef> params = parseParameterDefs(
+                    (Map<String, Object>) t.get("parameters"));
+            Map<String, Object> definition = (Map<String, Object>) t.get("definition");
+            if (definition == null) {
+                throw new IllegalArgumentException("Template '" + id + "' has no definition");
+            }
+            List<Map<String, Object>> ganglia = (List<Map<String, Object>>) t.get("ganglia");
+            result.put(id, new SituationTemplate(id, description, params, definition, ganglia));
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, ParameterDef> parseParameterDefs(Map<String, Object> raw) {
+        if (raw == null) {return Map.of();}
+        Map<String, ParameterDef> result = new LinkedHashMap<>();
+        for (var entry : raw.entrySet()) {
+            Map<String, Object> defMap       = (Map<String, Object>) entry.getValue();
+            boolean             required     = Boolean.TRUE.equals(defMap.get("required"));
+            Object              defaultValue = defMap.get("default");
+            result.put(entry.getKey(), new ParameterDef(required, defaultValue));
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    static Object substituteParams(Object value, Map<String, Object> resolvedParams) {
+        if (value instanceof String s) {
+            java.util.regex.Matcher wholeMatcher = WHOLE_PARAM_PATTERN.matcher(s);
+            if (wholeMatcher.matches()) {
+                String name = wholeMatcher.group(1);
+                return resolvedParams.containsKey(name) ? resolvedParams.get(name) : s;
+            }
+            return PARAM_PATTERN.matcher(s).replaceAll(mr -> {
+                String name = mr.group(1);
+                return resolvedParams.containsKey(name)
+                       ? java.util.regex.Matcher.quoteReplacement(resolvedParams.get(name).toString())
+                       : java.util.regex.Matcher.quoteReplacement(mr.group(0));
+            });
+        }
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            for (var entry : ((Map<String, Object>) map).entrySet()) {
+                result.put(entry.getKey(), substituteParams(entry.getValue(), resolvedParams));
+            }
+            return result;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> result = new ArrayList<>(list.size());
+            for (Object item : list) {
+                result.add(substituteParams(item, resolvedParams));
+            }
+            return result;
+        }
+        return value;
+    }
+
+    @SuppressWarnings("unchecked")
+    static void checkUnresolved(Object value, String templateId) {
+        if (value instanceof String s && PARAM_PATTERN.matcher(s).find()) {
+            throw new IllegalArgumentException(
+                    "Unresolved parameter in template '" + templateId + "': " + s);
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (var entry : ((Map<String, Object>) map).entrySet()) {
+                if (PARAM_PATTERN.matcher(entry.getKey()).find()) {
+                    throw new IllegalArgumentException(
+                            "Parameter placeholder in map key not supported in template '"
+                            + templateId + "': " + entry.getKey());
+                }
+                checkUnresolved(entry.getValue(), templateId);
+            }
+        }
+        if (value instanceof List<?> list) {
+            for (Object item : list) {
+                checkUnresolved(item, templateId);
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> deepMerge(Map<String, Object> base,
+                                         Map<String, Object> overrides) {
+        Map<String, Object> result = new LinkedHashMap<>(base);
+        for (var entry : overrides.entrySet()) {
+            Object baseValue     = result.get(entry.getKey());
+            Object overrideValue = entry.getValue();
+            if (baseValue instanceof Map && overrideValue instanceof Map) {
+                result.put(entry.getKey(), deepMerge(
+                        (Map<String, Object>) baseValue,
+                        (Map<String, Object>) overrideValue));
+            } else {
+                result.put(entry.getKey(), overrideValue);
+            }
+        }
+        return result;
+    }
+
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> buildResolvedParams(Map<String, Object> situationMap,
+                                                           SituationTemplate template) {
+        String situationId = requireString(situationMap, "situationId");
+        Object eventTypes  = situationMap.get("eventTypes");
+
+        Map<String, Object> resolvedParams = new LinkedHashMap<>();
+        for (var entry : template.parameters().entrySet()) {
+            if (entry.getValue().defaultValue() != null) {
+                resolvedParams.put(entry.getKey(), entry.getValue().defaultValue());
+            }
+        }
+        if (template.parameters().containsKey("situationId")) {
+            resolvedParams.put("situationId", situationId);
+        }
+        if (template.parameters().containsKey("eventTypes")) {
+            resolvedParams.put("eventTypes", eventTypes);
+        }
+        Map<String, Object> consumerParams = (Map<String, Object>) situationMap.get("parameters");
+        if (consumerParams != null) {
+            resolvedParams.putAll(consumerParams);
+        }
+        return resolvedParams;
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> resolveTemplate(Map<String, Object> situationMap,
+                                               Map<String, SituationTemplate> templates) {
+        String            templateId = (String) situationMap.get("fromTemplate");
+        SituationTemplate template   = templates.get(templateId);
+        if (template == null) {
+            throw new IllegalArgumentException("Unknown template: '" + templateId + "'");
+        }
+
+        Map<String, Object> resolvedParams = buildResolvedParams(situationMap, template);
+
+        Map<String, Object> consumerParams = (Map<String, Object>) situationMap.get("parameters");
+        if (consumerParams != null) {
+            for (String key : consumerParams.keySet()) {
+                if (!template.parameters().containsKey(key)) {
+                    LOG.warning("Unknown parameter '" + key + "' for template '" + templateId + "'");
+                }
+            }
+        }
+        for (var entry : template.parameters().entrySet()) {
+            if (entry.getValue().required() && !resolvedParams.containsKey(entry.getKey())) {
+                throw new IllegalArgumentException(
+                        "Missing required parameter '" + entry.getKey()
+                        + "' for template '" + templateId + "'");
+            }
+        }
+
+        Map<String, Object> resolved = (Map<String, Object>) substituteParams(
+                new LinkedHashMap<>(template.definition()), resolvedParams);
+        checkUnresolved(resolved, templateId);
+
+        Map<String, Object> overrides = new LinkedHashMap<>();
+        for (var entry : situationMap.entrySet()) {
+            String key = entry.getKey();
+            if (!"fromTemplate".equals(key) && !"situationId".equals(key)
+                && !"eventTypes".equals(key) && !"parameters".equals(key)) {
+                overrides.put(key, entry.getValue());
+            }
+        }
+        if (!overrides.isEmpty()) {
+            resolved = deepMerge(resolved, overrides);
+        }
+
+        String situationId = requireString(situationMap, "situationId");
+        Object eventTypes  = situationMap.get("eventTypes");
+        resolved.put("situationId", situationId);
+        resolved.put("eventTypes", eventTypes);
+        return resolved;
     }
 
     @SuppressWarnings("unchecked")

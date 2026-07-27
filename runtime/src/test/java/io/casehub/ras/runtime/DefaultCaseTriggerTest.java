@@ -3,7 +3,14 @@ package io.casehub.ras.runtime;
 import io.casehub.api.engine.CaseHub;
 import io.casehub.api.model.CaseDefinition;
 import io.casehub.platform.api.expression.CompiledExpression;
-import io.casehub.ras.api.*;
+import io.casehub.ras.api.CaseInputContributor;
+import io.casehub.ras.api.CaseTriggerConfig;
+import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.DefaultCorrelationKeyExtractor;
+import io.casehub.ras.api.SituationContext;
+import io.casehub.ras.api.SituationDefinition;
+import io.casehub.ras.api.SituationRegistration;
+import io.casehub.ras.api.TriggerAction;
 import io.casehub.ras.testing.FixedDetectionResult;
 import io.casehub.ras.testing.MockGanglion;
 import org.junit.jupiter.api.Test;
@@ -14,8 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
@@ -30,8 +35,8 @@ class DefaultCaseTriggerTest {
             @Override
             public CaseDefinition getDefinition() { return def; }
             @Override
-            public CompletionStage<UUID> startCase(Object inputData) {
-                return CompletableFuture.completedFuture(UUID.randomUUID());
+            public UUID startCase(Object inputData) {
+                return UUID.randomUUID();
             }
         };
     }
@@ -84,9 +89,9 @@ class DefaultCaseTriggerTest {
             public CaseDefinition getDefinition() {return def;}
 
             @Override
-            public CompletionStage<UUID> startCase(Object inputData) {
+            public UUID startCase(Object inputData) {
                 capturedInput.set((Map<String, Object>) inputData);
-                return CompletableFuture.completedFuture(UUID.randomUUID());
+                return UUID.randomUUID();
             }
         };
 
@@ -118,9 +123,9 @@ class DefaultCaseTriggerTest {
             public CaseDefinition getDefinition() {return def;}
 
             @Override
-            public CompletionStage<UUID> startCase(Object inputData) {
+            public UUID startCase(Object inputData) {
                 capturedInput.set((Map<String, Object>) inputData);
-                return CompletableFuture.completedFuture(UUID.randomUUID());
+                return UUID.randomUUID();
             }
         };
 
@@ -149,9 +154,9 @@ class DefaultCaseTriggerTest {
             public CaseDefinition getDefinition() {return def;}
 
             @Override
-            public CompletionStage<UUID> startCase(Object inputData) {
+            public UUID startCase(Object inputData) {
                 capturedInput.set((Map<String, Object>) inputData);
-                return CompletableFuture.completedFuture(UUID.randomUUID());
+                return UUID.randomUUID();
             }
         };
 
@@ -179,9 +184,9 @@ class DefaultCaseTriggerTest {
             public CaseDefinition getDefinition() {return def;}
 
             @Override
-            public CompletionStage<UUID> startCase(Object inputData) {
+            public UUID startCase(Object inputData) {
                 capturedInput.set((Map<String, Object>) inputData);
-                return CompletableFuture.completedFuture(UUID.randomUUID());
+                return UUID.randomUUID();
             }
         };
 
@@ -211,9 +216,9 @@ class DefaultCaseTriggerTest {
             public CaseDefinition getDefinition() {return def;}
 
             @Override
-            public CompletionStage<UUID> startCase(Object inputData) {
+            public UUID startCase(Object inputData) {
                 capture.set((Map<String, Object>) inputData);
-                return CompletableFuture.completedFuture(UUID.randomUUID());
+                return UUID.randomUUID();
             }
         };
     }

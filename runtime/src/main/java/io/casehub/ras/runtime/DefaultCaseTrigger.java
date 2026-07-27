@@ -59,7 +59,7 @@ public class DefaultCaseTrigger implements CaseTrigger {
     public UUID fire(CaseTriggerConfig triggerConfig, SituationContext context) {
         CaseHub             hub       = findCaseHub(triggerConfig);
         Map<String, Object> inputData = buildInputData(triggerConfig, context);
-        return hub.startCase(inputData).toCompletableFuture().join();
+        return hub.startCase(inputData);
     }
 
     private CaseHub findCaseHub(CaseTriggerConfig config) {
