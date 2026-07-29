@@ -41,7 +41,7 @@ class SituationExpiryJobTest {
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry), List.of());
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), Duration.ofDays(30), initMetrics(registry), List.of(), null);
 
         job.cleanup();
 
@@ -61,7 +61,7 @@ class SituationExpiryJobTest {
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry), List.of());
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), Duration.ofDays(30), initMetrics(registry), List.of(), null);
 
         job.cleanup();
 
@@ -85,7 +85,7 @@ class SituationExpiryJobTest {
         store.tryClaimTrigger("sit-1", "key-1", "tenant-a",
                 Instant.parse("2026-06-25T10:00:00Z"));
 
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry), List.of());
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), Duration.ofDays(30), initMetrics(registry), List.of(), null);
 
         assertThat(store.find("sit-1", "key-1", "tenant-a")).isPresent();
 
@@ -104,7 +104,7 @@ class SituationExpiryJobTest {
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(reg)), List.of(g));
         var store = new InMemorySituationStore();
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry), List.of());
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), Duration.ofDays(30), initMetrics(registry), List.of(), null);
 
         // Should not throw — previously returned early when maxWindow was null
         job.cleanup();
@@ -130,7 +130,7 @@ class SituationExpiryJobTest {
                                           new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry), List.of());
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), Duration.ofDays(30), initMetrics(registry), List.of(), null);
 
         job.cleanup();
 
@@ -147,7 +147,7 @@ class SituationExpiryJobTest {
                                           new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
-        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), initMetrics(registry), List.of());
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), Duration.ofDays(30), initMetrics(registry), List.of(), null);
 
         job.cleanup();
 
@@ -175,7 +175,7 @@ class SituationExpiryJobTest {
         };
 
         var job = new SituationExpiryJob(store, registry,
-                                         Duration.ofMinutes(1), initMetrics(registry), List.of(mockCleaner));
+                                         Duration.ofMinutes(1), Duration.ofDays(30), initMetrics(registry), List.of(mockCleaner), null);
 
         job.cleanup();
 
@@ -210,13 +210,74 @@ class SituationExpiryJobTest {
         };
 
         var job = new SituationExpiryJob(store, registry,
-                                         Duration.ofMinutes(1), initMetrics(registry),
-                                         List.of(failingCleaner, workingCleaner));
+                                         Duration.ofMinutes(1), Duration.ofDays(30), initMetrics(registry),
+                                         List.of(failingCleaner, workingCleaner), null);
 
         job.cleanup();
 
         assertThat(meterRegistry.counter("ras.expiry.orphans_cleaned", "cleaner_type", "working").count())
                 .isEqualTo(2.0);
+    }
+
+    @Test
+    void cleanupCallsEventRetentionWhenResolvable() {
+        var store    = new InMemorySituationStore();
+        var ganglion = new MockGanglion("g1", Set.of("e"), FixedDetectionResult.noise("g1"));
+        var def = new SituationDefinition("sit-1", Set.of("e"), null, null,
+                                          new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())), null);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
+
+        int[] cleanedCount = {0};
+        jakarta.enterprise.inject.Instance<io.casehub.ras.api.SituationEventRetention> retentionInstance =
+                new jakarta.enterprise.inject.Instance<>() {
+                    private final io.casehub.ras.api.SituationEventRetention impl = cutoff -> {
+                        cleanedCount[0] = 5;
+                        return 5;
+                    };
+
+                    @Override
+                    public io.casehub.ras.api.SituationEventRetention get()                                                                                                                                                   {return impl;}
+
+                    @Override
+                    public boolean isResolvable()                                                                                                                                                                             {return true;}
+
+                    @Override
+                    public boolean isAmbiguous()                                                                                                                                                                              {return false;}
+
+                    @Override
+                    public boolean isUnsatisfied()                                                                                                                                                                            {return false;}
+
+                    @Override
+                    public void destroy(io.casehub.ras.api.SituationEventRetention instance)                                                                                                                                  {}
+
+                    @Override
+                    public Handle<io.casehub.ras.api.SituationEventRetention> getHandle()                                                                                                                                     {throw new UnsupportedOperationException();}
+
+                    @Override
+                    public Iterable<? extends Handle<io.casehub.ras.api.SituationEventRetention>> handles()                                                                                                                   {throw new UnsupportedOperationException();}
+
+                    @Override
+                    public jakarta.enterprise.inject.Instance<io.casehub.ras.api.SituationEventRetention> select(java.lang.annotation.Annotation... qualifiers)                                                               {throw new UnsupportedOperationException();}
+
+                    @Override
+                    public <U extends io.casehub.ras.api.SituationEventRetention> jakarta.enterprise.inject.Instance<U> select(Class<U> subtype, java.lang.annotation.Annotation... qualifiers)                               {throw new UnsupportedOperationException();}
+
+                    @Override
+                    public <U extends io.casehub.ras.api.SituationEventRetention> jakarta.enterprise.inject.Instance<U> select(jakarta.enterprise.util.TypeLiteral<U> subtype, java.lang.annotation.Annotation... qualifiers) {throw new UnsupportedOperationException();}
+
+                    @Override
+                    public java.util.Iterator<io.casehub.ras.api.SituationEventRetention> iterator()                                                                                                                          {return java.util.List.of(impl).iterator();}
+                };
+
+        var job = new SituationExpiryJob(store, registry, Duration.ofMinutes(1), Duration.ofDays(30),
+                                         initMetrics(registry), List.of(), retentionInstance);
+
+        job.cleanup();
+
+        assertThat(cleanedCount[0]).isEqualTo(5);
+        assertThat(meterRegistry.counter("ras.expiry.event_log_cleaned").count()).isEqualTo(5.0);
     }
 
 

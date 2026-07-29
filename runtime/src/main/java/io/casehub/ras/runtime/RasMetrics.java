@@ -169,6 +169,10 @@ public class RasMetrics {
         counterBy("ras.expiry.orphans_cleaned", count, "cleaner_type", cleanerType);
     }
 
+    public void eventLogCleaned(int count) {
+        counterBy("ras.expiry.event_log_cleaned", count);
+    }
+
 
     public void registerActiveBuffersGauge(Supplier<Number> supplier) {
         if (metrics != null) {
