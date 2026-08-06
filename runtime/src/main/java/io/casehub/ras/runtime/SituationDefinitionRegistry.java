@@ -28,7 +28,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @ApplicationScoped
-public class SituationDefinitionRegistry {
+public class SituationDefinitionRegistry implements io.casehub.ras.api.SituationRegistrar {
 
     private static final java.util.logging.Logger LOG =
             java.util.logging.Logger.getLogger(SituationDefinitionRegistry.class.getName());
@@ -183,6 +183,7 @@ public class SituationDefinitionRegistry {
         return reg != null ? reg.compiledDynamicData() : null;
     }
 
+    @Override
     public synchronized void register(SituationRegistration registration) {
         String sitId = registration.definition().situationId();
         if (snapshot.situationIds().contains(sitId)) {
@@ -199,6 +200,7 @@ public class SituationDefinitionRegistry {
         this.snapshot = buildSnapshot(all);
     }
 
+    @Override
     public synchronized void deregister(String situationId) {
         if (!snapshot.situationIds().contains(situationId)) {
             return;
@@ -210,6 +212,12 @@ public class SituationDefinitionRegistry {
                                                         .toList();
         this.snapshot = buildSnapshot(remaining);
     }
+
+    @Override
+    public boolean exists(String situationId) {
+        return snapshot.situationIds().contains(situationId);
+    }
+
 
     @SuppressWarnings("unchecked")
     private SituationRegistration compileRegistration(SituationRegistration registration) {
