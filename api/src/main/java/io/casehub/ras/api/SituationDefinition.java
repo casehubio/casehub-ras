@@ -17,7 +17,8 @@ public record SituationDefinition(
         TriggerMode triggerMode,
         ExpressionEvaluator correlationKeyExpression,
         ExpressionEvaluator eventFilter,
-        Map<String, ExpressionEvaluator> dynamicCaseData
+        Map<String, ExpressionEvaluator> dynamicCaseData,
+        FeedbackConfig feedbackConfig
 ) {
     public SituationDefinition {
         Objects.requireNonNull(situationId, "situationId");
@@ -43,8 +44,27 @@ public record SituationDefinition(
 
     public SituationDefinition(String situationId, Set<String> eventTypes,
                                Duration correlationWindow, Duration eventBufferDelay,
-                               ChainMode chainMode, TriggerAction triggerAction, TriggerMode triggerMode) {
+                               ChainMode chainMode, TriggerAction triggerAction,
+                               TriggerMode triggerMode,
+                               ExpressionEvaluator correlationKeyExpression,
+                               ExpressionEvaluator eventFilter,
+                               Map<String, ExpressionEvaluator> dynamicCaseData) {
         this(situationId, eventTypes, correlationWindow, eventBufferDelay,
-             chainMode, triggerAction, triggerMode, null, null, Map.of());
+             chainMode, triggerAction, triggerMode,
+             correlationKeyExpression, eventFilter, dynamicCaseData, null);
+    }
+
+    public SituationDefinition(String situationId, Set<String> eventTypes,
+                               Duration correlationWindow, Duration eventBufferDelay,
+                               ChainMode chainMode, TriggerAction triggerAction,
+                               TriggerMode triggerMode) {
+        this(situationId, eventTypes, correlationWindow, eventBufferDelay,
+             chainMode, triggerAction, triggerMode, null, null, Map.of(), null);
+    }
+
+    public SituationDefinition withChainMode(ChainMode newChainMode) {
+        return new SituationDefinition(situationId, eventTypes, correlationWindow,
+                                       eventBufferDelay, newChainMode, triggerAction, triggerMode,
+                                       correlationKeyExpression, eventFilter, dynamicCaseData, feedbackConfig);
     }
 }

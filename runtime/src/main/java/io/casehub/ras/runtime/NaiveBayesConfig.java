@@ -17,7 +17,8 @@ public record NaiveBayesConfig(
         Map<String, FeatureLikelihood> features,
         NaiveBayesFeatureExtractor featureExtractor,
         NaiveBayesSignalMapping signalMapping,
-        Map<String, Map<String, CompiledExpression<Map, Object>>> outcomeEvidenceTemplates
+        Map<String, Map<String, CompiledExpression<Map, Object>>> outcomeEvidenceTemplates,
+        Map<String, String> outcomeGroundTruth
 ) {
     public NaiveBayesConfig {
         Objects.requireNonNull(ganglionId, "ganglionId");
@@ -72,5 +73,26 @@ public record NaiveBayesConfig(
                         + "' is not in outcomes " + outcomes);
             }
         }
+        if (outcomeGroundTruth != null) {
+            outcomeGroundTruth = Map.copyOf(outcomeGroundTruth);
+            for (var entry : outcomeGroundTruth.entrySet()) {
+                if (!outcomes.contains(entry.getValue())) {
+                    throw new IllegalArgumentException(
+                            "outcomeGroundTruth value '" + entry.getValue()
+                            + "' for label '" + entry.getKey()
+                            + "' is not in outcomes " + outcomes);
+                }
+            }
+        }
+    }
+
+    public NaiveBayesConfig(String ganglionId, Set<String> handledEventTypes,
+                            List<String> outcomes, double[] priors,
+                            Map<String, FeatureLikelihood> features,
+                            NaiveBayesFeatureExtractor featureExtractor,
+                            NaiveBayesSignalMapping signalMapping,
+                            Map<String, Map<String, CompiledExpression<Map, Object>>> outcomeEvidenceTemplates) {
+        this(ganglionId, handledEventTypes, outcomes, priors, features, featureExtractor,
+             signalMapping, outcomeEvidenceTemplates, null);
     }
 }

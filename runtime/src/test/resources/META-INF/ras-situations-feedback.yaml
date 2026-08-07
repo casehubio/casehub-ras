@@ -1,0 +1,70 @@
+ganglia:
+  - ganglionId: feedback-nb
+    type: naive-bayes
+    handledEventTypes: [payment.flagged]
+    outcomes: [fraud, legitimate]
+    priors: [0.1, 0.9]
+    outcomeGroundTruth:
+      escalated: fraud
+      dismissed: legitimate
+    features:
+      amount:
+        expression: .data.amount
+        language: jq
+        values: [high, low]
+        likelihoods:
+          - [0.8, 0.2]
+          - [0.3, 0.7]
+    signalMapping:
+      targetOutcome: fraud
+      detectedThreshold: 0.7
+      weakThreshold: 0.4
+
+  - ganglionId: no-ground-truth-nb
+    type: naive-bayes
+    handledEventTypes: [test.event]
+    outcomes: [A, B]
+    priors: [0.5, 0.5]
+    features:
+      f1:
+        expression: .data.f
+        language: jq
+        values: [X, Y]
+        likelihoods:
+          - [0.8, 0.2]
+          - [0.3, 0.7]
+    signalMapping:
+      targetOutcome: B
+      detectedThreshold: 0.6
+      weakThreshold: 0.3
+
+situations:
+  - situationId: feedback-test
+    eventTypes: [payment.flagged]
+    chainMode:
+      type: threshold
+      ganglia: [feedback-nb]
+      minConfidence: 0.7
+    triggerAction:
+      type: create-case
+      caseNamespace: compliance
+      caseName: fraud
+      caseVersion: "1.0"
+    feedback:
+      noiseLabels: [dismissed, false-positive]
+      confirmedLabels: [escalated]
+      suppressionCooldown: PT6H
+      learningRate: 0.1
+      retentionPeriod: P90D
+      tuningEnabled: true
+
+  - situationId: no-feedback-test
+    eventTypes: [test.event]
+    chainMode:
+      type: or
+      ganglia: [no-ground-truth-nb]
+    triggerAction:
+      type: create-case
+      caseNamespace: test
+      caseName: basic
+      caseVersion: "1.0"

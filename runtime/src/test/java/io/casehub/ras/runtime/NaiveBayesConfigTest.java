@@ -162,4 +162,34 @@ class NaiveBayesConfigTest {
                 .withMessageContaining("C")
                 .withMessageContaining("not in outcomes");
     }
+
+    @Test
+    void validOutcomeGroundTruthAccepted() {
+        var config = new NaiveBayesConfig(
+                "g", Set.of("e"), List.of("A", "B"),
+                new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING,
+                Map.of(), Map.of("escalated", "A", "dismissed", "B"));
+        assertThat(config.outcomeGroundTruth()).containsEntry("escalated", "A");
+    }
+
+    @Test
+    void unknownOutcomeValueInOutcomeGroundTruthIsRejected() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new NaiveBayesConfig(
+                        "g", Set.of("e"), List.of("A", "B"),
+                        new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING,
+                        Map.of(), Map.of("escalated", "NONEXISTENT")))
+                .withMessageContaining("NONEXISTENT")
+                .withMessageContaining("not in outcomes");
+    }
+
+    @Test
+    void nullOutcomeGroundTruthAccepted() {
+        var config = new NaiveBayesConfig(
+                "g", Set.of("e"), List.of("A", "B"),
+                new double[]{0.5, 0.5}, Map.of(), NOOP_EXTRACTOR, VALID_MAPPING,
+                Map.of(), null);
+        assertThat(config.outcomeGroundTruth()).isNull();
+    }
+
 }

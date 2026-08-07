@@ -22,8 +22,18 @@ public sealed interface GanglionDescriptor {
             Map<String, Feature> features,
             SignalMapping signalMapping,
             Map<String, ExpressionEvaluator> evidenceTemplates,
-            Map<String, Map<String, ExpressionEvaluator>> outcomeEvidenceTemplates
+            Map<String, Map<String, ExpressionEvaluator>> outcomeEvidenceTemplates,
+            Map<String, String> outcomeGroundTruth
     ) implements GanglionDescriptor {
+
+        public NaiveBayes(String ganglionId, Set<String> handledEventTypes,
+                          List<String> outcomes, double[] priors,
+                          Map<String, Feature> features, SignalMapping signalMapping,
+                          Map<String, ExpressionEvaluator> evidenceTemplates,
+                          Map<String, Map<String, ExpressionEvaluator>> outcomeEvidenceTemplates) {
+            this(ganglionId, handledEventTypes, outcomes, priors, features, signalMapping,
+                 evidenceTemplates, outcomeEvidenceTemplates, null);
+        }
 
         public record Feature(
                 ExpressionEvaluator expression,

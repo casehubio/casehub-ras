@@ -228,11 +228,28 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
             throw new IllegalArgumentException("Missing signalMapping for ganglion '" + ganglionId + "'");
         }
 
+        Map<String, String> outcomeGroundTruth = null;
+        Map<String, Object> groundTruthMap = (Map<String, Object>) map.get("outcomeGroundTruth");
+        if (groundTruthMap != null) {
+            outcomeGroundTruth = new LinkedHashMap<>();
+            for (var entry : groundTruthMap.entrySet()) {
+                String value = entry.getValue().toString();
+                if (!outcomes.contains(value)) {
+                    throw new IllegalArgumentException(
+                            "outcomeGroundTruth value '" + value + "' for label '"
+                            + entry.getKey() + "' is not in outcomes " + outcomes
+                            + " for ganglion '" + ganglionId + "'");
+                }
+                outcomeGroundTruth.put(entry.getKey(), value);
+            }
+        }
+
         return new GanglionDescriptor.NaiveBayes(
                 ganglionId, new LinkedHashSet<>(eventTypes), outcomes, priors,
                 features, parseSignalMapping(sigMap),
                 parseEvidenceTemplates(map),
-                parseOutcomeEvidenceTemplates(map, outcomes, ganglionId));
+                parseOutcomeEvidenceTemplates(map, outcomes, ganglionId),
+                outcomeGroundTruth);
     }
 
     @SuppressWarnings("unchecked")
@@ -568,11 +585,18 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         ExpressionEvaluator              eventFilterExpr    = parseExpressionEvaluator(map, "eventFilter");
         Map<String, ExpressionEvaluator> dynamicCaseData    = parseDynamicCaseData(map);
 
+        io.casehub.ras.api.FeedbackConfig feedbackConfig = null;
+        Map<String, Object> feedbackMap = (Map<String, Object>) map.get("feedback");
+        if (feedbackMap != null) {
+            feedbackConfig = parseFeedbackConfig(feedbackMap);
+        }
+
         SituationDefinition def = new SituationDefinition(
                 situationId, new LinkedHashSet<>(eventTypeList),
                 correlationWindow, eventBufferDelay, chainMode,
                 triggerAction, triggerMode,
-                correlationKeyExpr, eventFilterExpr, dynamicCaseData);
+                correlationKeyExpr, eventFilterExpr, dynamicCaseData,
+                feedbackConfig);
         return new SituationRegistration(def);
     }
 
@@ -718,6 +742,26 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                     "Missing required field '" + key + "' in chainMode for situation '" + situationId + "'");
         }
         return (Number) value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static io.casehub.ras.api.FeedbackConfig parseFeedbackConfig(Map<String, Object> map) {
+        List<String> noiseLabels = (List<String>) map.get("noiseLabels");
+        List<String> confirmedLabels = (List<String>) map.get("confirmedLabels");
+        if (noiseLabels == null || noiseLabels.isEmpty()) {
+            throw new IllegalArgumentException("feedback.noiseLabels must not be empty");
+        }
+        if (confirmedLabels == null || confirmedLabels.isEmpty()) {
+            throw new IllegalArgumentException("feedback.confirmedLabels must not be empty");
+        }
+        Duration suppressionCooldown = Duration.parse(requireString(map, "suppressionCooldown"));
+        double learningRate = ((Number) map.get("learningRate")).doubleValue();
+        Duration retentionPeriod = Duration.parse(requireString(map, "retentionPeriod"));
+        boolean tuningEnabled = Boolean.TRUE.equals(map.get("tuningEnabled"));
+        return new io.casehub.ras.api.FeedbackConfig(
+                new LinkedHashSet<>(noiseLabels),
+                new LinkedHashSet<>(confirmedLabels),
+                suppressionCooldown, learningRate, retentionPeriod, tuningEnabled);
     }
 
     @SuppressWarnings("unchecked")

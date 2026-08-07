@@ -151,6 +151,11 @@ public class RasMetrics {
                 "situation_id", situationId, "tenancy_id", tenancyId);
     }
 
+    public void feedbackSuppression(String situationId, String tenancyId) {
+        counter("ras.feedback.suppressions_total",
+                "situation_id", situationId, "tenancy_id", tenancyId);
+    }
+
 
     public void eventBuffered(String situationId, String tenancyId) {
         counter("ras.evaluator.buffer.events_buffered",

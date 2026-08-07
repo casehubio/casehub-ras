@@ -455,7 +455,7 @@ class SituationDefinitionRegistryTest {
 
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(),
-                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null);
 
         assertThat(registry.ganglion("yaml-g")).isNotNull();
         assertThat(registry.ganglion("yaml-g")).isInstanceOf(NaiveBayesGanglion.class);
@@ -484,7 +484,7 @@ class SituationDefinitionRegistryTest {
         assertThatIllegalStateException().isThrownBy(() ->
                                                              new SituationDefinitionRegistry(
                                                                      List.of(provider), List.of(cdiGanglion),
-                                                                     new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null))
+                                                                     new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null))
                                          .withMessageContaining("Duplicate ganglionId 'dup-g'");
     }
 
@@ -513,7 +513,7 @@ class SituationDefinitionRegistryTest {
         assertThatNoException().isThrownBy(() ->
                                                    new SituationDefinitionRegistry(
                                                            List.of(provider), List.of(),
-                                                           new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null));
+                                                           new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null));
     }
 
     @Test
@@ -534,7 +534,7 @@ class SituationDefinitionRegistryTest {
         assertThatIllegalStateException().isThrownBy(() ->
                                                              new SituationDefinitionRegistry(
                                                                      List.of(provider), List.of(),
-                                                                     new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null))
+                                                                     new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null))
                                          .withMessageContaining("bad-g")
                                          .withMessageContaining("priors must sum to 1.0");
     }
@@ -559,7 +559,7 @@ class SituationDefinitionRegistryTest {
 
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(),
-                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null);
 
         assertThat(registry.ganglion("evid-g")).isInstanceOf(EvidenceExtractingGanglion.class);
     }
@@ -584,7 +584,7 @@ class SituationDefinitionRegistryTest {
 
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(),
-                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null);
 
         assertThat(registry.ganglion("no-evid")).isInstanceOf(NaiveBayesGanglion.class);
     }
@@ -606,7 +606,7 @@ class SituationDefinitionRegistryTest {
 
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(),
-                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null);
 
         assertThat(registry.ganglion("rules-g")).isNotNull();
         assertThat(registry.ganglion("rules-g")).isInstanceOf(ExpressionRulesGanglion.class);
@@ -628,7 +628,7 @@ class SituationDefinitionRegistryTest {
 
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(),
-                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null);
 
         assertThat(registry.ganglion("rules-evid")).isInstanceOf(EvidenceExtractingGanglion.class);
     }
@@ -659,7 +659,7 @@ class SituationDefinitionRegistryTest {
 
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(),
-                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null);
 
         assertThat(registry.ganglion("nb-g")).isInstanceOf(NaiveBayesGanglion.class);
         assertThat(registry.ganglion("er-g")).isInstanceOf(ExpressionRulesGanglion.class);
@@ -684,7 +684,7 @@ class SituationDefinitionRegistryTest {
         assertThatIllegalStateException().isThrownBy(() ->
                                                              new SituationDefinitionRegistry(
                                                                      List.of(provider), List.of(cdiGanglion),
-                                                                     new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null))
+                                                                     new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null))
                                          .withMessageContaining("Duplicate ganglionId 'dup-g'");
     }
 
@@ -765,7 +765,7 @@ class SituationDefinitionRegistryTest {
 
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(),
-                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null);
 
         assertThat(registry.ganglion("per-rule-evid")).isNotNull();
     }
@@ -790,7 +790,7 @@ class SituationDefinitionRegistryTest {
 
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(),
-                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null);
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null);
 
         assertThat(registry.ganglion("per-outcome-evid")).isNotNull();
     }
@@ -835,5 +835,81 @@ class SituationDefinitionRegistryTest {
         io.casehub.ras.api.DetectionResult result = ganglion.detect(event, ctx);
         assertThat(result.confidence()).isEqualTo(0.85);
         assertThat(result.signal()).isEqualTo(io.casehub.ras.api.DetectionSignal.DETECTED);
+    }
+
+    @Test
+    void allSituationIdsReturnsAllRegisteredIds() {
+        var g1   = ganglion("g1", "event.a", "event.b");
+        var def1 = definition("sit-1", Set.of("event.a"), new ChainMode.Or(Set.of("g1")));
+        var def2 = definition("sit-2", Set.of("event.b"), new ChainMode.Or(Set.of("g1")));
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(def1), new SituationRegistration(def2))),
+                List.of(g1));
+        assertThat(registry.allSituationIds()).containsExactlyInAnyOrder("sit-1", "sit-2");
+    }
+
+    @Test
+    void feedbackConfigReturnsNullWhenAbsent() {
+        var g1  = ganglion("g1", "event.a");
+        var def = definition("sit-1", Set.of("event.a"), new ChainMode.Or(Set.of("g1")));
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(def))),
+                List.of(g1));
+        assertThat(registry.feedbackConfig("sit-1")).isNull();
+    }
+
+    @Test
+    void feedbackConfigReturnsFeedbackWhenPresent() {
+        var g1 = ganglion("g1", "event.a");
+        var config = new io.casehub.ras.api.FeedbackConfig(
+                Set.of("dismissed"), Set.of("escalated"),
+                java.time.Duration.ofHours(6), 0.1, java.time.Duration.ofDays(90), false);
+        var def = new SituationDefinition("sit-1", Set.of("event.a"),
+                                          Duration.ofMinutes(5), null,
+                                          new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())),
+                                          null, null, null, Map.of(), config);
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(def))),
+                List.of(g1));
+        assertThat(registry.feedbackConfig("sit-1")).isNotNull();
+        assertThat(registry.feedbackConfig("sit-1").learningRate()).isEqualTo(0.1);
+    }
+
+    @Test
+    void feedbackConfigReturnsNullForUnknownSituation() {
+        var registry = new SituationDefinitionRegistry(List.of(), List.of());
+        assertThat(registry.feedbackConfig("nonexistent")).isNull();
+    }
+
+    @Test
+    void ganglionDescriptorReturnsDescriptorForYamlGanglion() {
+        var descriptor = new io.casehub.ras.api.GanglionDescriptor.NaiveBayes(
+                "nb-desc", Set.of("test.event"),
+                List.of("A", "B"), new double[]{0.5, 0.5},
+                Map.of("f1", new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.Feature(
+                        new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.f"),
+                        List.of("X", "Y"), new double[][]{{0.8, 0.2}, {0.3, 0.7}})),
+                new io.casehub.ras.api.GanglionDescriptor.NaiveBayes.SignalMapping("B", 0.75, 0.30, null),
+                Map.of(), Map.of());
+
+        io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
+            public List<SituationRegistration> registrations()                       {return List.of();}
+
+            public List<io.casehub.ras.api.GanglionDescriptor> ganglionDescriptors() {return List.of(descriptor);}
+        };
+
+        var registry = new SituationDefinitionRegistry(
+                List.of(provider), List.of(),
+                new StubExpressionEngineRegistry(), new InMemoryGanglionStateStore(), null, null);
+
+        assertThat(registry.ganglionDescriptor("nb-desc")).isSameAs(descriptor);
+    }
+
+    @Test
+    void ganglionDescriptorReturnsNullForCdiGanglion() {
+        var g1       = ganglion("cdi-g", "event.a");
+        var registry = new SituationDefinitionRegistry(List.of(), List.of(g1));
+        assertThat(registry.ganglionDescriptor("cdi-g")).isNull();
     }
 }

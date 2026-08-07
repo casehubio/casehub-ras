@@ -28,16 +28,24 @@ public class NaiveBayesGanglion implements Ganglion {
     private final NaiveBayesConfig                              config;
     private final GanglionStateStore                            stateStore;
     private final io.micrometer.core.instrument.MeterRegistry   meterRegistry;
+    private final FeedbackState                                 feedbackState;
     private final double[]                                      logPriors;
     private final int                                           targetIndex;
 
     public NaiveBayesGanglion(NaiveBayesConfig config, GanglionStateStore stateStore,
-                               io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+                               io.micrometer.core.instrument.MeterRegistry meterRegistry,
+                               FeedbackState feedbackState) {
         this.config        = config;
         this.stateStore    = stateStore;
         this.meterRegistry = meterRegistry;
+        this.feedbackState = feedbackState;
         this.logPriors     = Arrays.stream(config.priors()).map(Math::log).toArray();
         this.targetIndex   = config.outcomes().indexOf(config.signalMapping().targetOutcome());
+    }
+
+    public NaiveBayesGanglion(NaiveBayesConfig config, GanglionStateStore stateStore,
+                               io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+        this(config, stateStore, meterRegistry, null);
     }
 
     private static double[] normalizeLogPosteriors(double[] logP) {
@@ -70,8 +78,13 @@ public class NaiveBayesGanglion implements Ganglion {
 
         for (int attempt = 0; attempt <= MAX_STATE_RETRIES; attempt++) {
             GanglionState loaded = stateStore.load(key)
-                                             .orElseGet(() -> new GanglionState(
-                                                     Arrays.copyOf(logPriors, logPriors.length), OptionalLong.empty()));
+                                             .orElseGet(() -> {
+                                                 double[] initialPriors = feedbackState != null
+                                                         ? feedbackState.adjustedLogPriors(config.ganglionId(), context.tenancyId())
+                                                             .orElse(Arrays.copyOf(logPriors, logPriors.length))
+                                                         : Arrays.copyOf(logPriors, logPriors.length);
+                                                 return new GanglionState(initialPriors, OptionalLong.empty());
+                                             });
 
             double[] logPosteriors = Arrays.copyOf(loaded.values(), loaded.values().length);
 

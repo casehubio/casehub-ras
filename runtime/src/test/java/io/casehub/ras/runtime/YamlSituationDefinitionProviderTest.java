@@ -1095,7 +1095,7 @@ class YamlSituationDefinitionProviderTest {
         var stateStore = new InMemoryGanglionStateStore();
 
         var registry = new SituationDefinitionRegistry(
-                java.util.List.of(provider), java.util.List.of(), engines, stateStore, null);
+                java.util.List.of(provider), java.util.List.of(), engines, stateStore, null, null);
 
         assertThat(registry.ganglion("e2e-bayes")).isNotNull();
         assertThat(registry.ganglion("e2e-bayes")).isInstanceOf(NaiveBayesGanglion.class);
@@ -1276,7 +1276,7 @@ class YamlSituationDefinitionProviderTest {
         var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
         engines.register(new io.casehub.platform.expression.JQExpressionEngine());
         var registry = new SituationDefinitionRegistry(
-                java.util.List.of(provider), java.util.List.of(), engines, new InMemoryGanglionStateStore(), null);
+                java.util.List.of(provider), java.util.List.of(), engines, new InMemoryGanglionStateStore(), null, null);
 
         var event = io.cloudevents.core.builder.CloudEventBuilder.v1()
                                                                  .withId("e2e-1").withSource(java.net.URI.create("/test")).withType("test.e2e")
@@ -1303,7 +1303,7 @@ class YamlSituationDefinitionProviderTest {
         var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
         engines.register(new io.casehub.platform.expression.JQExpressionEngine());
         var registry = new SituationDefinitionRegistry(
-                java.util.List.of(provider), java.util.List.of(), engines, new InMemoryGanglionStateStore(), null);
+                java.util.List.of(provider), java.util.List.of(), engines, new InMemoryGanglionStateStore(), null, null);
 
         var event = io.cloudevents.core.builder.CloudEventBuilder.v1()
                                                                  .withId("e2e-1").withSource(java.net.URI.create("/test")).withType("test.e2e")
@@ -2138,6 +2138,202 @@ class YamlSituationDefinitionProviderTest {
         assertThat(provider.ganglionDescriptors().stream()
                            .map(io.casehub.ras.api.GanglionDescriptor::ganglionId))
                 .containsExactlyInAnyOrder("top-level-g", "bundled-g");
+    }
+
+    @Test
+    void feedbackSectionParsedIntoFeedbackConfig() {
+        var regs = provider("""
+                            situations:
+                              - situationId: fb-sit
+                                eventTypes: [test.event]
+                                chainMode:
+                                  type: or
+                                  ganglia: [g1]
+                                triggerAction:
+                                  type: create-case
+                                  caseNamespace: ns
+                                  caseName: cn
+                                  caseVersion: "1"
+                                feedback:
+                                  noiseLabels: [dismissed, false-positive]
+                                  confirmedLabels: [escalated]
+                                  suppressionCooldown: PT6H
+                                  learningRate: 0.1
+                                  retentionPeriod: P90D
+                                  tuningEnabled: true
+                            """).registrations();
+
+        assertThat(regs).hasSize(1);
+        var config = regs.get(0).definition().feedbackConfig();
+        assertThat(config).isNotNull();
+        assertThat(config.noiseLabels()).containsExactlyInAnyOrder("dismissed", "false-positive");
+        assertThat(config.confirmedLabels()).containsExactly("escalated");
+        assertThat(config.suppressionCooldown()).isEqualTo(java.time.Duration.ofHours(6));
+        assertThat(config.learningRate()).isEqualTo(0.1);
+        assertThat(config.retentionPeriod()).isEqualTo(java.time.Duration.ofDays(90));
+        assertThat(config.tuningEnabled()).isTrue();
+    }
+
+    @Test
+    void absentFeedbackSectionResultsInNullConfig() {
+        var regs = provider("""
+                            situations:
+                              - situationId: no-fb
+                                eventTypes: [test.event]
+                                chainMode:
+                                  type: or
+                                  ganglia: [g1]
+                                triggerAction:
+                                  type: create-case
+                                  caseNamespace: ns
+                                  caseName: cn
+                                  caseVersion: "1"
+                            """).registrations();
+
+        assertThat(regs.get(0).definition().feedbackConfig()).isNull();
+    }
+
+    @Test
+    void tuningEnabledDefaultsToFalseWhenAbsent() {
+        var regs = provider("""
+                            situations:
+                              - situationId: fb-default
+                                eventTypes: [test.event]
+                                chainMode:
+                                  type: or
+                                  ganglia: [g1]
+                                triggerAction:
+                                  type: create-case
+                                  caseNamespace: ns
+                                  caseName: cn
+                                  caseVersion: "1"
+                                feedback:
+                                  noiseLabels: [dismissed]
+                                  confirmedLabels: [escalated]
+                                  suppressionCooldown: PT1H
+                                  learningRate: 0.1
+                                  retentionPeriod: P30D
+                            """).registrations();
+
+        assertThat(regs.get(0).definition().feedbackConfig().tuningEnabled()).isFalse();
+    }
+
+    @Test
+    void outcomeGroundTruthParsedOnNaiveBayesGanglion() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: gt-nb
+                                    type: naive-bayes
+                                    handledEventTypes: [test.event]
+                                    outcomes: [fraud, legitimate]
+                                    priors: [0.1, 0.9]
+                                    outcomeGroundTruth:
+                                      escalated: fraud
+                                      dismissed: legitimate
+                                    features:
+                                      f1:
+                                        expression: .data.f
+                                        language: jq
+                                        values: [X, Y]
+                                        likelihoods:
+                                          - [0.8, 0.2]
+                                          - [0.3, 0.7]
+                                    signalMapping:
+                                      targetOutcome: fraud
+                                      detectedThreshold: 0.7
+                                      weakThreshold: 0.3
+                                """);
+
+        var descriptors = provider.ganglionDescriptors();
+        assertThat(descriptors).hasSize(1);
+        var nb = (io.casehub.ras.api.GanglionDescriptor.NaiveBayes) descriptors.get(0);
+        assertThat(nb.outcomeGroundTruth()).containsEntry("escalated", "fraud");
+        assertThat(nb.outcomeGroundTruth()).containsEntry("dismissed", "legitimate");
+    }
+
+    @Test
+    void absentOutcomeGroundTruthIsNull() {
+        var provider = provider("""
+                                ganglia:
+                                  - ganglionId: no-gt-nb
+                                    type: naive-bayes
+                                    handledEventTypes: [test.event]
+                                    outcomes: [A, B]
+                                    priors: [0.5, 0.5]
+                                    features:
+                                      f1:
+                                        expression: .data.f
+                                        language: jq
+                                        values: [X, Y]
+                                        likelihoods:
+                                          - [0.8, 0.2]
+                                          - [0.3, 0.7]
+                                    signalMapping:
+                                      targetOutcome: B
+                                      detectedThreshold: 0.6
+                                      weakThreshold: 0.3
+                                """);
+
+        var nb = (io.casehub.ras.api.GanglionDescriptor.NaiveBayes) provider.ganglionDescriptors().get(0);
+        assertThat(nb.outcomeGroundTruth()).isNull();
+    }
+
+    @Test
+    void invalidOutcomeGroundTruthValueFailsLoudly() {
+        assertThatIllegalArgumentException().isThrownBy(() -> provider("""
+                                ganglia:
+                                  - ganglionId: bad-gt
+                                    type: naive-bayes
+                                    handledEventTypes: [test.event]
+                                    outcomes: [A, B]
+                                    priors: [0.5, 0.5]
+                                    outcomeGroundTruth:
+                                      escalated: NONEXISTENT
+                                    features:
+                                      f1:
+                                        expression: .data.f
+                                        language: jq
+                                        values: [X, Y]
+                                        likelihoods:
+                                          - [0.8, 0.2]
+                                          - [0.3, 0.7]
+                                    signalMapping:
+                                      targetOutcome: B
+                                      detectedThreshold: 0.6
+                                      weakThreshold: 0.3
+                                """))
+                .withMessageContaining("NONEXISTENT")
+                .withMessageContaining("not in outcomes");
+    }
+
+    @Test
+    void feedbackConfigFromTestYamlResource() {
+        var provider = new YamlSituationDefinitionProvider(
+                Thread.currentThread().getContextClassLoader()
+                      .getResourceAsStream("META-INF/ras-situations-feedback.yaml"));
+
+        var regs = provider.registrations();
+        assertThat(regs).hasSize(2);
+
+        var withFeedback = regs.stream()
+                .filter(r -> r.definition().situationId().equals("feedback-test"))
+                .findFirst().orElseThrow();
+        assertThat(withFeedback.definition().feedbackConfig()).isNotNull();
+        assertThat(withFeedback.definition().feedbackConfig().tuningEnabled()).isTrue();
+
+        var withoutFeedback = regs.stream()
+                .filter(r -> r.definition().situationId().equals("no-feedback-test"))
+                .findFirst().orElseThrow();
+        assertThat(withoutFeedback.definition().feedbackConfig()).isNull();
+
+        var descriptors = provider.ganglionDescriptors();
+        assertThat(descriptors).hasSize(2);
+
+        var nbWithGt = descriptors.stream()
+                .filter(d -> d.ganglionId().equals("feedback-nb"))
+                .map(d -> (io.casehub.ras.api.GanglionDescriptor.NaiveBayes) d)
+                .findFirst().orElseThrow();
+        assertThat(nbWithGt.outcomeGroundTruth()).containsEntry("escalated", "fraud");
     }
 
     @Test

@@ -12,13 +12,22 @@ import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.SituationDefinition;
 import io.casehub.ras.api.SituationStore;
 import io.casehub.ras.api.TriggerAction;
+import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.FeedbackConfig;
+import io.casehub.ras.api.OutcomeLedger;
+import io.casehub.ras.api.SuppressionStrategy;
 import io.casehub.ras.api.TriggerDecision;
 import io.cloudevents.CloudEvent;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalDouble;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -43,6 +52,9 @@ public class SituationEvaluator {
     private final int maxConflictRetries;
     private final Event<SituationChangeEvent> changeEvent;
     private final RasMetrics metrics;
+    private final SuppressionStrategy suppressionStrategy;
+    private final OutcomeLedger outcomeLedger;
+    private final FeedbackState feedbackState;
     private final ConcurrentHashMap<SituationInstanceKey, Object> locks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<SituationInstanceKey, EventReorderBuffer> buffers = new ConcurrentHashMap<>();
 
@@ -53,7 +65,23 @@ public class SituationEvaluator {
                                               defaultValue = "3")
                               int maxConflictRetries,
                               Event<SituationChangeEvent> changeEvent,
-                              RasMetrics metrics) {
+                              RasMetrics metrics,
+                              Instance<SuppressionStrategy> suppressionStrategyInstance,
+                              Instance<OutcomeLedger> outcomeLedgerInstance,
+                              Instance<FeedbackState> feedbackStateInstance) {
+        this(store, triggerPolicy, caseTrigger, registry, maxConflictRetries, changeEvent, metrics,
+             suppressionStrategyInstance != null && suppressionStrategyInstance.isResolvable() ? suppressionStrategyInstance.get() : null,
+             outcomeLedgerInstance != null && outcomeLedgerInstance.isResolvable() ? outcomeLedgerInstance.get() : null,
+             feedbackStateInstance != null && feedbackStateInstance.isResolvable() ? feedbackStateInstance.get() : null);
+    }
+
+    SituationEvaluator(SituationStore store, RasTriggerPolicy triggerPolicy,
+                       CaseTrigger caseTrigger, SituationDefinitionRegistry registry,
+                       int maxConflictRetries, Event<SituationChangeEvent> changeEvent,
+                       RasMetrics metrics,
+                       SuppressionStrategy suppressionStrategy,
+                       OutcomeLedger outcomeLedger,
+                       FeedbackState feedbackState) {
         this.store = store;
         this.triggerPolicy = triggerPolicy;
         this.caseTrigger = caseTrigger;
@@ -61,6 +89,17 @@ public class SituationEvaluator {
         this.maxConflictRetries = maxConflictRetries;
         this.changeEvent = changeEvent;
         this.metrics = metrics;
+        this.suppressionStrategy = suppressionStrategy;
+        this.outcomeLedger = outcomeLedger;
+        this.feedbackState = feedbackState;
+    }
+
+    public SituationEvaluator(SituationStore store, RasTriggerPolicy triggerPolicy,
+                              CaseTrigger caseTrigger, SituationDefinitionRegistry registry,
+                              int maxConflictRetries, Event<SituationChangeEvent> changeEvent,
+                              RasMetrics metrics) {
+        this(store, triggerPolicy, caseTrigger, registry, maxConflictRetries, changeEvent, metrics,
+             (SuppressionStrategy) null, (OutcomeLedger) null, (FeedbackState) null);
     }
 
     @PostConstruct
@@ -103,6 +142,18 @@ public class SituationEvaluator {
     private boolean processEvent(CloudEvent event, SituationDefinition definition,
                                  String correlationKey, String tenancyId) {
         String  situationId = definition.situationId();
+
+        FeedbackConfig feedbackConfig = definition.feedbackConfig();
+        if (feedbackConfig != null && suppressionStrategy != null && outcomeLedger != null) {
+            Optional<Instant> lastDismissal = outcomeLedger.lastNoiseDismissalTime(
+                    situationId, correlationKey, tenancyId);
+            if (suppressionStrategy.shouldSuppress(
+                    situationId, correlationKey, tenancyId, feedbackConfig, lastDismissal)) {
+                metrics.feedbackSuppression(situationId, tenancyId);
+                return false;
+            }
+        }
+
         Instant eventTime   = extractEventTime(event);
         Object  timer       = metrics.startProcessTimer();
 
@@ -126,7 +177,16 @@ public class SituationEvaluator {
                 context = context.withDetection(result, eventTime);
             }
 
-            PolicyDecision policyDecision = triggerPolicy.evaluate(context, definition);
+            SituationDefinition effectiveDef = definition;
+            if (feedbackState != null
+                    && definition.chainMode() instanceof ChainMode.Threshold threshold) {
+                OptionalDouble adjusted = feedbackState.effectiveThreshold(situationId, tenancyId);
+                if (adjusted.isPresent()) {
+                    effectiveDef = definition.withChainMode(
+                            new ChainMode.Threshold(threshold.ganglia(), adjusted.getAsDouble()));
+                }
+            }
+            PolicyDecision policyDecision = triggerPolicy.evaluate(context, effectiveDef);
             metrics.decision(situationId, tenancyId, policyDecision.decision());
 
             try {

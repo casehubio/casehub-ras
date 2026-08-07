@@ -202,7 +202,7 @@ class ExpressionIntegrationTest {
         var exprRegistry = buildExpressionRegistry();
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(), exprRegistry,
-                new InMemoryGanglionStateStore(), new SimpleMeterRegistry());
+                new InMemoryGanglionStateStore(), new SimpleMeterRegistry(), null);
 
         var store       = new InMemorySituationStore();
         var caseTrigger = new MockCaseTrigger();

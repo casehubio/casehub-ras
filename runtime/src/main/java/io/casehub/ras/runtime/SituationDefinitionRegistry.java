@@ -32,34 +32,41 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
 
     private static final java.util.logging.Logger LOG =
             java.util.logging.Logger.getLogger(SituationDefinitionRegistry.class.getName());
-    private final    Map<String, Ganglion>    gangliaById;
-    private final    ExpressionEngineRegistry expressionRegistry;
-    private volatile RegistrySnapshot         snapshot;
+    private final    Map<String, Ganglion>                          gangliaById;
+    private final    Map<String, io.casehub.ras.api.GanglionDescriptor> descriptorsById;
+    private final    ExpressionEngineRegistry                       expressionRegistry;
+    private volatile RegistrySnapshot                               snapshot;
     @Inject
     public SituationDefinitionRegistry(Instance<SituationDefinitionProvider> providers,
                                        Instance<Ganglion> ganglia,
                                        ExpressionEngineRegistry expressionRegistry,
                                        Instance<io.casehub.ras.api.GanglionStateStore> stateStore,
-                                       Instance<io.micrometer.core.instrument.MeterRegistry> meterRegistryInstance) {
+                                       Instance<io.micrometer.core.instrument.MeterRegistry> meterRegistryInstance,
+                                       Instance<FeedbackState> feedbackStateInstance) {
         this(toList(providers), toList(ganglia), expressionRegistry,
              stateStore.isResolvable() ? stateStore.get() : new InMemoryGanglionStateStore(),
              meterRegistryInstance != null && meterRegistryInstance.isResolvable()
-             ? meterRegistryInstance.get() : null);
+             ? meterRegistryInstance.get() : null,
+             feedbackStateInstance != null && feedbackStateInstance.isResolvable()
+             ? feedbackStateInstance.get() : null);
     }
 
     SituationDefinitionRegistry(List<SituationDefinitionProvider> providers,
                                 List<Ganglion> cdiGanglia,
                                 ExpressionEngineRegistry expressionRegistry,
                                 io.casehub.ras.api.GanglionStateStore stateStore,
-                                io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+                                io.micrometer.core.instrument.MeterRegistry meterRegistry,
+                                FeedbackState feedbackState) {
         this.expressionRegistry = expressionRegistry;
         this.gangliaById        = new HashMap<>();
+        this.descriptorsById    = new HashMap<>();
 
         // Phase 1: descriptor ganglia (before CDI ganglia and before situation validation)
         for (var provider : providers) {
             for (var descriptor : provider.ganglionDescriptors()) {
                 try {
-                    Ganglion ganglion = constructGanglion(descriptor, stateStore, meterRegistry);
+                    Ganglion ganglion = constructGanglion(descriptor, stateStore, meterRegistry, feedbackState);
+                    descriptorsById.put(descriptor.ganglionId(), descriptor);
                     if (gangliaById.putIfAbsent(ganglion.ganglionId(), ganglion) != null) {
                         throw new IllegalStateException(
                                 "Duplicate ganglionId: " + ganglion.ganglionId());
@@ -101,13 +108,13 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
     SituationDefinitionRegistry(List<SituationDefinitionProvider> providers,
                                 List<Ganglion> ganglia,
                                 ExpressionEngineRegistry expressionRegistry) {
-        this(providers, ganglia, expressionRegistry, new InMemoryGanglionStateStore(), null);
+        this(providers, ganglia, expressionRegistry, new InMemoryGanglionStateStore(), null, null);
     }
 
 
     SituationDefinitionRegistry(List<SituationDefinitionProvider> providers,
                                 List<Ganglion> ganglia) {
-        this(providers, ganglia, null, new InMemoryGanglionStateStore(), null);
+        this(providers, ganglia, null, new InMemoryGanglionStateStore(), null, null);
     }
 
     private static RegistrySnapshot buildSnapshot(List<SituationRegistration> registrations) {
@@ -150,6 +157,24 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
             List<SituationDefinitionProvider> providers,
             List<Ganglion> ganglia) {
         return new SituationDefinitionRegistry(providers, ganglia);
+    }
+
+    public io.casehub.ras.api.FeedbackConfig feedbackConfig(String situationId) {
+        SituationRegistration reg = snapshot.bySituationId().get(situationId);
+        return reg != null ? reg.definition().feedbackConfig() : null;
+    }
+
+    public Set<String> allSituationIds() {
+        return snapshot.situationIds();
+    }
+
+    public io.casehub.ras.api.GanglionDescriptor ganglionDescriptor(String ganglionId) {
+        return descriptorsById.get(ganglionId);
+    }
+
+    public io.casehub.ras.api.SituationDefinition definition(String situationId) {
+        SituationRegistration reg = snapshot.bySituationId().get(situationId);
+        return reg != null ? reg.definition() : null;
     }
 
 
@@ -272,9 +297,10 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
     @SuppressWarnings("unchecked")
     private Ganglion constructGanglion(io.casehub.ras.api.GanglionDescriptor descriptor,
                                        io.casehub.ras.api.GanglionStateStore stateStore,
-                                       io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+                                       io.micrometer.core.instrument.MeterRegistry meterRegistry,
+                                       FeedbackState feedbackState) {
         Ganglion ganglion = switch (descriptor) {
-            case io.casehub.ras.api.GanglionDescriptor.NaiveBayes nb -> constructNaiveBayes(nb, stateStore, meterRegistry);
+            case io.casehub.ras.api.GanglionDescriptor.NaiveBayes nb -> constructNaiveBayes(nb, stateStore, meterRegistry, feedbackState);
             case io.casehub.ras.api.GanglionDescriptor.ExpressionRules er -> constructExpressionRules(er, meterRegistry);
         };
 
@@ -305,7 +331,8 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
 
     private Ganglion constructNaiveBayes(io.casehub.ras.api.GanglionDescriptor.NaiveBayes nb,
                                          io.casehub.ras.api.GanglionStateStore stateStore,
-                                         io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+                                         io.micrometer.core.instrument.MeterRegistry meterRegistry,
+                                         FeedbackState feedbackState) {
         Map<String, CompiledExpression<Map, String>> compiledFeatures = new LinkedHashMap<>();
         for (var entry : nb.features().entrySet()) {
             var feature = entry.getValue();
@@ -353,11 +380,12 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
         var config = new NaiveBayesConfig(
                 nb.ganglionId(), nb.handledEventTypes(),
                 nb.outcomes(), nb.priors(),
-                features, featureExtractor, signalMapping, compiledOutcomeEvidence);
+                features, featureExtractor, signalMapping, compiledOutcomeEvidence,
+                nb.outcomeGroundTruth());
 
         return new NaiveBayesGanglion(config,
                                       stateStore != null ? stateStore : new InMemoryGanglionStateStore(),
-                                      meterRegistry);
+                                      meterRegistry, feedbackState);
     }
 
     @SuppressWarnings("unchecked")
