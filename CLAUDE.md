@@ -23,30 +23,30 @@ filters for significance, and elevates to awareness. Ganglion = pluggable detect
 Multiple ganglia, one RAS per deployment context.
 
 **Design specs:**
-- Original: `docs/superpowers/specs/2026-06-12-casehub-ras-design.md`
-- Epic 1 API: `docs/superpowers/specs/2026-06-18-epic1-core-ras-api-design.md`
-- Epic 2 Runtime: `docs/superpowers/specs/2026-06-25-epic2-ras-runtime-design.md`
-- Epic 4 DroolsGanglion: `docs/superpowers/specs/2026-06-21-epic4-drools-ganglion-design.md`
-- Result collection + test gaps: `docs/superpowers/specs/2026-06-22-drools-result-collection-and-test-gaps.md`
-- Epic 3 JavaSwitchGanglion + NaiveBayesGanglion: `docs/superpowers/specs/2026-06-26-epic3-java-switch-naive-bayes-ganglion-design.md`
-- DroolsGanglion hot reload: `docs/superpowers/specs/2026-06-26-drools-hot-reload-design.md`
-- Event reorder buffer: `docs/superpowers/specs/2026-06-27-event-reorder-buffer-design.md`
-- JPA SituationStore: `docs/superpowers/specs/2026-06-28-jpa-situation-store-design.md`
-- Clustered retry logic: `docs/superpowers/specs/2026-06-29-clustered-retry-logic-design.md`
-- Trigger lifecycle + situation query: `docs/superpowers/specs/2026-06-30-trigger-lifecycle-and-situation-query-design.md`
-- Service lifecycle RAS integration: `docs/superpowers/specs/2026-07-07-service-lifecycle-ras-integration-design.md`
-- DroolsSessionStore hardening: `docs/superpowers/specs/2026-07-09-drools-session-store-hardening-design.md`
-- RAS runtime metrics: `docs/superpowers/specs/2026-07-12-ras-runtime-metrics-design.md`
-- GanglionStateStore: `docs/superpowers/specs/2026-07-13-ganglion-state-store-design.md`
-- DroolsSessionStore orphan cleanup: `docs/superpowers/specs/2026-07-17-drools-session-store-orphan-cleanup-design.md`
-- ExpressionEvaluator integration: `docs/superpowers/specs/2026-07-17-expression-evaluator-integration-design.md`
-- JQ Map context + NaiveBayes expressions: `docs/superpowers/specs/2026-07-20-jq-map-context-naivebayes-expressions-design.md`
-- Evidence templates + expression-rule ganglion: `docs/superpowers/specs/2026-07-21-evidence-templates-expression-rules-design.md`
-- Per-decision-path evidence templates: `docs/superpowers/specs/2026-07-22-per-decision-path-evidence-templates-design.md`
-- Retire reactive (Mutiny): `docs/superpowers/specs/2026-07-23-retire-reactive-design.md`
-- Dynamic confidence expressions: `docs/superpowers/specs/2026-07-23-dynamic-confidence-expressions-design.md`
-- Passive observation query service: `docs/superpowers/specs/2026-07-29-passive-observation-query-service-design.md`
-- RAS feedback loop: `docs/superpowers/specs/2026-08-06-ras-feedback-loop-design.md`
+- Original: `docs/specs/2026-06-12-casehub-ras-design.md`
+- Epic 1 API: `docs/specs/2026-06-18-epic1-core-ras-api-design.md`
+- Epic 2 Runtime: `docs/specs/2026-06-25-epic2-ras-runtime-design.md`
+- Epic 4 DroolsGanglion: `docs/specs/2026-06-21-epic4-drools-ganglion-design.md`
+- Result collection + test gaps: `docs/specs/2026-06-22-drools-result-collection-and-test-gaps.md`
+- Epic 3 JavaSwitchGanglion + NaiveBayesGanglion: `docs/specs/2026-06-26-epic3-java-switch-naive-bayes-ganglion-design.md`
+- DroolsGanglion hot reload: `docs/specs/2026-06-26-drools-hot-reload-design.md`
+- Event reorder buffer: `docs/specs/2026-06-27-event-reorder-buffer-design.md`
+- JPA SituationStore: `docs/specs/2026-06-28-jpa-situation-store-design.md`
+- Clustered retry logic: `docs/specs/2026-06-29-clustered-retry-logic-design.md`
+- Trigger lifecycle + situation query: `docs/specs/2026-06-30-trigger-lifecycle-and-situation-query-design.md`
+- Service lifecycle RAS integration: `docs/specs/2026-07-07-service-lifecycle-ras-integration-design.md`
+- DroolsSessionStore hardening: `docs/specs/2026-07-09-drools-session-store-hardening-design.md`
+- RAS runtime metrics: `docs/specs/2026-07-12-ras-runtime-metrics-design.md`
+- GanglionStateStore: `docs/specs/2026-07-13-ganglion-state-store-design.md`
+- DroolsSessionStore orphan cleanup: `docs/specs/2026-07-17-drools-session-store-orphan-cleanup-design.md`
+- ExpressionEvaluator integration: `docs/specs/2026-07-17-expression-evaluator-integration-design.md`
+- JQ Map context + NaiveBayes expressions: `docs/specs/2026-07-20-jq-map-context-naivebayes-expressions-design.md`
+- Evidence templates + expression-rule ganglion: `docs/specs/2026-07-21-evidence-templates-expression-rules-design.md`
+- Per-decision-path evidence templates: `docs/specs/2026-07-22-per-decision-path-evidence-templates-design.md`
+- Retire reactive (Mutiny): `docs/specs/2026-07-23-retire-reactive-design.md`
+- Dynamic confidence expressions: `docs/specs/2026-07-23-dynamic-confidence-expressions-design.md`
+- Passive observation query service: `docs/specs/2026-07-29-passive-observation-query-service-design.md`
+- RAS feedback loop: `docs/specs/2026-08-06-ras-feedback-loop-design.md`
 
 ## Platform Docs
 - [Platform Index](https://raw.githubusercontent.com/casehubio/parent/main/docs/INDEX.md) — discovery index (start here)
@@ -394,7 +394,7 @@ Protocols live in `casehub/garden`. Do not write protocol files in this repo.
 
 | Skill | Writes to |
 |-------|-----------|
-| brainstorming (specs) | `docs/superpowers/specs/` |
+| brainstorming (specs) | `docs/specs/` |
 | adr | `docs/adr/` |
 | handover | workspace `HANDOFF.md` |
 | write-blog | workspace `blog/` |
