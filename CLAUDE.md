@@ -397,7 +397,7 @@ Protocols live in `casehub/garden`. Do not write protocol files in this repo.
 | brainstorming (specs) | `docs/specs/` |
 | adr | `docs/adr/` |
 | handover | workspace `HANDOFF.md` |
-| write-blog | workspace `blog/` |
+| write-blog | project `docs/blog/` |
 
 ## Work Tracking
 
