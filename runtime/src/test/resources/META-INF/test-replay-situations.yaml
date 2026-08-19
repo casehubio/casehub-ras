@@ -1,0 +1,14 @@
+situations:
+  - situationId: yaml-sit-1
+    eventTypes:
+      - temp.reading
+    correlationWindow: PT5M
+    chainMode:
+      type: or
+      ganglia:
+        - g1
+    triggerAction:
+      type: create-case
+      caseNamespace: ns
+      caseName: case
+      caseVersion: "1.0"

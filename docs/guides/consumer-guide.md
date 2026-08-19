@@ -259,6 +259,32 @@ RAS is a pure CloudEvent consumer. Platform stream modules produce CloudEvents a
 
 ---
 
+## Situation Replay
+
+`SituationReplayRunner` validates situation definitions against historical CloudEvent streams without side effects. Uses the real detection pipeline (`SituationEvaluator.evaluate()`) — deterministic, time-aware.
+
+```java
+var result = SituationReplayRunner.builder()
+    .withYaml("META-INF/ras-situations.yaml")       // or .withRegistrations(...)
+    .withGanglia(List.of(myGanglion))
+    .withEvents(historicalCloudEvents)
+    .build()
+    .run();
+
+result.didTrigger("my-situation-id");                // quick check
+result.triggers();                                   // full trigger details
+result.stateFor("sit-1", "corr-key", "tenant-a");   // accumulated detection state
+result.summary();                                    // aggregate stats
+```
+
+**Error handling:** `ReplayErrorHandling.STRICT` (default) throws on routing errors; `LENIENT` skips and records in `result.skippedEvents()`. Unmatched event types are silently skipped in both modes.
+
+**Feedback opt-in:** Suppression, outcome ledger, and threshold adjustment are excluded by default (clean-room detection). Opt in independently via `.withSuppressionStrategy()`, `.withOutcomeLedger()`, `.withFeedbackState()`.
+
+**Event reorder buffer:** Situations with `eventBufferDelay` use the production buffer. Remaining buffered events are flushed automatically after all events are processed.
+
+---
+
 ## Dependencies
 
 | Repo | Module | How |

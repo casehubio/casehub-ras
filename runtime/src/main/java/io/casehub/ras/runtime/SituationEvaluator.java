@@ -2,8 +2,11 @@ package io.casehub.ras.runtime;
 
 import io.casehub.ras.api.CaseTrigger;
 import io.casehub.ras.api.CaseTriggerConfig;
+import io.casehub.ras.api.ChainMode;
 import io.casehub.ras.api.DetectionResult;
+import io.casehub.ras.api.FeedbackConfig;
 import io.casehub.ras.api.Ganglion;
+import io.casehub.ras.api.OutcomeLedger;
 import io.casehub.ras.api.PolicyDecision;
 import io.casehub.ras.api.RasTriggerPolicy;
 import io.casehub.ras.api.SituationChangeEvent;
@@ -11,11 +14,8 @@ import io.casehub.ras.api.SituationConflictException;
 import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.SituationDefinition;
 import io.casehub.ras.api.SituationStore;
-import io.casehub.ras.api.TriggerAction;
-import io.casehub.ras.api.ChainMode;
-import io.casehub.ras.api.FeedbackConfig;
-import io.casehub.ras.api.OutcomeLedger;
 import io.casehub.ras.api.SuppressionStrategy;
+import io.casehub.ras.api.TriggerAction;
 import io.casehub.ras.api.TriggerDecision;
 import io.cloudevents.CloudEvent;
 import jakarta.annotation.PostConstruct;
@@ -25,14 +25,12 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
-import java.util.Map;
-import java.util.Optional;
-import java.util.OptionalDouble;
-
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Logger;
@@ -478,4 +476,23 @@ public class SituationEvaluator {
             }
         }
     }
+
+    public void drainAllBuffers() {
+        for (var entry : buffers.entrySet()) {
+            var    key    = entry.getKey();
+            var    buffer = entry.getValue();
+            Object lock   = locks.computeIfAbsent(key, k -> new Object());
+            synchronized (lock) {
+                List<CloudEvent> events     = buffer.drainAll();
+                boolean          terminated = false;
+                for (CloudEvent e : events) {
+                    terminated = processEvent(e, buffer.definition(),
+                                              key.correlationKey(), key.tenancyId());
+                    if (terminated) {break;}
+                }
+            }
+        }
+        buffers.clear();
+        locks.clear();}
+
 }
