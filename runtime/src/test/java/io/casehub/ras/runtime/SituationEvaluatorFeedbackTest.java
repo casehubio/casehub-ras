@@ -3,6 +3,7 @@ package io.casehub.ras.runtime;
 import io.casehub.ras.api.CaseTriggerConfig;
 import io.casehub.ras.api.ChainMode;
 import io.casehub.ras.api.FeedbackConfig;
+import io.casehub.ras.api.SituationChangeEvent;
 import io.casehub.ras.api.SituationDefinition;
 import io.casehub.ras.api.SituationRegistration;
 import io.casehub.ras.api.TriggerAction;
@@ -16,7 +17,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.enterprise.event.Event;
 import jakarta.enterprise.event.NotificationOptions;
 import jakarta.enterprise.util.TypeLiteral;
-import io.casehub.ras.api.SituationChangeEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +28,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
 
@@ -242,5 +241,59 @@ class SituationEvaluatorFeedbackTest {
         @Override public Event<SituationChangeEvent> select(Annotation... qualifiers) { return this; }
         @Override public <U extends SituationChangeEvent> Event<U> select(Class<U> subtype, Annotation... qualifiers) { return null; }
         @Override public <U extends SituationChangeEvent> Event<U> select(TypeLiteral<U> subtype, Annotation... qualifiers) { return null; }
+    }
+
+    @Test
+    void rateThresholdOverrideChangesEvaluation() {
+        var g1 = new MockGanglion("g1", Set.of("sensor.reading"),
+                                  FixedDetectionResult.detected("g1", 0.9));
+        var g2 = new MockGanglion("g2", Set.of("sensor.reading"),
+                                  FixedDetectionResult.anti("g2", 0.5));
+// Rate with both ganglia: each event produces 1 DETECTED (qualifying) + 1 ANTI (scoreable, not qualifying)
+// Window=4 → after 2 events: 4 scoreable, 2 qualifying → rate=0.5
+// minRate=0.8 → 0.5 < 0.8 → no trigger without override
+// override minRate=0.4 → 0.5 ≥ 0.4 → triggers with override
+        var def = new SituationDefinition("sit-rate", Set.of("sensor.reading"),
+                                          Duration.ofMinutes(5), null,
+                                          new ChainMode.Rate(Set.of("g1", "g2"), 0.8, 4),
+                                          new TriggerAction.CreateCase(TRIGGER_CONFIG), null);
+
+// Without override — should NOT trigger
+        var registryNoOverride = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(def))), List.of(g1, g2));
+        initMetrics(registryNoOverride);
+        var evaluatorNoOverride = new SituationEvaluator(store, policy, caseTrigger, registryNoOverride,
+                                                         3, changeEvent, metrics);
+
+        Instant t1 = Instant.parse("2026-08-06T10:00:00Z");
+        Instant t2 = Instant.parse("2026-08-06T10:01:00Z");
+        evaluatorNoOverride.evaluate(eventAt("sensor.reading", t1), def, "key-1", "tenant-a");
+        evaluatorNoOverride.evaluate(eventAt("sensor.reading", t2), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).isEmpty();
+
+// With override — SHOULD trigger
+        store       = new InMemorySituationStore();
+        caseTrigger = new MockCaseTrigger();
+        var feedbackState = new FeedbackState();
+        feedbackState.applyThresholdOverride("sit-rate", "tenant-a", 0.4);
+
+        var registryWithOverride = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(def))), List.of(g1, g2));
+        initMetrics(registryWithOverride);
+        var evaluatorWithOverride = new SituationEvaluator(store, policy, caseTrigger, registryWithOverride,
+                                                           3, changeEvent, metrics, null, null, feedbackState);
+
+        evaluatorWithOverride.evaluate(eventAt("sensor.reading", t1), def, "key-1", "tenant-a");
+        evaluatorWithOverride.evaluate(eventAt("sensor.reading", t2), def, "key-1", "tenant-a");
+        assertThat(caseTrigger.firedCases()).hasSize(1);}
+
+    private CloudEvent eventAt(String type, Instant time) {
+        return CloudEventBuilder.v1()
+                                .withId("evt-" + time.toEpochMilli())
+                                .withSource(URI.create("/test"))
+                                .withType(type)
+                                .withSubject("key-1")
+                                .withTime(OffsetDateTime.ofInstant(time, ZoneOffset.UTC))
+                                .build();
     }
 }

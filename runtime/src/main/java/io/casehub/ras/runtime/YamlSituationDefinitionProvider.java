@@ -64,7 +64,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         }
     }
 
-    YamlSituationDefinitionProvider(InputStream yaml) {
+    public YamlSituationDefinitionProvider(InputStream yaml) {
         var parsed = parseAll(yaml, loadBuiltInTemplates());
         this.registrations       = parsed.registrations();
         this.ganglionDescriptors = parsed.ganglionDescriptors();

@@ -93,6 +93,14 @@ public class FeedbackUpdateJob {
                 feedbackState.applyThresholdOverride(situationId, tenancyId, adjusted.getAsDouble());
                 feedbackMetrics.thresholdAdjusted(situationId, tenancyId, adjusted.getAsDouble());
             }
+        } else if (definition.chainMode() instanceof ChainMode.Rate rate) {
+            double currentRate = feedbackState.effectiveThreshold(situationId, tenancyId)
+                    .orElse(rate.minRate());
+            OptionalDouble adjusted = tuningStrategy.adjustThreshold(stats, currentRate, config);
+            if (adjusted.isPresent()) {
+                feedbackState.applyThresholdOverride(situationId, tenancyId, adjusted.getAsDouble());
+                feedbackMetrics.thresholdAdjusted(situationId, tenancyId, adjusted.getAsDouble());
+            }
         }
 
         for (String ganglionId : definition.chainMode().referencedGanglia()) {

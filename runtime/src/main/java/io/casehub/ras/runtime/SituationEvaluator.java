@@ -183,6 +183,13 @@ public class SituationEvaluator {
                     effectiveDef = definition.withChainMode(
                             new ChainMode.Threshold(threshold.ganglia(), adjusted.getAsDouble()));
                 }
+            } else if (feedbackState != null
+                    && definition.chainMode() instanceof ChainMode.Rate rate) {
+                OptionalDouble adjusted = feedbackState.effectiveThreshold(situationId, tenancyId);
+                if (adjusted.isPresent()) {
+                    effectiveDef = definition.withChainMode(
+                            new ChainMode.Rate(rate.ganglia(), adjusted.getAsDouble(), rate.windowSize()));
+                }
             }
             PolicyDecision policyDecision = triggerPolicy.evaluate(context, effectiveDef);
             metrics.decision(situationId, tenancyId, policyDecision.decision());
