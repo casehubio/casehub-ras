@@ -1,6 +1,14 @@
 package io.casehub.ras.persistence.jpa;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
 import java.time.Instant;
 import java.util.UUID;
 
@@ -33,6 +41,9 @@ public class OutcomeRecordEntity {
 
     @Column(name = "case_id", nullable = false, unique = true)
     private UUID caseId;
+    @Column(name = "ganglion_contributions", columnDefinition = "jsonb")
+    private String ganglionContributions;
+
 
     protected OutcomeRecordEntity() {}
 
@@ -56,4 +67,7 @@ public class OutcomeRecordEntity {
     public io.casehub.ras.api.OutcomeClassification getClassification() { return classification; }
     public Instant getClosedAt() { return closedAt; }
     public UUID getCaseId() { return caseId; }
+
+    public String getGanglionContributions() {return ganglionContributions;}
+
 }

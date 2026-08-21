@@ -16,6 +16,10 @@ public interface OutcomeLedger {
 
     Map<String, Long> countByLabel(String situationId, String tenancyId, Instant since);
 
+    Map<String, GanglionOutcomeStatistics> ganglionStatistics(String situationId,
+                                                              String tenancyId, Instant since);
+
+
     Set<String> distinctTenancies(String situationId);
 
     int removeRecordsBefore(String situationId, Instant cutoff);

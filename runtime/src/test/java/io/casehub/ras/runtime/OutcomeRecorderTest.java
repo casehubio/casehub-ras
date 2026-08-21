@@ -1,13 +1,12 @@
 package io.casehub.ras.runtime;
 
 import io.casehub.api.spi.CaseOutcomeEvent;
-import io.casehub.ras.api.FeedbackConfig;
-import io.casehub.ras.api.OutcomeClassification;
-import io.casehub.ras.api.OutcomeLedger;
-import io.casehub.ras.api.SituationRegistration;
-import io.casehub.ras.api.ChainMode;
 import io.casehub.ras.api.CaseTriggerConfig;
+import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.FeedbackConfig;
+import io.casehub.ras.api.OutcomeLedger;
 import io.casehub.ras.api.SituationDefinition;
+import io.casehub.ras.api.SituationRegistration;
 import io.casehub.ras.api.TriggerAction;
 import io.casehub.ras.testing.MockGanglion;
 import org.junit.jupiter.api.BeforeEach;
@@ -130,6 +129,7 @@ class OutcomeRecorderTest {
             public Map<String, Long> countByLabel(String s, String t, Instant i) { return Map.of(); }
             public Set<String> distinctTenancies(String s) { return Set.of(); }
             public int removeRecordsBefore(String s, Instant c) { return 0; }
+            public java.util.Map<String, io.casehub.ras.api.GanglionOutcomeStatistics> ganglionStatistics(String s, String t, Instant i) { return java.util.Map.of(); }
         };
 
         var recorder = new OutcomeRecorder(failingLedger, registry);
@@ -170,4 +170,124 @@ class OutcomeRecorderTest {
         var stats = ledger.statistics("unknown-sit", "tenant-a", Instant.EPOCH);
         assertThat(stats.totalOutcomes()).isZero();
     }
+
+    @Test
+    void extractsGanglionContributionsFromSnapshot() {
+        var def = new SituationDefinition("sit-1", Set.of("test.event"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
+                                          null, null, null, Map.of(), feedbackConfig());
+        registry = registryWith(def, "test.event");
+
+        var snapshot = new java.util.HashMap<String, Object>();
+        snapshot.put("situationId", "sit-1");
+        snapshot.put("correlationKey", "key-1");
+        snapshot.put("tenancyId", "tenant-a");
+        snapshot.put("detections", List.of(
+                Map.of("result", Map.of("ganglionId", "g1",
+                                        "confidence", 0.8, "signal", "DETECTED"),
+                       "eventTime", "2026-01-01T00:00:00Z")));
+
+        var recorder = new OutcomeRecorder(ledger, registry);
+        recorder.onOutcome(outcomeEvent("dismissed", snapshot));
+
+        var ganglionStats = ledger.ganglionStatistics("sit-1", "tenant-a", Instant.EPOCH);
+        assertThat(ganglionStats).hasSize(1);
+        assertThat(ganglionStats.get("g1").noiseCount()).isEqualTo(1);
+    }
+
+    @Test
+    void deduplicatesByGanglionIdKeepingHighestSignal() {
+        var def = new SituationDefinition("sit-1", Set.of("test.event"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
+                                          null, null, null, Map.of(), feedbackConfig());
+        registry = registryWith(def, "test.event");
+
+        var snapshot = new java.util.HashMap<String, Object>();
+        snapshot.put("situationId", "sit-1");
+        snapshot.put("correlationKey", "key-1");
+        snapshot.put("tenancyId", "tenant-a");
+        snapshot.put("detections", List.of(
+                Map.of("result", Map.of("ganglionId", "g1",
+                                        "confidence", 0.3, "signal", "WEAK"),
+                       "eventTime", "2026-01-01T00:00:00Z"),
+                Map.of("result", Map.of("ganglionId", "g1",
+                                        "confidence", 0.9, "signal", "DETECTED"),
+                       "eventTime", "2026-01-01T00:01:00Z")));
+
+        var recorder = new OutcomeRecorder(ledger, registry);
+        recorder.onOutcome(outcomeEvent("escalated", snapshot));
+
+        var ganglionStats = ledger.ganglionStatistics("sit-1", "tenant-a", Instant.EPOCH);
+        assertThat(ganglionStats).hasSize(1);
+        assertThat(ganglionStats.get("g1").confirmedCount()).isEqualTo(1);
+    }
+
+    @Test
+    void deduplicatesByConfidenceWhenSignalsTied() {
+        var def = new SituationDefinition("sit-1", Set.of("test.event"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
+                                          null, null, null, Map.of(), feedbackConfig());
+        registry = registryWith(def, "test.event");
+
+        var snapshot = new java.util.HashMap<String, Object>();
+        snapshot.put("situationId", "sit-1");
+        snapshot.put("correlationKey", "key-1");
+        snapshot.put("tenancyId", "tenant-a");
+        snapshot.put("detections", List.of(
+                Map.of("result", Map.of("ganglionId", "g1",
+                                        "confidence", 0.3, "signal", "DETECTED"),
+                       "eventTime", "2026-01-01T00:00:00Z"),
+                Map.of("result", Map.of("ganglionId", "g1",
+                                        "confidence", 0.9, "signal", "DETECTED"),
+                       "eventTime", "2026-01-01T00:01:00Z")));
+
+        var recorder = new OutcomeRecorder(ledger, registry);
+        recorder.onOutcome(outcomeEvent("escalated", snapshot));
+
+        var ganglionStats = ledger.ganglionStatistics("sit-1", "tenant-a", Instant.EPOCH);
+        assertThat(ganglionStats).hasSize(1);
+        assertThat(ganglionStats.get("g1").confirmedCount()).isEqualTo(1);
+    }
+
+
+    @Test
+    void missingDetectionsRecordsOutcomeWithoutContributions() {
+        var def = new SituationDefinition("sit-1", Set.of("test.event"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
+                                          null, null, null, Map.of(), feedbackConfig());
+        registry = registryWith(def, "test.event");
+
+        var recorder = new OutcomeRecorder(ledger, registry);
+        recorder.onOutcome(outcomeEvent("dismissed", Map.of(
+                "situationId", "sit-1", "correlationKey", "key-1", "tenancyId", "tenant-a")));
+
+        assertThat(ledger.statistics("sit-1", "tenant-a", Instant.EPOCH).totalOutcomes()).isEqualTo(1);
+        assertThat(ledger.ganglionStatistics("sit-1", "tenant-a", Instant.EPOCH)).isEmpty();
+    }
+
+    @Test
+    void malformedDetectionsRecordsOutcomeGracefully() {
+        var def = new SituationDefinition("sit-1", Set.of("test.event"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
+                                          new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
+                                          null, null, null, Map.of(), feedbackConfig());
+        registry = registryWith(def, "test.event");
+
+        var snapshot = new java.util.HashMap<String, Object>();
+        snapshot.put("situationId", "sit-1");
+        snapshot.put("correlationKey", "key-1");
+        snapshot.put("tenancyId", "tenant-a");
+        snapshot.put("detections", "not-a-list");
+
+        var recorder = new OutcomeRecorder(ledger, registry);
+        recorder.onOutcome(outcomeEvent("dismissed", snapshot));
+
+        assertThat(ledger.statistics("sit-1", "tenant-a", Instant.EPOCH).totalOutcomes()).isEqualTo(1);
+        assertThat(ledger.ganglionStatistics("sit-1", "tenant-a", Instant.EPOCH)).isEmpty();
+    }
+
 }

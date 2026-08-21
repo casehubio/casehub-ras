@@ -10,13 +10,5 @@ public record OutcomeStatistics(
         long confirmedCount,
         long neutralCount,
         Instant windowStart
-) {
-    public double precision() {
-        long decisive = confirmedCount + noiseCount;
-        return decisive == 0 ? Double.NaN : (double) confirmedCount / decisive;
-    }
-
-    public double noiseRate() {
-        return totalOutcomes == 0 ? Double.NaN : (double) noiseCount / totalOutcomes;
-    }
+) implements QualityMetrics {
 }

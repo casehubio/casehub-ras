@@ -83,10 +83,11 @@ Three-layer architecture: ingestion, analysis, application. All feedback state i
 
 **Ingestion:** `OutcomeRecorder` implements `CaseOutcomeObserver` (from `casehub-engine-api`). Extracts `situationId`, `correlationKey` from `CaseOutcomeEvent.caseFileSnapshot()` (populated by `DefaultCaseTrigger`). Classifies outcome via `FeedbackConfig.classify()` and records to `OutcomeLedger`. Errors swallowed (best-effort).
 
-**Analysis:** `FeedbackAnalyzer` queries `OutcomeLedger.statistics()` within the retention window. Returns `OutcomeStatistics` with `precision()`, `noiseRate()`.
+**Analysis:** `FeedbackAnalyzer` queries `OutcomeLedger.statistics()` and `OutcomeLedger.ganglionStatistics()` within the retention window. Returns `OutcomeStatistics` / `Map<String, GanglionOutcomeStatistics>`. Both implement `QualityMetrics` (shared `precision()`, `noiseRate()` computation).
 
 **Application:** `FeedbackUpdateJob` (`@Scheduled(every = "${ras.feedback.update-interval:PT5M}")`). Per situation with feedback config, per tenant:
-1. Records metrics via `FeedbackMetrics` (precision, noise rate, outcome totals)
+1. Records situation-level metrics via `FeedbackMetrics` (precision, noise rate, outcome totals)
+1b. Records per-ganglion metrics via `FeedbackMetrics.recordGanglionStatistics()` — `ras.feedback.ganglion.precision` and `ras.feedback.ganglion.noise_rate` gauges per `(ganglion_id, situation_id, tenancy_id)`. Only counts positive-signal (DETECTED/WEAK) contributions.
 2. If `tuningEnabled`:
    - **Threshold adjustment** — for `ChainMode.Threshold` situations, calls `FeedbackTuningStrategy.adjustThreshold()` and applies via `FeedbackState.applyThresholdOverride()`. `SituationEvaluator` uses `FeedbackState.effectiveThreshold()` to construct an adjusted `ChainMode.Threshold` before policy evaluation.
    - **Prior recalibration** — for NaiveBayes ganglia with `outcomeGroundTruth`, maps case outcome labels to NaiveBayes outcome indices, calls `FeedbackTuningStrategy.adjustPriors()` (Laplace-smoothed blend), applies via `FeedbackState.applyPriorOverride()` (converts raw→log at the boundary). `NaiveBayesGanglion` uses `FeedbackState.adjustedLogPriors()` as initial priors for new situation instances.
