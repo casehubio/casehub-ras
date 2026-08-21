@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -158,10 +159,115 @@ public abstract class AbstractOutcomeLedgerContractTest {
         assertEquals(1, stats.confirmedCount());
     }
 
+    @Test
+    void ganglionStatisticsEmpty() {
+        Map<String, GanglionOutcomeStatistics> stats =
+                ledger.ganglionStatistics("s1", "t1", Instant.EPOCH);
+        assertTrue(stats.isEmpty());
+    }
+
+    @Test
+    void ganglionStatisticsOnlyPositiveSignals() {
+        ledger.record(outcome("s1", "k1", "t1", "dismissed", OutcomeClassification.NOISE,
+                              Instant.now(), UUID.randomUUID(),
+                              List.of(new GanglionContribution("g1", 0.8, DetectionSignal.DETECTED),
+                                      new GanglionContribution("g2", 0.3, DetectionSignal.ANTI))));
+
+        Map<String, GanglionOutcomeStatistics> stats =
+                ledger.ganglionStatistics("s1", "t1", Instant.EPOCH);
+
+        assertEquals(1, stats.size());
+        assertTrue(stats.containsKey("g1"));
+        assertFalse(stats.containsKey("g2"));
+        assertEquals(1, stats.get("g1").noiseCount());
+    }
+
+    @Test
+    void ganglionStatisticsMultipleGanglia() {
+        ledger.record(outcome("s1", "k1", "t1", "dismissed", OutcomeClassification.NOISE,
+                              Instant.now(), UUID.randomUUID(),
+                              List.of(new GanglionContribution("g1", 0.9, DetectionSignal.DETECTED),
+                                      new GanglionContribution("g2", 0.7, DetectionSignal.WEAK))));
+        ledger.record(outcome("s1", "k2", "t1", "escalated", OutcomeClassification.CONFIRMED,
+                              Instant.now(), UUID.randomUUID(),
+                              List.of(new GanglionContribution("g1", 0.8, DetectionSignal.DETECTED))));
+
+        Map<String, GanglionOutcomeStatistics> stats =
+                ledger.ganglionStatistics("s1", "t1", Instant.EPOCH);
+
+        assertEquals(2, stats.size());
+        GanglionOutcomeStatistics g1 = stats.get("g1");
+        assertEquals(2, g1.totalOutcomes());
+        assertEquals(1, g1.noiseCount());
+        assertEquals(1, g1.confirmedCount());
+
+        GanglionOutcomeStatistics g2 = stats.get("g2");
+        assertEquals(1, g2.totalOutcomes());
+        assertEquals(1, g2.noiseCount());
+        assertEquals(0, g2.confirmedCount());
+    }
+
+    @Test
+    void ganglionStatisticsMultiTenant() {
+        ledger.record(outcome("s1", "k1", "tenantA", "dismissed", OutcomeClassification.NOISE,
+                              Instant.now(), UUID.randomUUID(),
+                              List.of(new GanglionContribution("g1", 0.8, DetectionSignal.DETECTED))));
+        ledger.record(outcome("s1", "k1", "tenantB", "escalated", OutcomeClassification.CONFIRMED,
+                              Instant.now(), UUID.randomUUID(),
+                              List.of(new GanglionContribution("g1", 0.9, DetectionSignal.DETECTED))));
+
+        Map<String, GanglionOutcomeStatistics> statsA =
+                ledger.ganglionStatistics("s1", "tenantA", Instant.EPOCH);
+        Map<String, GanglionOutcomeStatistics> statsB =
+                ledger.ganglionStatistics("s1", "tenantB", Instant.EPOCH);
+
+        assertEquals(1, statsA.get("g1").noiseCount());
+        assertEquals(0, statsA.get("g1").confirmedCount());
+        assertEquals(0, statsB.get("g1").noiseCount());
+        assertEquals(1, statsB.get("g1").confirmedCount());
+    }
+
+    @Test
+    void ganglionStatisticsWindowFiltering() {
+        Instant boundary = Instant.now();
+        ledger.record(outcome("s1", "k1", "t1", "dismissed", OutcomeClassification.NOISE,
+                              boundary.minusSeconds(60), UUID.randomUUID(),
+                              List.of(new GanglionContribution("g1", 0.8, DetectionSignal.DETECTED))));
+        ledger.record(outcome("s1", "k2", "t1", "escalated", OutcomeClassification.CONFIRMED,
+                              boundary.plusSeconds(60), UUID.randomUUID(),
+                              List.of(new GanglionContribution("g1", 0.9, DetectionSignal.DETECTED))));
+
+        Map<String, GanglionOutcomeStatistics> stats =
+                ledger.ganglionStatistics("s1", "t1", boundary);
+
+        assertEquals(1, stats.get("g1").totalOutcomes());
+        assertEquals(0, stats.get("g1").noiseCount());
+        assertEquals(1, stats.get("g1").confirmedCount());
+    }
+
+    @Test
+    void ganglionStatisticsNullContributions() {
+        ledger.record(outcome("s1", "k1", "t1", "dismissed", OutcomeClassification.NOISE,
+                              Instant.now(), UUID.randomUUID()));
+
+        Map<String, GanglionOutcomeStatistics> stats =
+                ledger.ganglionStatistics("s1", "t1", Instant.EPOCH);
+        assertTrue(stats.isEmpty());
+    }
+
+
     protected OutcomeRecord outcome(String situationId, String correlationKey,
             String tenancyId, String label, OutcomeClassification classification,
             Instant closedAt, UUID caseId) {
         return new OutcomeRecord(situationId, correlationKey, tenancyId,
                 label, classification, closedAt, caseId);
     }
+
+    protected OutcomeRecord outcome(String situationId, String correlationKey,
+                                    String tenancyId, String label, OutcomeClassification classification,
+                                    Instant closedAt, UUID caseId, List<GanglionContribution> contributions) {
+        return new OutcomeRecord(situationId, correlationKey, tenancyId,
+                                 label, classification, closedAt, caseId, contributions);
+    }
+
 }

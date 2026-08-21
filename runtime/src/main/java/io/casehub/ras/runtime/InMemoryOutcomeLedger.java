@@ -1,5 +1,8 @@
 package io.casehub.ras.runtime;
 
+import io.casehub.ras.api.DetectionSignal;
+import io.casehub.ras.api.GanglionContribution;
+import io.casehub.ras.api.GanglionOutcomeStatistics;
 import io.casehub.ras.api.OutcomeClassification;
 import io.casehub.ras.api.OutcomeLedger;
 import io.casehub.ras.api.OutcomeRecord;
@@ -10,6 +13,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -77,6 +81,35 @@ public class InMemoryOutcomeLedger implements OutcomeLedger {
                     .collect(Collectors.groupingBy(OutcomeRecord::outcomeLabel, Collectors.counting()));
         }
     }
+
+    @Override
+    public Map<String, GanglionOutcomeStatistics> ganglionStatistics(
+            String situationId, String tenancyId, Instant since) {
+        List<OutcomeRecord> records = store.getOrDefault(key(situationId, tenancyId), List.of());
+        Map<String, long[]> counts  = new LinkedHashMap<>();
+        synchronized (records) {
+            for (OutcomeRecord r : records) {
+                if (r.closedAt().isBefore(since)) {continue;}
+                for (GanglionContribution gc : r.ganglionContributions()) {
+                    if (!gc.signal().isAtLeast(DetectionSignal.WEAK)) {continue;}
+                    long[] c = counts.computeIfAbsent(gc.ganglionId(), k -> new long[3]);
+                    switch (r.classification()) {
+                        case NOISE -> c[0]++;
+                        case CONFIRMED -> c[1]++;
+                        case NEUTRAL -> c[2]++;
+                    }
+                }
+            }
+        }
+        Map<String, GanglionOutcomeStatistics> result = new LinkedHashMap<>();
+        for (var entry : counts.entrySet()) {
+            long[] c = entry.getValue();
+            result.put(entry.getKey(), new GanglionOutcomeStatistics(
+                    entry.getKey(), c[0] + c[1] + c[2], c[0], c[1], c[2]));
+        }
+        return result;
+    }
+
 
     @Override
     public Set<String> distinctTenancies(String situationId) {

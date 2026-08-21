@@ -61,4 +61,29 @@ class FeedbackAnalyzerTest {
 
         assertThat(stats.totalOutcomes()).isZero();
     }
+
+    @Test
+    void ganglionAnalyzeAppliesRetentionWindow() {
+        var ledger   = new InMemoryOutcomeLedger();
+        var analyzer = new FeedbackAnalyzer(ledger);
+
+        Instant old    = Instant.now().minus(Duration.ofDays(100));
+        Instant recent = Instant.now().minusSeconds(60);
+
+        ledger.record(new OutcomeRecord("sit-1", "k1", "t1", "dismissed",
+                                        OutcomeClassification.NOISE, old, UUID.randomUUID(),
+                                        java.util.List.of(new io.casehub.ras.api.GanglionContribution("g1", 0.8,
+                                                                                                      io.casehub.ras.api.DetectionSignal.DETECTED))));
+        ledger.record(new OutcomeRecord("sit-1", "k2", "t1", "escalated",
+                                        OutcomeClassification.CONFIRMED, recent, UUID.randomUUID(),
+                                        java.util.List.of(new io.casehub.ras.api.GanglionContribution("g1", 0.9,
+                                                                                                      io.casehub.ras.api.DetectionSignal.DETECTED))));
+
+        var stats = analyzer.ganglionAnalyze("sit-1", "t1", config());
+
+        assertThat(stats.get("g1").totalOutcomes()).isEqualTo(1);
+        assertThat(stats.get("g1").confirmedCount()).isEqualTo(1);
+        assertThat(stats.get("g1").noiseCount()).isZero();
+    }
+
 }

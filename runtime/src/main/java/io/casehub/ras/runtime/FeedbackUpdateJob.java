@@ -4,6 +4,7 @@ import io.casehub.ras.api.ChainMode;
 import io.casehub.ras.api.FeedbackConfig;
 import io.casehub.ras.api.FeedbackTuningStrategy;
 import io.casehub.ras.api.GanglionDescriptor;
+import io.casehub.ras.api.GanglionOutcomeStatistics;
 import io.casehub.ras.api.OutcomeLedger;
 import io.casehub.ras.api.OutcomeStatistics;
 import io.casehub.ras.api.SituationDefinition;
@@ -82,6 +83,13 @@ public class FeedbackUpdateJob {
                                FeedbackConfig config, SituationDefinition definition) {
         OutcomeStatistics stats = analyzer.analyze(situationId, tenancyId, config);
         feedbackMetrics.recordStatistics(situationId, tenancyId, stats);
+
+        Map<String, GanglionOutcomeStatistics> ganglionStats =
+                analyzer.ganglionAnalyze(situationId, tenancyId, config);
+        for (var entry : ganglionStats.entrySet()) {
+            feedbackMetrics.recordGanglionStatistics(
+                    entry.getKey(), situationId, tenancyId, entry.getValue());
+        }
 
         if (!config.tuningEnabled()) return;
 

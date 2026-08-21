@@ -255,4 +255,52 @@ class FeedbackUpdateJobTest {
         var stats = ledger.statistics("sit-1", "t1", Instant.EPOCH);
         assertThat(stats.totalOutcomes()).isEqualTo(1);
     }
+
+    @Test
+    void publishesPerGanglionGauges() {
+        var ganglion = new MockGanglion("g1", Set.of("test.event"),
+                                        io.casehub.ras.testing.FixedDetectionResult.detected("g1", 0.9));
+        var ganglion2 = new MockGanglion("g2", Set.of("test.event"),
+                                         io.casehub.ras.testing.FixedDetectionResult.detected("g2", 0.7));
+        var def = new SituationDefinition("sit-1", Set.of("test.event"),
+                                          Duration.ofMinutes(5), null,
+                                          new ChainMode.Threshold(Set.of("g1", "g2"), 0.5),
+                                          new TriggerAction.CreateCase(TRIGGER_CFG), null,
+                                          null, null, Map.of(), feedbackConfig(false));
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(def))),
+                List.of(ganglion, ganglion2));
+
+        ledger.record(new OutcomeRecord("sit-1", "k1", "t1", "dismissed",
+                                        OutcomeClassification.NOISE, Instant.now(), UUID.randomUUID(),
+                                        List.of(new io.casehub.ras.api.GanglionContribution("g1", 0.8,
+                                                                                            io.casehub.ras.api.DetectionSignal.DETECTED),
+                                                new io.casehub.ras.api.GanglionContribution("g2", 0.6,
+                                                                                            io.casehub.ras.api.DetectionSignal.WEAK))));
+        ledger.record(new OutcomeRecord("sit-1", "k2", "t1", "escalated",
+                                        OutcomeClassification.CONFIRMED, Instant.now(), UUID.randomUUID(),
+                                        List.of(new io.casehub.ras.api.GanglionContribution("g1", 0.9,
+                                                                                            io.casehub.ras.api.DetectionSignal.DETECTED))));
+
+        var analyzer = new FeedbackAnalyzer(ledger);
+        var job = new FeedbackUpdateJob(registry, ledger, analyzer, tuningStrategy,
+                                        feedbackState, feedbackMetrics);
+        job.updateFeedback();
+
+        var g1Precision = meterRegistry.find("ras.feedback.ganglion.precision")
+                                       .tag("ganglion_id", "g1").tag("situation_id", "sit-1").gauge();
+        assertThat(g1Precision).isNotNull();
+        assertThat(g1Precision.value()).isEqualTo(0.5, org.assertj.core.data.Offset.offset(0.001));
+
+        var g1NoiseRate = meterRegistry.find("ras.feedback.ganglion.noise_rate")
+                                       .tag("ganglion_id", "g1").gauge();
+        assertThat(g1NoiseRate).isNotNull();
+        assertThat(g1NoiseRate.value()).isEqualTo(0.5, org.assertj.core.data.Offset.offset(0.001));
+
+        var g2Precision = meterRegistry.find("ras.feedback.ganglion.precision")
+                                       .tag("ganglion_id", "g2").gauge();
+        assertThat(g2Precision).isNotNull();
+        assertThat(g2Precision.value()).isEqualTo(0.0, org.assertj.core.data.Offset.offset(0.001));
+    }
+
 }

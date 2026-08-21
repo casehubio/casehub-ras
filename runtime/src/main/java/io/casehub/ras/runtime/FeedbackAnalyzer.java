@@ -22,4 +22,11 @@ public class FeedbackAnalyzer {
         Instant since = Instant.now().minus(config.retentionPeriod());
         return ledger.statistics(situationId, tenancyId, since);
     }
+
+    public java.util.Map<String, io.casehub.ras.api.GanglionOutcomeStatistics> ganglionAnalyze(
+            String situationId, String tenancyId, FeedbackConfig config) {
+        Instant since = Instant.now().minus(config.retentionPeriod());
+        return ledger.ganglionStatistics(situationId, tenancyId, since);
+    }
+
 }
