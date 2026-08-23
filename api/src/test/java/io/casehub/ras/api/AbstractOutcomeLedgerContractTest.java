@@ -41,8 +41,8 @@ public abstract class AbstractOutcomeLedgerContractTest {
 
     @Test
     void lastNoiseDismissalTimeReturnsMostRecent() {
-        Instant early = Instant.now().minusSeconds(3600);
-        Instant late = Instant.now().minusSeconds(60);
+        Instant early = Instant.now().minusSeconds(3600).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        Instant late = Instant.now().minusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         ledger.record(outcome("s1", "k1", "t1", "dismissed",
                 OutcomeClassification.NOISE, early, UUID.randomUUID()));
         ledger.record(outcome("s1", "k1", "t1", "dismissed",
