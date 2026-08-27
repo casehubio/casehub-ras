@@ -1566,4 +1566,99 @@ class SituationEvaluatorTest {
                                          "situation_id", "sit-1", "tenancy_id", "tenant-a").count()).isEqualTo(1.0);
     }
 
+    @Test
+    void triggerByDeadline_fires_case_and_change_event() {
+        var ganglion = new MockGanglion("g1", Set.of("ras.situation.triggered"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit", Set.of("ras.situation.triggered"),
+                                          null, null, new ChainMode.Count("g1", 3),
+                                          new TriggerAction.CreateCase(TRIGGER_CONFIG),
+                                          null, null, null, Map.of(), null, Duration.ofMinutes(30));
+        buildEvaluator(List.of(ganglion), def);
+
+        var context = SituationContext.initial("sit", "key", "tenant", T1);
+        store.save(context);
+
+        evaluator.triggerByDeadline("sit", "key", "tenant");
+
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+        assertThat(changeEvent.firedEvents()).hasSize(1);
+        assertThat(changeEvent.firedEvents().get(0).changeType())
+                .isEqualTo(SituationChangeEvent.ChangeType.TRIGGERED);
+    }
+
+    @Test
+    void triggerByDeadline_discards_when_correlationWindow_expired() {
+        var ganglion = new MockGanglion("g1", Set.of("ras.situation.triggered"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit", Set.of("ras.situation.triggered"),
+                                          Duration.ofMinutes(5), null, new ChainMode.Count("g1", 3),
+                                          new TriggerAction.CreateCase(TRIGGER_CONFIG),
+                                          null, null, null, Map.of(), null, Duration.ofMinutes(30));
+        buildEvaluator(List.of(ganglion), def);
+
+        var context = SituationContext.initial("sit", "key", "tenant",
+                                               Instant.now().minus(Duration.ofHours(1)));
+        store.save(context);
+
+        evaluator.triggerByDeadline("sit", "key", "tenant");
+
+        assertThat(caseTrigger.firedCases()).isEmpty();
+        assertThat(store.find("sit", "key", "tenant")).isEmpty();
+        assertThat(changeEvent.firedEvents()).hasSize(1);
+        assertThat(changeEvent.firedEvents().get(0).changeType())
+                .isEqualTo(SituationChangeEvent.ChangeType.DISCARDED);
+    }
+
+    @Test
+    void triggerByDeadline_noop_when_no_context() {
+        var ganglion = new MockGanglion("g1", Set.of("ras.situation.triggered"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit", Set.of("ras.situation.triggered"),
+                                          null, null, new ChainMode.Count("g1", 1),
+                                          new TriggerAction.NotifyOnly(),
+                                          null, null, null, Map.of(), null, Duration.ofMinutes(30));
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.triggerByDeadline("sit", "key", "tenant");
+
+        assertThat(changeEvent.firedEvents()).isEmpty();
+    }
+
+    @Test
+    void triggerByDeadline_noop_when_unknown_situation() {
+        var ganglion = new MockGanglion("g1", Set.of("ras.situation.triggered"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit", Set.of("ras.situation.triggered"),
+                                          null, null, new ChainMode.Count("g1", 1),
+                                          new TriggerAction.NotifyOnly(),
+                                          null, null, null, Map.of(), null, Duration.ofMinutes(30));
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.triggerByDeadline("unknown-sit", "key", "tenant");
+
+        assertThat(changeEvent.firedEvents()).isEmpty();
+    }
+
+    @Test
+    void processEvent_forces_trigger_when_deadline_expired() {
+        var ganglion = new MockGanglion("g1", Set.of("ras.situation.triggered"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit", Set.of("ras.situation.triggered"),
+                                          null, null, new ChainMode.Count("g1", 3),
+                                          new TriggerAction.CreateCase(TRIGGER_CONFIG),
+                                          null, null, null, Map.of(), null, Duration.ofMinutes(5));
+        buildEvaluator(List.of(ganglion), def);
+
+        evaluator.evaluate(event("ras.situation.triggered", T1), def, "key", "tenant");
+        assertThat(caseTrigger.firedCases()).isEmpty();
+
+        Instant pastDeadline = T1.plus(Duration.ofMinutes(10));
+        evaluator.evaluate(event("ras.situation.triggered", pastDeadline), def, "key", "tenant");
+        assertThat(caseTrigger.firedCases()).hasSize(1);
+        assertThat(changeEvent.firedEvents()).anyMatch(
+                e -> e.changeType() == SituationChangeEvent.ChangeType.TRIGGERED);
+    }
+
+
 }

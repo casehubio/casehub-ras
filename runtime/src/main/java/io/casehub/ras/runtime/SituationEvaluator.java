@@ -13,6 +13,7 @@ import io.casehub.ras.api.SituationChangeEvent;
 import io.casehub.ras.api.SituationConflictException;
 import io.casehub.ras.api.SituationContext;
 import io.casehub.ras.api.SituationDefinition;
+import io.casehub.ras.api.SituationRegistration;
 import io.casehub.ras.api.SituationStore;
 import io.casehub.ras.api.SuppressionStrategy;
 import io.casehub.ras.api.TriggerAction;
@@ -195,6 +196,14 @@ public class SituationEvaluator {
             metrics.decision(situationId, tenancyId, policyDecision.decision());
 
             try {
+                if (definition.deadline() != null
+                        && policyDecision.decision() == TriggerDecision.CONTINUE_ACCUMULATING
+                        && context.firstSignal().plus(definition.deadline()).isBefore(eventTime)) {
+                    executeTrigger(context, definition, situationId, correlationKey,
+                                   tenancyId, eventTime, java.util.Map.of());
+                    metrics.stopProcessTimer(timer, situationId, tenancyId);
+                    return true;
+                }
                 boolean terminated = executeDecision(policyDecision.decision(),
                                                      policyDecision.metadata(), context, definition,
                                                      situationId, correlationKey, tenancyId, eventTime);
@@ -252,70 +261,8 @@ public class SituationEvaluator {
                                     String tenancyId, Instant triggerTime) {
         switch (decision) {
             case TRIGGER -> {
-                if (context.storeVersion().isPresent()) {
-                    boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
-                                                            tenancyId, triggerTime);
-                    if (!claimed) {
-                        metrics.triggerRaceLost(situationId, tenancyId);
-                        return true;
-                    }
-                    metrics.triggerClaimed(situationId, tenancyId);
-                    try {
-                        context = store.save(context);
-                    } catch (SituationConflictException e) {
-                        store.resetTriggerClaim(situationId, correlationKey, tenancyId);
-                        throw e;
-                    }
-                } else {
-                    context = store.save(context);
-                    boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
-                                                            tenancyId, triggerTime);
-                    if (!claimed) {
-                        metrics.triggerRaceLost(situationId, tenancyId);
-                        return true;
-                    }
-                    metrics.triggerClaimed(situationId, tenancyId);
-                }
-
-                if (definition.triggerAction() instanceof TriggerAction.CreateCase createCase) {
-                    CaseTriggerConfig config     = mergeMetadata(createCase.config(), policyMetadata);
-                    Object            fireSample = metrics.startTriggerFireTimer();
-                    try {
-                        caseTrigger.fire(config, context);
-                        metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "create_case");
-                        metrics.triggerFired(situationId, tenancyId, "create_case");
-                    } catch (RuntimeException ex) {
-                        metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "create_case");
-                        metrics.triggerFailed(situationId, tenancyId, "create_case");
-                        LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
-                                   + "': " + ex.getMessage());
-                        store.resetTriggerClaim(situationId, correlationKey, tenancyId);
-                        return false;
-                    }
-                    changeEvent.fireAsync(new SituationChangeEvent(
-                            tenancyId, situationId, correlationKey,
-                            SituationChangeEvent.ChangeType.TRIGGERED, context, policyMetadata));
-                } else {
-                    Object fireSample = metrics.startTriggerFireTimer();
-                    try {
-                        changeEvent.fireAsync(new SituationChangeEvent(
-                                           tenancyId, situationId, correlationKey,
-                                           SituationChangeEvent.ChangeType.TRIGGERED, context, policyMetadata))
-                                   .toCompletableFuture().join();
-                        metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "notify_only");
-                        metrics.triggerFired(situationId, tenancyId, "notify_only");
-                    } catch (Exception ex) {
-                        metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "notify_only");
-                        metrics.triggerFailed(situationId, tenancyId, "notify_only");
-                        LOG.severe("SituationChangeEvent delivery failed for situation '"
-                                   + situationId + "': " + ex.getMessage());
-                        store.resetTriggerClaim(situationId, correlationKey, tenancyId);
-                        return false;
-                    }
-                }
-
-                closeGanglia(definition, situationId, correlationKey, tenancyId);
-                return true;
+                return executeTrigger(context, definition, situationId, correlationKey,
+                                      tenancyId, triggerTime, policyMetadata);
             }
             case TRIGGER_AND_CONTINUE -> {
                 SituationContext savedContext = store.save(context);
@@ -405,7 +352,101 @@ public class SituationEvaluator {
                 return true;
             }
         }
-        return false;}
+        return false;
+    }
+
+
+    public void triggerByDeadline(String situationId, String correlationKey, String tenancyId) {
+        java.util.Optional<SituationRegistration> regOpt = registry.findBySituationId(situationId);
+        if (regOpt.isEmpty()) {return;}
+        SituationDefinition definition = regOpt.get().definition();
+
+        java.util.Optional<SituationContext> ctxOpt = store.find(situationId, correlationKey, tenancyId);
+        if (ctxOpt.isEmpty()) {return;}
+        SituationContext context = ctxOpt.get();
+
+        Instant now = Instant.now();
+        if (definition.correlationWindow() != null
+            && context.firstSignal().plus(definition.correlationWindow()).isBefore(now)) {
+            closeGanglia(definition, situationId, correlationKey, tenancyId);
+            store.remove(situationId, correlationKey, tenancyId);
+            changeEvent.fireAsync(new SituationChangeEvent(
+                    tenancyId, situationId, correlationKey,
+                    SituationChangeEvent.ChangeType.DISCARDED, context));
+            return;
+        }
+
+        executeTrigger(context, definition, situationId, correlationKey, tenancyId, now, java.util.Map.of());
+    }
+
+    private boolean executeTrigger(SituationContext context, SituationDefinition definition,
+                                   String situationId, String correlationKey, String tenancyId,
+                                   Instant triggerTime, java.util.Map<String, Object> policyMetadata) {
+        if (context.storeVersion().isPresent()) {
+            boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
+                                                    tenancyId, triggerTime);
+            if (!claimed) {
+                metrics.triggerRaceLost(situationId, tenancyId);
+                return true;
+            }
+            metrics.triggerClaimed(situationId, tenancyId);
+            try {
+                context = store.save(context);
+            } catch (SituationConflictException e) {
+                store.resetTriggerClaim(situationId, correlationKey, tenancyId);
+                throw e;
+            }
+        } else {
+            context = store.save(context);
+            boolean claimed = store.tryClaimTrigger(situationId, correlationKey,
+                                                    tenancyId, triggerTime);
+            if (!claimed) {
+                metrics.triggerRaceLost(situationId, tenancyId);
+                return true;
+            }
+            metrics.triggerClaimed(situationId, tenancyId);
+        }
+
+        if (definition.triggerAction() instanceof TriggerAction.CreateCase createCase) {
+            CaseTriggerConfig config     = mergeMetadata(createCase.config(), policyMetadata);
+            Object            fireSample = metrics.startTriggerFireTimer();
+            try {
+                caseTrigger.fire(config, context);
+                metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "create_case");
+                metrics.triggerFired(situationId, tenancyId, "create_case");
+            } catch (RuntimeException ex) {
+                metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "create_case");
+                metrics.triggerFailed(situationId, tenancyId, "create_case");
+                LOG.severe("CaseTrigger.fire() failed for situation '" + situationId
+                           + "': " + ex.getMessage());
+                store.resetTriggerClaim(situationId, correlationKey, tenancyId);
+                return false;
+            }
+            changeEvent.fireAsync(new SituationChangeEvent(
+                    tenancyId, situationId, correlationKey,
+                    SituationChangeEvent.ChangeType.TRIGGERED, context, policyMetadata));
+        } else {
+            Object fireSample = metrics.startTriggerFireTimer();
+            try {
+                changeEvent.fireAsync(new SituationChangeEvent(
+                                   tenancyId, situationId, correlationKey,
+                                   SituationChangeEvent.ChangeType.TRIGGERED, context, policyMetadata))
+                           .toCompletableFuture().join();
+                metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "notify_only");
+                metrics.triggerFired(situationId, tenancyId, "notify_only");
+            } catch (Exception ex) {
+                metrics.stopTriggerFireTimer(fireSample, situationId, tenancyId, "notify_only");
+                metrics.triggerFailed(situationId, tenancyId, "notify_only");
+                LOG.severe("SituationChangeEvent delivery failed for situation '"
+                           + situationId + "': " + ex.getMessage());
+                store.resetTriggerClaim(situationId, correlationKey, tenancyId);
+                return false;
+            }
+        }
+
+        closeGanglia(definition, situationId, correlationKey, tenancyId);
+        return true;
+    }
 
     private static CaseTriggerConfig mergeMetadata(CaseTriggerConfig config,
                                                    java.util.Map<String, Object> policyMetadata) {
