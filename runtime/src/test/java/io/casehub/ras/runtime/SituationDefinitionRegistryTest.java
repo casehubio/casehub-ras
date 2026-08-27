@@ -13,6 +13,7 @@ import io.casehub.ras.api.DefaultCorrelationKeyExtractor;
 import io.casehub.ras.api.SituationDefinition;
 import io.casehub.ras.api.SituationRegistration;
 import io.casehub.ras.api.TriggerAction;
+import io.casehub.ras.api.TriggerMode;
 import io.casehub.ras.testing.FixedDetectionResult;
 import io.casehub.ras.testing.MockGanglion;
 import org.junit.jupiter.api.Test;
@@ -912,4 +913,112 @@ class SituationDefinitionRegistryTest {
         var registry = new SituationDefinitionRegistry(List.of(), List.of(g1));
         assertThat(registry.ganglionDescriptor("cdi-g")).isNull();
     }
+
+    @Test
+    void cycleDetection_selfEdge_repeating_rejected() {
+        var g = ganglion("g", "ras.situation.triggered");
+        var def = new SituationDefinition("A", Set.of("ras.situation.triggered"),
+                                          null, null, new ChainMode.Count("g", 1),
+                                          new TriggerAction.NotifyOnly(),
+                                          new TriggerMode.Repeating(Duration.ofMinutes(1)));
+
+        assertThatIllegalStateException().isThrownBy(() ->
+                                                             new SituationDefinitionRegistry(
+                                                                     List.of(() -> List.of(new SituationRegistration(def))),
+                                                                     List.of(g)))
+                                         .withMessageContaining("Cycle");
+    }
+
+    @Test
+    void cycleDetection_selfEdge_fireOnce_allowed() {
+        var g = ganglion("g", "ras.situation.triggered");
+        var def = new SituationDefinition("A", Set.of("ras.situation.triggered"),
+                                          null, null, new ChainMode.Count("g", 1),
+                                          new TriggerAction.NotifyOnly(), null);
+
+        assertThatNoException().isThrownBy(() ->
+                                                   new SituationDefinitionRegistry(
+                                                           List.of(() -> List.of(new SituationRegistration(def))),
+                                                           List.of(g)));
+    }
+
+    @Test
+    void cycleDetection_transitiveCycle_rejected() {
+        var g = ganglion("g", "ras.situation.triggered");
+        var defA = new SituationDefinition("A", Set.of("ras.situation.triggered"),
+                                           null, null, new ChainMode.Count("g", 1),
+                                           new TriggerAction.NotifyOnly(),
+                                           new TriggerMode.Repeating(Duration.ofMinutes(1)));
+        var defB = new SituationDefinition("B", Set.of("ras.situation.triggered"),
+                                           null, null, new ChainMode.Count("g", 1),
+                                           new TriggerAction.NotifyOnly(),
+                                           new TriggerMode.Repeating(Duration.ofMinutes(1)));
+
+        assertThatIllegalStateException().isThrownBy(() ->
+                                                             new SituationDefinitionRegistry(
+                                                                     List.of(() -> List.of(
+                                                                             new SituationRegistration(defA),
+                                                                             new SituationRegistration(defB))),
+                                                                     List.of(g)))
+                                         .withMessageContaining("Cycle");
+    }
+
+    @Test
+    void cycleDetection_transitiveCycle_fireOnce_also_rejected() {
+        var g = ganglion("g", "ras.situation.triggered");
+        var defA = new SituationDefinition("A", Set.of("ras.situation.triggered"),
+                                           null, null, new ChainMode.Count("g", 1),
+                                           new TriggerAction.NotifyOnly(), null);
+        var defB = new SituationDefinition("B", Set.of("ras.situation.triggered"),
+                                           null, null, new ChainMode.Count("g", 1),
+                                           new TriggerAction.NotifyOnly(), null);
+
+        assertThatIllegalStateException().isThrownBy(() ->
+                                                             new SituationDefinitionRegistry(
+                                                                     List.of(() -> List.of(
+                                                                             new SituationRegistration(defA),
+                                                                             new SituationRegistration(defB))),
+                                                                     List.of(g)))
+                                         .withMessageContaining("Cycle");
+    }
+
+    @Test
+    void cycleDetection_dag_allowed() {
+        var g = ganglion("g", "ras.situation.triggered", "raw.event");
+        var defA = new SituationDefinition("A", Set.of("ras.situation.triggered"),
+                                           null, null, new ChainMode.Count("g", 1),
+                                           new TriggerAction.NotifyOnly(), null);
+        var defB = new SituationDefinition("B", Set.of("raw.event"),
+                                           null, null, new ChainMode.Count("g", 1),
+                                           new TriggerAction.NotifyOnly(), null);
+
+        assertThatNoException().isThrownBy(() ->
+                                                   new SituationDefinitionRegistry(
+                                                           List.of(() -> List.of(
+                                                                   new SituationRegistration(defA),
+                                                                   new SituationRegistration(defB))),
+                                                           List.of(g)));
+    }
+
+    @Test
+    void cycleDetection_dynamicRegister_rejects_cycle() {
+        var g = ganglion("g", "ras.situation.triggered");
+        var defA = new SituationDefinition("A", Set.of("ras.situation.triggered"),
+                                           null, null, new ChainMode.Count("g", 1),
+                                           new TriggerAction.NotifyOnly(), null);
+
+        var registry = new SituationDefinitionRegistry(
+                List.of(() -> List.of(new SituationRegistration(defA))),
+                List.of(g));
+
+        var defB = new SituationDefinition("B", Set.of("ras.situation.triggered"),
+                                           null, null, new ChainMode.Count("g", 1),
+                                           new TriggerAction.NotifyOnly(), null);
+
+        assertThatIllegalStateException().isThrownBy(() ->
+                                                             registry.register(new SituationRegistration(defB)))
+                                         .withMessageContaining("Cycle");
+    }
+
+
 }

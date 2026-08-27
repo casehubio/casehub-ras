@@ -32,6 +32,8 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
 
     private static final java.util.logging.Logger LOG =
             java.util.logging.Logger.getLogger(SituationDefinitionRegistry.class.getName());
+    private static final String                   BRIDGED_EVENT_PREFIX = "ras.situation.";
+
     private final    Map<String, Ganglion>                          gangliaById;
     private final    Map<String, io.casehub.ras.api.GanglionDescriptor> descriptorsById;
     private final    ExpressionEngineRegistry                       expressionRegistry;
@@ -102,6 +104,7 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
             }
         }
 
+        validateNoCycles(allRegistrations);
         this.snapshot = buildSnapshot(allRegistrations);
     }
 
@@ -222,6 +225,7 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
                 .distinct()
                 .forEach(all::add);
         all.add(compileRegistration(registration));
+        validateNoCycles(all);
         this.snapshot = buildSnapshot(all);
     }
 
@@ -468,6 +472,54 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
                         + " — no overlap");
             }
         }
+    }
+
+
+    private static void validateNoCycles(List<SituationRegistration> registrations) {
+        Map<String, Set<String>> adjacency = new LinkedHashMap<>();
+        for (var reg : registrations) {
+            adjacency.put(reg.definition().situationId(), new HashSet<>());
+        }
+
+        for (var target : registrations) {
+            boolean subscribesBridged = target.definition().eventTypes().stream()
+                                              .anyMatch(et -> et.startsWith(BRIDGED_EVENT_PREFIX));
+            if (!subscribesBridged) {continue;}
+
+            String targetId = target.definition().situationId();
+            for (var source : registrations) {
+                String sourceId = source.definition().situationId();
+                if (sourceId.equals(targetId)) {
+                    if (target.definition().triggerMode() instanceof io.casehub.ras.api.TriggerMode.Repeating) {
+                        adjacency.get(sourceId).add(targetId);
+                    }
+                } else {
+                    adjacency.get(sourceId).add(targetId);
+                }
+            }
+        }
+
+        Set<String> visited = new HashSet<>();
+        Set<String> onStack = new java.util.LinkedHashSet<>();
+        for (String node : adjacency.keySet()) {
+            if (hasCycleDfs(node, adjacency, visited, onStack)) {
+                throw new IllegalStateException(
+                        "Cycle detected in meta-situation observation graph: " + onStack);
+            }
+        }
+    }
+
+    private static boolean hasCycleDfs(String node, Map<String, Set<String>> adj,
+                                       Set<String> visited, Set<String> onStack) {
+        if (onStack.contains(node)) {return true;}
+        if (visited.contains(node)) {return false;}
+        visited.add(node);
+        onStack.add(node);
+        for (String neighbor : adj.getOrDefault(node, Set.of())) {
+            if (hasCycleDfs(neighbor, adj, visited, onStack)) {return true;}
+        }
+        onStack.remove(node);
+        return false;
     }
 
     private record RegistrySnapshot(
