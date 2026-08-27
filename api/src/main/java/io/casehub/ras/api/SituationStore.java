@@ -31,6 +31,11 @@ public interface SituationStore {
         return List.of();
     }
 
+
+    default List<SituationContext> findActiveBySituationId(String situationId) {
+        return List.of();
+    }
+
     void removeAllForSituation(String situationId);
 }
 

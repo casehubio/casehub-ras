@@ -169,4 +169,43 @@ class SituationDefinitionTest {
         mutable.put("extra", new JQExpressionEvaluator(".data.y"));
         assertThat(def.dynamicCaseData()).hasSize(1);
     }
+
+    @Test
+    void deadline_rejects_zero() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new SituationDefinition("sit", Set.of("e"), null, null, CHAIN,
+                                                          new TriggerAction.NotifyOnly(), null, null, null, Map.of(), null, Duration.ZERO))
+                .withMessageContaining("deadline must be positive");
+    }
+
+    @Test
+    void deadline_rejects_negative() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> new SituationDefinition("sit", Set.of("e"), null, null, CHAIN,
+                                                          new TriggerAction.NotifyOnly(), null, null, null, Map.of(), null, Duration.ofMinutes(-5)))
+                .withMessageContaining("deadline must be positive");
+    }
+
+    @Test
+    void deadline_accepts_positive() {
+        var def = new SituationDefinition("sit", Set.of("e"), null, null, CHAIN,
+                                          new TriggerAction.NotifyOnly(), null, null, null, Map.of(), null, Duration.ofMinutes(30));
+        assertThat(def.deadline()).isEqualTo(Duration.ofMinutes(30));
+    }
+
+    @Test
+    void deadline_defaults_to_null_in_convenience_constructor() {
+        var def = new SituationDefinition("sit", Set.of("e"), null, null, CHAIN,
+                                          new TriggerAction.NotifyOnly(), null);
+        assertThat(def.deadline()).isNull();
+    }
+
+    @Test
+    void withChainMode_preserves_deadline() {
+        var def = new SituationDefinition("sit", Set.of("e"), null, null, CHAIN,
+                                          new TriggerAction.NotifyOnly(), null, null, null, Map.of(), null, Duration.ofMinutes(30));
+        var updated = def.withChainMode(new ChainMode.Count("g1", 3));
+        assertThat(updated.deadline()).isEqualTo(Duration.ofMinutes(30));
+        assertThat(updated.chainMode()).isInstanceOf(ChainMode.Count.class);
+    }
 }

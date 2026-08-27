@@ -64,4 +64,21 @@ public sealed interface GanglionDescriptor {
                 Map<String, ExpressionEvaluator> evidenceTemplates
         ) {}
     }
+
+    record SituationWatcher(
+            String ganglionId,
+            Map<SituationChangeEvent.ChangeType, DetectionSignal> changeTypeMapping,
+            Map<String, ExpressionEvaluator> evidenceTemplates
+    ) implements GanglionDescriptor {
+
+        private static final String EVENT_TYPE_PREFIX = "ras.situation.";
+
+        @Override
+        public Set<String> handledEventTypes() {
+            return changeTypeMapping.keySet().stream()
+                                    .map(ct -> EVENT_TYPE_PREFIX + ct.name().toLowerCase())
+                                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+    }
+
 }

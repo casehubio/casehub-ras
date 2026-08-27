@@ -18,7 +18,8 @@ public record SituationDefinition(
         ExpressionEvaluator correlationKeyExpression,
         ExpressionEvaluator eventFilter,
         Map<String, ExpressionEvaluator> dynamicCaseData,
-        FeedbackConfig feedbackConfig
+        FeedbackConfig feedbackConfig,
+        Duration deadline
 ) {
     public SituationDefinition {
         Objects.requireNonNull(situationId, "situationId");
@@ -38,6 +39,10 @@ public record SituationDefinition(
             throw new IllegalArgumentException(
                     "eventBufferDelay must be positive when set, got: " + eventBufferDelay);
         }
+        if (deadline != null && (deadline.isZero() || deadline.isNegative())) {
+            throw new IllegalArgumentException(
+                    "deadline must be positive when set, got: " + deadline);
+        }
         triggerMode     = triggerMode != null ? triggerMode : new TriggerMode.FireOnce();
         dynamicCaseData = dynamicCaseData != null ? Map.copyOf(dynamicCaseData) : Map.of();
     }
@@ -51,7 +56,7 @@ public record SituationDefinition(
                                Map<String, ExpressionEvaluator> dynamicCaseData) {
         this(situationId, eventTypes, correlationWindow, eventBufferDelay,
              chainMode, triggerAction, triggerMode,
-             correlationKeyExpression, eventFilter, dynamicCaseData, null);
+             correlationKeyExpression, eventFilter, dynamicCaseData, null, null);
     }
 
     public SituationDefinition(String situationId, Set<String> eventTypes,
@@ -59,12 +64,13 @@ public record SituationDefinition(
                                ChainMode chainMode, TriggerAction triggerAction,
                                TriggerMode triggerMode) {
         this(situationId, eventTypes, correlationWindow, eventBufferDelay,
-             chainMode, triggerAction, triggerMode, null, null, Map.of(), null);
+             chainMode, triggerAction, triggerMode, null, null, Map.of(), null, null);
     }
 
     public SituationDefinition withChainMode(ChainMode newChainMode) {
         return new SituationDefinition(situationId, eventTypes, correlationWindow,
                                        eventBufferDelay, newChainMode, triggerAction, triggerMode,
-                                       correlationKeyExpression, eventFilter, dynamicCaseData, feedbackConfig);
+                                       correlationKeyExpression, eventFilter, dynamicCaseData,
+                                       feedbackConfig, deadline);
     }
 }

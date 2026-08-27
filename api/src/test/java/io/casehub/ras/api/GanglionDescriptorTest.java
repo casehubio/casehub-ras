@@ -140,11 +140,40 @@ class GanglionDescriptorTest {
 
 
     @Test
-    void sealedInterfacePermitsNaiveBayesAndExpressionRules() {
+    void situationWatcher_handledEventTypes_derived_from_mapping() {
+        var mapping = Map.of(
+                SituationChangeEvent.ChangeType.TRIGGERED, DetectionSignal.DETECTED,
+                SituationChangeEvent.ChangeType.RESOLVED, DetectionSignal.ANTI);
+        var watcher = new GanglionDescriptor.SituationWatcher("watcher-1", mapping, Map.of());
+        assertThat(watcher.ganglionId()).isEqualTo("watcher-1");
+        assertThat(watcher.handledEventTypes()).containsExactlyInAnyOrder(
+                "ras.situation.triggered", "ras.situation.resolved");
+    }
+
+    @Test
+    void situationWatcher_single_mapping() {
+        var mapping = Map.of(
+                SituationChangeEvent.ChangeType.TRIGGERED, DetectionSignal.DETECTED);
+        var watcher = new GanglionDescriptor.SituationWatcher("watcher-2", mapping, Map.of());
+        assertThat(watcher.handledEventTypes()).containsExactly("ras.situation.triggered");
+    }
+
+    @Test
+    void situationWatcher_with_evidence_templates() {
+        var mapping = Map.of(
+                SituationChangeEvent.ChangeType.TRIGGERED, DetectionSignal.DETECTED);
+        var templates = Map.of("detail", (io.casehub.platform.api.expression.ExpressionEvaluator)
+                                                 new JQExpressionEvaluator(".data.detail"));
+        var watcher = new GanglionDescriptor.SituationWatcher("watcher-3", mapping, templates);
+        assertThat(watcher.evidenceTemplates()).containsKey("detail");
+    }
+
+    @Test
+    void sealedInterfacePermitsAllVariants() {
         assertThat(GanglionDescriptor.class.isSealed()).isTrue();
         assertThat(GanglionDescriptor.class.getPermittedSubclasses())
-                .hasSize(2)
+                .hasSize(3)
                 .extracting(Class::getSimpleName)
-                .containsExactlyInAnyOrder("NaiveBayes", "ExpressionRules");
+                .containsExactlyInAnyOrder("NaiveBayes", "ExpressionRules", "SituationWatcher");
     }
 }
