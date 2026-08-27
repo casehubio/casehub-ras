@@ -7,6 +7,7 @@ import io.casehub.ras.api.Ganglion;
 import io.casehub.ras.api.OutcomeLedger;
 import io.casehub.ras.api.SituationChangeEvent;
 import io.casehub.ras.api.SituationContext;
+import io.casehub.ras.api.SituationDefinition;
 import io.casehub.ras.api.SituationDefinitionProvider;
 import io.casehub.ras.api.SituationRegistration;
 import io.casehub.ras.api.SituationStore;
@@ -37,10 +38,13 @@ public class SituationReplayRunner {
     private final CollectingChangeEvent collectingChangeEvent;
     private final CollectingCaseTrigger collectingCaseTrigger;
     private final CollectingSituationStore collectingSituationStore;
+    private final Instant                  replayEnd;
+
 
     private SituationReplayRunner(Builder builder) {
         this.events = List.copyOf(builder.events);
         this.errorHandling = builder.errorHandling;
+        this.replayEnd = builder.replayEnd;
 
         List<SituationDefinitionProvider> providers = new ArrayList<>();
         if (builder.providers != null) {
@@ -130,6 +134,10 @@ public class SituationReplayRunner {
 
         evaluator.drainAllBuffers();
 
+        Instant lastEventTime = events.isEmpty() ? Instant.now()
+                : extractEventTime(events.get(events.size() - 1));
+        drainAllDeadlines(replayEnd != null ? replayEnd : lastEventTime);
+
         return buildResult(eventsProcessed, skippedEvents);
     }
 
@@ -154,6 +162,26 @@ public class SituationReplayRunner {
                 List.copyOf(timeline), List.copyOf(triggers),
                 Map.copyOf(finalState), List.copyOf(skippedEvents), summary);
     }
+
+    private void drainAllDeadlines(Instant cutoff) {
+        for (String situationId : registry.allSituationIds()) {
+            SituationDefinition def = registry.definition(situationId);
+            if (def == null || def.deadline() == null) {continue;}
+            for (SituationContext ctx : collectingSituationStore.findActiveBySituationId(situationId)) {
+                if (ctx.firstSignal().plus(def.deadline()).isBefore(cutoff)) {
+                    evaluator.triggerByDeadline(situationId, ctx.correlationKey(), ctx.tenancyId());
+                }
+            }
+        }
+    }
+
+    private static Instant extractEventTime(CloudEvent event) {
+        if (event.getTime() != null) {
+            return event.getTime().toInstant();
+        }
+        return Instant.now();
+    }
+
 
     private static String extractTenancyId(CloudEvent event) {
         Object ext = event.getExtension("tenancyid");
@@ -269,6 +297,12 @@ public class SituationReplayRunner {
         @Override
         public List<SituationContext> findActive(String tenancyId) { return delegate.findActive(tenancyId); }
 
+        @Override
+        public List<SituationContext> findActiveBySituationId(String situationId) {
+            return delegate.findActiveBySituationId(situationId);
+        }
+
+
         Map<ReplayResult.SituationInstanceKey, SituationContext> allLatestState() {
             return Map.copyOf(latestState);
         }
@@ -294,6 +328,8 @@ public class SituationReplayRunner {
         private OutcomeLedger outcomeLedger;
         private FeedbackState feedbackState;
         private ReplayErrorHandling errorHandling = ReplayErrorHandling.STRICT;
+        private Instant             replayEnd;
+
 
         public Builder withRegistrations(List<SituationRegistration> registrations) {
             this.registrations = List.copyOf(registrations);
@@ -349,6 +385,12 @@ public class SituationReplayRunner {
             this.errorHandling = errorHandling;
             return this;
         }
+
+        public Builder withReplayEnd(Instant replayEnd) {
+            this.replayEnd = replayEnd;
+            return this;
+        }
+
 
         public SituationReplayRunner build() {
             if (events == null || events.isEmpty()) {

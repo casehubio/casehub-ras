@@ -289,5 +289,54 @@ class SituationReplayRunnerTest {
         assertThat(result.triggers()).hasSize(1);
     }
 
+    @Test
+    void replay_drains_expired_deadlines() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                                          null, null,
+                                          new ChainMode.Count("g1", 3),
+                                          new TriggerAction.CreateCase(TRIGGER_CONFIG),
+                                          null, null, null, Map.of(), null, Duration.ofMinutes(5));
+
+        Instant t0   = Instant.parse("2026-01-01T00:00:00Z");
+        Instant t10m = t0.plus(Duration.ofMinutes(10));
+
+        var result = SituationReplayRunner.builder()
+                                          .withRegistrations(List.of(new SituationRegistration(def)))
+                                          .withGanglia(List.of(ganglion))
+                                          .withEvents(List.of(event("temp.reading", "tenant-a", t0)))
+                                          .withReplayEnd(t10m)
+                                          .build()
+                                          .run();
+
+        assertThat(result.didTrigger("sit-1")).isTrue();
+        assertThat(result.triggers()).hasSize(1);
+    }
+
+    @Test
+    void replay_does_not_drain_deadline_when_not_expired() {
+        var ganglion = new MockGanglion("g1", Set.of("temp.reading"),
+                                        FixedDetectionResult.detected("g1", 0.9));
+        var def = new SituationDefinition("sit-1", Set.of("temp.reading"),
+                                          null, null,
+                                          new ChainMode.Count("g1", 3),
+                                          new TriggerAction.CreateCase(TRIGGER_CONFIG),
+                                          null, null, null, Map.of(), null, Duration.ofMinutes(30));
+
+        Instant t0   = Instant.parse("2026-01-01T00:00:00Z");
+        Instant t10m = t0.plus(Duration.ofMinutes(10));
+
+        var result = SituationReplayRunner.builder()
+                                          .withRegistrations(List.of(new SituationRegistration(def)))
+                                          .withGanglia(List.of(ganglion))
+                                          .withEvents(List.of(event("temp.reading", "tenant-a", t0)))
+                                          .withReplayEnd(t10m)
+                                          .build()
+                                          .run();
+
+        assertThat(result.didTrigger("sit-1")).isFalse();
+    }
+
 
 }
