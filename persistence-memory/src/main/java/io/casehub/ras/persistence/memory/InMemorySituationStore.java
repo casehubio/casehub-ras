@@ -144,6 +144,15 @@ public class InMemorySituationStore implements SituationStore {
     }
 
     @Override
+    public List<SituationContext> findActiveBySituationId(String situationId) {
+        return store.entrySet().stream()
+                    .filter(e -> e.getKey().situationId().equals(situationId))
+                    .map(java.util.Map.Entry::getValue)
+                    .toList();
+    }
+
+
+    @Override
     public void removeAllForSituation(String situationId) {
         store.keySet().removeIf(key -> key.situationId().equals(situationId));
         versions.keySet().removeIf(key -> key.situationId().equals(situationId));

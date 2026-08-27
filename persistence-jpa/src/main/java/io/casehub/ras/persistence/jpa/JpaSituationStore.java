@@ -179,6 +179,20 @@ public class JpaSituationStore implements SituationStore {
 
     @Override
     @Transactional(TxType.REQUIRED)
+    public List<SituationContext> findActiveBySituationId(String situationId) {
+        List<SituationEntity> entities = em.createQuery(
+                                                   "SELECT s FROM SituationEntity s WHERE s.situationId = :sid " +
+                                                   "AND s.policyTriggered = false", SituationEntity.class)
+                                           .setParameter("sid", situationId)
+                                           .getResultList();
+        return entities.stream()
+                       .map(mapper::toContext)
+                       .toList();
+    }
+
+
+    @Override
+    @Transactional(TxType.REQUIRED)
     public void removeAllForSituation(String situationId) {
         em.createQuery("DELETE FROM SituationEntity e WHERE e.situationId = :situationId")
           .setParameter("situationId", situationId)
