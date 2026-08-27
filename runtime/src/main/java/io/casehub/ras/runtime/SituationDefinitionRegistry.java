@@ -302,6 +302,7 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
         Ganglion ganglion = switch (descriptor) {
             case io.casehub.ras.api.GanglionDescriptor.NaiveBayes nb -> constructNaiveBayes(nb, stateStore, meterRegistry, feedbackState);
             case io.casehub.ras.api.GanglionDescriptor.ExpressionRules er -> constructExpressionRules(er, meterRegistry);
+            case io.casehub.ras.api.GanglionDescriptor.SituationWatcher sw -> new SituationWatcherGanglion(sw.ganglionId(), sw.changeTypeMapping());
         };
 
         if (!descriptor.evidenceTemplates().isEmpty()) {
@@ -314,6 +315,7 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
             Set<String> autoKeys = switch (descriptor) {
                 case io.casehub.ras.api.GanglionDescriptor.NaiveBayes ignored -> Set.of("posterior", "features", "winningOutcome");
                 case io.casehub.ras.api.GanglionDescriptor.ExpressionRules ignored -> Set.of("matchedRuleIndex");
+                case io.casehub.ras.api.GanglionDescriptor.SituationWatcher ignored -> Set.of("childSituationId", "childCorrelationKey", "childChangeType");
             };
             for (String templateKey : compiled.keySet()) {
                 if (autoKeys.contains(templateKey)) {
@@ -326,8 +328,7 @@ public class SituationDefinitionRegistry implements io.casehub.ras.api.Situation
             ganglion = new EvidenceExtractingGanglion(ganglion, Map.copyOf(compiled), meterRegistry);
         }
 
-        return ganglion;
-    }
+        return ganglion;}
 
     private Ganglion constructNaiveBayes(io.casehub.ras.api.GanglionDescriptor.NaiveBayes nb,
                                          io.casehub.ras.api.GanglionStateStore stateStore,
