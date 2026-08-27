@@ -21,10 +21,11 @@ final class CloudEventExpressionContext {
         ctx.put("subject", event.getSubject());
         ctx.put("id", event.getId());
         ctx.put("time", event.getTime() != null ? event.getTime().toString() : null);
-        ctx.put("tenancyid", event.getExtension("tenancyid"));
+        for (String name : event.getExtensionNames()) {
+            ctx.put(name, event.getExtension(name));
+        }
         ctx.put("data", parseJsonData(event));
-        return ctx;
-    }
+        return ctx;}
 
     private static Map<String, Object> parseJsonData(CloudEvent event) {
         if (event.getData() == null) {
