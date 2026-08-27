@@ -84,7 +84,7 @@ class SituationEvaluatorFeedbackTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(TRIGGER_CONFIG), null,
-                null, null, Map.of(), feedbackConfig());
+                null, null, Map.of(), feedbackConfig(), null);
 
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
@@ -116,7 +116,7 @@ class SituationEvaluatorFeedbackTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(TRIGGER_CONFIG), null,
-                null, null, Map.of(), feedbackConfig());
+                null, null, Map.of(), feedbackConfig(), null);
 
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
@@ -192,7 +192,7 @@ class SituationEvaluatorFeedbackTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(TRIGGER_CONFIG), null,
-                null, null, Map.of(), feedbackConfig());
+                null, null, Map.of(), feedbackConfig(), null);
 
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));

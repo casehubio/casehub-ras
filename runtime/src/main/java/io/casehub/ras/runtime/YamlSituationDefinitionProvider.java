@@ -6,6 +6,7 @@ import io.casehub.platform.api.expression.MvelExpressionEvaluator;
 import io.casehub.ras.api.CaseTriggerConfig;
 import io.casehub.ras.api.ChainMode;
 import io.casehub.ras.api.DetectionSignal;
+import io.casehub.ras.api.SituationChangeEvent;
 import io.casehub.ras.api.GanglionDescriptor;
 import io.casehub.ras.api.SituationDefinition;
 import io.casehub.ras.api.SituationDefinitionProvider;
@@ -188,13 +189,13 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
             result.add(switch (type) {
                 case "naive-bayes" -> parseNaiveBayesGanglion(g);
                 case "expression-rules" -> parseExpressionRulesGanglion(g);
+                case "situation-watcher" -> parseSituationWatcherGanglion(g);
                 default -> throw new IllegalArgumentException(
                         "Unknown ganglion type '" + type + "' for ganglion '"
                         + g.getOrDefault("ganglionId", "<missing>") + "'");
             });
         }
-        return List.copyOf(result);
-    }
+        return List.copyOf(result);}
 
     @SuppressWarnings("unchecked")
     private static GanglionDescriptor.NaiveBayes parseNaiveBayesGanglion(Map<String, Object> map) {
@@ -321,6 +322,24 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         return new GanglionDescriptor.ExpressionRules(
                 ganglionId, new LinkedHashSet<>(eventTypes),
                 List.copyOf(rules), evidenceTemplates);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static GanglionDescriptor.SituationWatcher parseSituationWatcherGanglion(Map<String, Object> map) {
+        String              ganglionId = requireString(map, "ganglionId");
+        Map<String, Object> mappingRaw = (Map<String, Object>) map.get("changeTypeMapping");
+        if (mappingRaw == null || mappingRaw.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "situation-watcher ganglion '" + ganglionId + "' requires non-empty changeTypeMapping");
+        }
+        Map<SituationChangeEvent.ChangeType, DetectionSignal> mapping = new java.util.LinkedHashMap<>();
+        for (var entry : mappingRaw.entrySet()) {
+            var changeType = SituationChangeEvent.ChangeType.valueOf(entry.getKey().toUpperCase());
+            var signal     = DetectionSignal.valueOf(entry.getValue().toString().toUpperCase());
+            mapping.put(changeType, signal);
+        }
+        Map<String, io.casehub.platform.api.expression.ExpressionEvaluator> evidenceTemplates = parseEvidenceTemplates(map);
+        return new GanglionDescriptor.SituationWatcher(ganglionId, mapping, evidenceTemplates);
     }
 
 
@@ -561,6 +580,11 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
             eventBufferDelay = Duration.parse((String) map.get("eventBufferDelay"));
         }
 
+        Duration deadline = null;
+        if (map.containsKey("deadline")) {
+            deadline = Duration.parse(map.get("deadline").toString());
+        }
+
         Map<String, Object> chainModeMap = (Map<String, Object>) map.get("chainMode");
         if (chainModeMap == null) {
             throw new IllegalArgumentException(
@@ -586,7 +610,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         Map<String, ExpressionEvaluator> dynamicCaseData    = parseDynamicCaseData(map);
 
         io.casehub.ras.api.FeedbackConfig feedbackConfig = null;
-        Map<String, Object> feedbackMap = (Map<String, Object>) map.get("feedback");
+        Map<String, Object>               feedbackMap    = (Map<String, Object>) map.get("feedback");
         if (feedbackMap != null) {
             feedbackConfig = parseFeedbackConfig(feedbackMap);
         }
@@ -596,9 +620,8 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
                 correlationWindow, eventBufferDelay, chainMode,
                 triggerAction, triggerMode,
                 correlationKeyExpr, eventFilterExpr, dynamicCaseData,
-                feedbackConfig);
-        return new SituationRegistration(def);
-    }
+                feedbackConfig, deadline);
+        return new SituationRegistration(def);}
 
     @SuppressWarnings("unchecked")
     private static ChainMode parseChainMode(Map<String, Object> map, String situationId) {

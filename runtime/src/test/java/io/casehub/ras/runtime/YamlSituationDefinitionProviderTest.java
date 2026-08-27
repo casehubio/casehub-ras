@@ -2380,5 +2380,86 @@ class YamlSituationDefinitionProviderTest {
     }
 
 
+    @Test
+    void parsesSituationWatcherGanglion() {
+        var p = provider("""
+                         ganglia:
+                           - ganglionId: sw-1
+                             type: situation-watcher
+                             changeTypeMapping:
+                               triggered: DETECTED
+                               resolved: ANTI
+                         situations:
+                           - situationId: meta-1
+                             eventTypes: [ras.situation.triggered]
+                             chainMode:
+                               type: count
+                               ganglionId: sw-1
+                               requiredCount: 3
+                             triggerAction:
+                               type: notify-only
+                         """);
+        assertThat(p.ganglionDescriptors()).hasSize(1);
+        var desc = p.ganglionDescriptors().get(0);
+        assertThat(desc).isInstanceOf(io.casehub.ras.api.GanglionDescriptor.SituationWatcher.class);
+        var sw = (io.casehub.ras.api.GanglionDescriptor.SituationWatcher) desc;
+        assertThat(sw.ganglionId()).isEqualTo("sw-1");
+        assertThat(sw.changeTypeMapping()).hasSize(2);
+        assertThat(sw.handledEventTypes()).containsExactlyInAnyOrder(
+                "ras.situation.triggered", "ras.situation.resolved");
+    }
 
+    @Test
+    void parsesDeadlineField() {
+        var p = provider("""
+                         situations:
+                           - situationId: sla-1
+                             eventTypes: [some.event]
+                             chainMode:
+                               type: count
+                               ganglionId: g1
+                               requiredCount: 1
+                             deadline: PT30M
+                             triggerAction:
+                               type: notify-only
+                         """);
+        assertThat(p.registrations()).hasSize(1);
+        assertThat(p.registrations().get(0).definition().deadline())
+                .isEqualTo(Duration.ofMinutes(30));
+    }
+
+    @Test
+    void absentDeadlineDefaultsToNull() {
+        var p = provider("""
+                         situations:
+                           - situationId: normal-1
+                             eventTypes: [some.event]
+                             chainMode:
+                               type: count
+                               ganglionId: g1
+                               requiredCount: 1
+                             triggerAction:
+                               type: notify-only
+                         """);
+        assertThat(p.registrations().get(0).definition().deadline()).isNull();
+    }
+
+    @Test
+    void situationWatcherRequiresNonEmptyMapping() {
+        assertThatIllegalArgumentException().isThrownBy(() -> provider("""
+                                                                       ganglia:
+                                                                         - ganglionId: bad
+                                                                           type: situation-watcher
+                                                                           changeTypeMapping: {}
+                                                                       situations:
+                                                                         - situationId: s
+                                                                           eventTypes: [e]
+                                                                           chainMode:
+                                                                             type: count
+                                                                             ganglionId: bad
+                                                                             requiredCount: 1
+                                                                           triggerAction:
+                                                                             type: notify-only
+                                                                       """)).withMessageContaining("non-empty changeTypeMapping");
+    }
 }

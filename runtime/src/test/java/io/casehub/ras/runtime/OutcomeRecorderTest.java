@@ -55,7 +55,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                null, null, null, Map.of(), feedbackConfig());
+                null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         var recorder = new OutcomeRecorder(ledger, registry);
@@ -72,7 +72,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                null, null, null, Map.of(), feedbackConfig());
+                null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         var recorder = new OutcomeRecorder(ledger, registry);
@@ -103,7 +103,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                null, null, null, Map.of(), feedbackConfig());
+                null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         var recorder = new OutcomeRecorder(ledger, registry);
@@ -119,7 +119,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                null, null, null, Map.of(), feedbackConfig());
+                null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         OutcomeLedger failingLedger = new OutcomeLedger() {
@@ -143,7 +143,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                null, null, null, Map.of(), feedbackConfig());
+                null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         var recorder = new OutcomeRecorder(ledger, registry);
@@ -160,7 +160,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                null, null, null, Map.of(), feedbackConfig());
+                null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         var recorder = new OutcomeRecorder(ledger, registry);
@@ -176,7 +176,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                                           Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                                           new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                                          null, null, null, Map.of(), feedbackConfig());
+                                          null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         var snapshot = new java.util.HashMap<String, Object>();
@@ -201,7 +201,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                                           Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                                           new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                                          null, null, null, Map.of(), feedbackConfig());
+                                          null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         var snapshot = new java.util.HashMap<String, Object>();
@@ -229,7 +229,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                                           Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                                           new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                                          null, null, null, Map.of(), feedbackConfig());
+                                          null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         var snapshot = new java.util.HashMap<String, Object>();
@@ -258,7 +258,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                                           Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                                           new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                                          null, null, null, Map.of(), feedbackConfig());
+                                          null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         var recorder = new OutcomeRecorder(ledger, registry);
@@ -274,7 +274,7 @@ class OutcomeRecorderTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                                           Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                                           new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "case", "1.0", Map.of())),
-                                          null, null, null, Map.of(), feedbackConfig());
+                                          null, null, null, Map.of(), feedbackConfig(), null);
         registry = registryWith(def, "test.event");
 
         var snapshot = new java.util.HashMap<String, Object>();

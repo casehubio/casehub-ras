@@ -868,7 +868,7 @@ class SituationDefinitionRegistryTest {
                                           Duration.ofMinutes(5), null,
                                           new ChainMode.Or(Set.of("g1")),
                                           new TriggerAction.CreateCase(new CaseTriggerConfig("ns", "c", "1", Map.of())),
-                                          null, null, null, Map.of(), config);
+                                          null, null, null, Map.of(), config, null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))),
                 List.of(g1));

@@ -89,7 +89,7 @@ class FeedbackUpdateJobTest {
                 Duration.ofMinutes(5), null,
                 new ChainMode.Threshold(Set.of("g1"), 0.5),
                 new TriggerAction.CreateCase(TRIGGER_CFG), null,
-                null, null, Map.of(), feedbackConfig(true));
+                null, null, Map.of(), feedbackConfig(true), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
 
@@ -113,7 +113,7 @@ class FeedbackUpdateJobTest {
                 Duration.ofMinutes(5), null,
                 new ChainMode.Threshold(Set.of("g1"), 0.5),
                 new TriggerAction.CreateCase(TRIGGER_CFG), null,
-                null, null, Map.of(), feedbackConfig(false));
+                null, null, Map.of(), feedbackConfig(false), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
 
@@ -145,7 +145,7 @@ class FeedbackUpdateJobTest {
                         Duration.ofMinutes(5), null,
                         new ChainMode.Threshold(Set.of("nb-g"), 0.5),
                         new TriggerAction.CreateCase(TRIGGER_CFG), null,
-                        null, null, Map.of(), feedbackConfig(true));
+                        null, null, Map.of(), feedbackConfig(true), null);
                 return List.of(new SituationRegistration(def));
             }
             public List<GanglionDescriptor> ganglionDescriptors() { return List.of(descriptor); }
@@ -183,7 +183,7 @@ class FeedbackUpdateJobTest {
                         Duration.ofMinutes(5), null,
                         new ChainMode.Threshold(Set.of("nb-g"), 0.5),
                         new TriggerAction.CreateCase(TRIGGER_CFG), null,
-                        null, null, Map.of(), feedbackConfig(true));
+                        null, null, Map.of(), feedbackConfig(true), null);
                 return List.of(new SituationRegistration(def));
             }
             public List<GanglionDescriptor> ganglionDescriptors() { return List.of(descriptor); }
@@ -212,7 +212,7 @@ class FeedbackUpdateJobTest {
                 Duration.ofMinutes(5), null,
                 new ChainMode.Threshold(Set.of("g1"), 0.5),
                 new TriggerAction.CreateCase(TRIGGER_CFG), null,
-                null, null, Map.of(), feedbackConfig(true));
+                null, null, Map.of(), feedbackConfig(true), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
 
@@ -238,7 +238,7 @@ class FeedbackUpdateJobTest {
         var def = new SituationDefinition("sit-1", Set.of("test.event"),
                 Duration.ofMinutes(5), null, new ChainMode.Or(Set.of("g1")),
                 new TriggerAction.CreateCase(TRIGGER_CFG), null,
-                null, null, Map.of(), config);
+                null, null, Map.of(), config, null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))), List.of(ganglion));
 
@@ -266,7 +266,7 @@ class FeedbackUpdateJobTest {
                                           Duration.ofMinutes(5), null,
                                           new ChainMode.Threshold(Set.of("g1", "g2"), 0.5),
                                           new TriggerAction.CreateCase(TRIGGER_CFG), null,
-                                          null, null, Map.of(), feedbackConfig(false));
+                                          null, null, Map.of(), feedbackConfig(false), null);
         var registry = new SituationDefinitionRegistry(
                 List.of(() -> List.of(new SituationRegistration(def))),
                 List.of(ganglion, ganglion2));
