@@ -178,6 +178,26 @@ public class RasMetrics {
         counterBy("ras.expiry.event_log_cleaned", count);
     }
 
+    public void bridgeEventEmitted(String situationId, String changeType) {
+        counter("ras.bridge.events", "situation_id", situationId, "change_type", changeType);
+    }
+
+    public void bridgeEventFailed(String situationId) {
+        counter("ras.bridge.errors", "situation_id", situationId);
+    }
+
+    public void deadlineChecked(String situationId) {
+        counter("ras.deadline.checked", "situation_id", situationId);
+    }
+
+    public void deadlineTriggered(String situationId, String tenancyId) {
+        counter("ras.deadline.triggered", "situation_id", situationId, "tenancy_id", tenancyId);
+    }
+
+    public void cycleRejected(String situationId) {
+        counter("ras.cycle.rejected", "situation_id", situationId);
+    }
+
 
     public void registerActiveBuffersGauge(Supplier<Number> supplier) {
         if (metrics != null) {
