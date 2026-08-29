@@ -33,6 +33,7 @@ public class FeedbackMetrics {
         setGauge("ras.feedback.outcomes_total", tags, stats.totalOutcomes());
         setGauge("ras.feedback.precision", tags, stats.precision());
         setGauge("ras.feedback.noise_rate", tags, stats.noiseRate());
+        setGauge("ras.feedback.recall", tags, stats.recall());
     }
 
     public void recordGanglionStatistics(String ganglionId, String situationId,

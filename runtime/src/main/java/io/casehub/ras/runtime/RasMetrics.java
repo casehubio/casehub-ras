@@ -198,6 +198,14 @@ public class RasMetrics {
         counter("ras.cycle.rejected", "situation_id", situationId);
     }
 
+    public void missedRecorded(String situationId, String tenancyId) {
+        counter("ras.feedback.missed", "situation_id", situationId, "tenancy_id", tenancyId);
+    }
+
+    public void missedRejected(String situationId, String reason) {
+        counter("ras.feedback.missed.rejected", "situation_id", situationId, "reason", reason);
+    }
+
 
     public void registerActiveBuffersGauge(Supplier<Number> supplier) {
         if (metrics != null) {
