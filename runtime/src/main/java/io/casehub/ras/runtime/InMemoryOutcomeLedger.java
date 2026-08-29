@@ -3,6 +3,7 @@ package io.casehub.ras.runtime;
 import io.casehub.ras.api.DetectionSignal;
 import io.casehub.ras.api.GanglionContribution;
 import io.casehub.ras.api.GanglionOutcomeStatistics;
+import io.casehub.ras.api.MissedDetectionRecord;
 import io.casehub.ras.api.OutcomeClassification;
 import io.casehub.ras.api.OutcomeLedger;
 import io.casehub.ras.api.OutcomeRecord;
@@ -39,6 +40,12 @@ public class InMemoryOutcomeLedger implements OutcomeLedger {
         store.computeIfAbsent(key(record.situationId(), record.tenancyId()),
                 k -> Collections.synchronizedList(new ArrayList<>())).add(record);
     }
+
+    @Override
+    public boolean recordMissed(MissedDetectionRecord record) {
+        throw new UnsupportedOperationException("TODO");
+    }
+
 
     @Override
     public OutcomeStatistics statistics(String situationId, String tenancyId, Instant since) {

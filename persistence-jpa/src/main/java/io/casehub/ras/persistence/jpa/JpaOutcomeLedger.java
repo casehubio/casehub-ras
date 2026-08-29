@@ -64,6 +64,12 @@ public class JpaOutcomeLedger implements OutcomeLedger {
     }
 
     @Override
+    public boolean recordMissed(io.casehub.ras.api.MissedDetectionRecord record) {
+        throw new UnsupportedOperationException("TODO");
+    }
+
+
+    @Override
     @Transactional
     @SuppressWarnings("unchecked")
     public OutcomeStatistics statistics(String situationId, String tenancyId, Instant since) {

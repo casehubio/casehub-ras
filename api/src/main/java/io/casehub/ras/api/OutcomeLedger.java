@@ -9,6 +9,9 @@ public interface OutcomeLedger {
 
     void record(OutcomeRecord record);
 
+    boolean recordMissed(MissedDetectionRecord record);
+
+
     OutcomeStatistics statistics(String situationId, String tenancyId, Instant since);
 
     Optional<Instant> lastNoiseDismissalTime(String situationId, String correlationKey,
