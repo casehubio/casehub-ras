@@ -29,6 +29,11 @@ public class InMemoryOutcomeLedger implements OutcomeLedger {
 
     private final ConcurrentHashMap<String, List<OutcomeRecord>> store = new ConcurrentHashMap<>();
     private final Set<UUID> seenCaseIds = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<MissedDetectionKey, MissedDetectionRecord> missedStore = new ConcurrentHashMap<>();
+    private final Set<UUID> seenReportIds = ConcurrentHashMap.newKeySet();
+
+    private record MissedDetectionKey(String situationId, String correlationKey, String tenancyId, Instant eventTime) {}
+
 
     private static String key(String situationId, String tenancyId) {
         return situationId + "|" + tenancyId;
@@ -43,14 +48,19 @@ public class InMemoryOutcomeLedger implements OutcomeLedger {
 
     @Override
     public boolean recordMissed(MissedDetectionRecord record) {
-        throw new UnsupportedOperationException("TODO");
+        if (!seenReportIds.add(record.reportId())) {
+            return false;
+        }
+        var key = new MissedDetectionKey(record.situationId(), record.correlationKey(),
+                                         record.tenancyId(), record.eventTime());
+        return missedStore.putIfAbsent(key, record) == null;
     }
 
 
     @Override
     public OutcomeStatistics statistics(String situationId, String tenancyId, Instant since) {
         List<OutcomeRecord> records = store.getOrDefault(key(situationId, tenancyId), List.of());
-        long noise = 0, confirmed = 0, neutral = 0;
+        long                noise   = 0, confirmed = 0, neutral = 0;
         synchronized (records) {
             for (OutcomeRecord r : records) {
                 if (!r.closedAt().isBefore(since)) {
@@ -62,8 +72,13 @@ public class InMemoryOutcomeLedger implements OutcomeLedger {
                 }
             }
         }
+        long missedCount = missedStore.values().stream()
+                                      .filter(r -> r.situationId().equals(situationId)
+                                                   && r.tenancyId().equals(tenancyId)
+                                                   && !r.eventTime().isBefore(since))
+                                      .count();
         return new OutcomeStatistics(situationId, tenancyId,
-                noise + confirmed + neutral, noise, confirmed, neutral, since);
+                                     noise + confirmed + neutral, noise, confirmed, neutral, since, missedCount);
     }
 
     @Override
@@ -121,27 +136,42 @@ public class InMemoryOutcomeLedger implements OutcomeLedger {
     @Override
     public Set<String> distinctTenancies(String situationId) {
         String prefix = situationId + "|";
-        return store.keySet().stream()
-                .filter(k -> k.startsWith(prefix))
-                .map(k -> k.substring(prefix.length()))
-                .collect(Collectors.toSet());
+        Set<String> tenancies = store.keySet().stream()
+                                     .filter(k -> k.startsWith(prefix))
+                                     .map(k -> k.substring(prefix.length()))
+                                     .collect(Collectors.toCollection(java.util.HashSet::new));
+        missedStore.values().stream()
+                   .filter(r -> r.situationId().equals(situationId))
+                   .map(MissedDetectionRecord::tenancyId)
+                   .forEach(tenancies::add);
+        return tenancies;
     }
 
     @Override
     public int removeRecordsBefore(String situationId, Instant cutoff) {
-        int removed = 0;
-        String prefix = situationId + "|";
+        int    removed = 0;
+        String prefix  = situationId + "|";
         for (var entry : store.entrySet()) {
             if (entry.getKey().startsWith(prefix)) {
                 List<OutcomeRecord> records = entry.getValue();
                 synchronized (records) {
                     List<OutcomeRecord> toRemove = records.stream()
-                            .filter(r -> r.closedAt().isBefore(cutoff))
-                            .toList();
+                                                          .filter(r -> r.closedAt().isBefore(cutoff))
+                                                          .toList();
                     toRemove.forEach(r -> seenCaseIds.remove(r.caseId()));
                     records.removeAll(toRemove);
                     removed += toRemove.size();
                 }
+            }
+        }
+        var missedIt = missedStore.entrySet().iterator();
+        while (missedIt.hasNext()) {
+            var entry = missedIt.next();
+            if (entry.getKey().situationId().equals(situationId)
+                && entry.getValue().eventTime().isBefore(cutoff)) {
+                missedIt.remove();
+                seenReportIds.remove(entry.getValue().reportId());
+                removed++;
             }
         }
         return removed;

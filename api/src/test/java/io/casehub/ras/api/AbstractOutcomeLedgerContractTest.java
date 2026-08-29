@@ -10,7 +10,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public abstract class AbstractOutcomeLedgerContractTest {
 
@@ -270,4 +272,69 @@ public abstract class AbstractOutcomeLedgerContractTest {
                                  label, classification, closedAt, caseId, contributions);
     }
 
+
+    protected MissedDetectionRecord missedDetection(String situationId, String correlationKey,
+                                                    String tenancyId, Instant eventTime) {
+        return new MissedDetectionRecord(situationId, correlationKey, tenancyId,
+                                         eventTime, "test-operator", UUID.randomUUID(), Instant.now());
+    }
+
+    @Test
+    void recordMissed_stores_and_counts_in_statistics() {
+        ledger.recordMissed(missedDetection("s1", "k1", "t1",
+                                            Instant.now().minusSeconds(300)));
+        OutcomeStatistics stats = ledger.statistics("s1", "t1",
+                                                    Instant.now().minusSeconds(3600));
+        assertEquals(1, stats.missedCount());
+    }
+
+    @Test
+    void recordMissed_dedup_on_composite_key() {
+        Instant eventTime = Instant.now().minusSeconds(300);
+        boolean first     = ledger.recordMissed(missedDetection("s1", "k1", "t1", eventTime));
+        boolean second    = ledger.recordMissed(missedDetection("s1", "k1", "t1", eventTime));
+        assertTrue(first);
+        assertFalse(second);
+        assertEquals(1, ledger.statistics("s1", "t1", Instant.now().minusSeconds(3600)).missedCount());
+    }
+
+    @Test
+    void recordMissed_dedup_on_reportId() {
+        UUID reportId = UUID.randomUUID();
+        var r1 = new MissedDetectionRecord("s1", "k1", "t1",
+                                           Instant.now().minusSeconds(300), "op", reportId, Instant.now());
+        var r2 = new MissedDetectionRecord("s1", "k2", "t1",
+                                           Instant.now().minusSeconds(200), "op", reportId, Instant.now());
+        assertTrue(ledger.recordMissed(r1));
+        assertFalse(ledger.recordMissed(r2));
+    }
+
+    @Test
+    void distinctTenancies_includes_missed_only_tenants() {
+        ledger.recordMissed(missedDetection("s1", "k1", "t-missed",
+                                            Instant.now().minusSeconds(300)));
+        assertTrue(ledger.distinctTenancies("s1").contains("t-missed"));
+    }
+
+    @Test
+    void removeRecordsBefore_cleans_missed_detections() {
+        Instant old = Instant.now().minusSeconds(7200);
+        ledger.recordMissed(missedDetection("s1", "k1", "t1", old));
+        int removed = ledger.removeRecordsBefore("s1", Instant.now().minusSeconds(3600));
+        assertTrue(removed > 0);
+        assertEquals(0, ledger.statistics("s1", "t1", Instant.now().minusSeconds(86400)).missedCount());
+    }
+
+    @Test
+    void recall_computed_from_outcomes_and_missed() {
+        ledger.record(outcome("s1", "k1", "t1", "resolved",
+                              OutcomeClassification.CONFIRMED, Instant.now(), UUID.randomUUID()));
+        ledger.recordMissed(missedDetection("s1", "k2", "t1",
+                                            Instant.now().minusSeconds(300)));
+        OutcomeStatistics stats = ledger.statistics("s1", "t1",
+                                                    Instant.now().minusSeconds(3600));
+        assertEquals(1, stats.confirmedCount());
+        assertEquals(1, stats.missedCount());
+        assertEquals(0.5, stats.recall(), 0.001);
+    }
 }

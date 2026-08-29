@@ -130,6 +130,7 @@ class OutcomeRecorderTest {
             public Set<String> distinctTenancies(String s) { return Set.of(); }
             public int removeRecordsBefore(String s, Instant c) { return 0; }
             public java.util.Map<String, io.casehub.ras.api.GanglionOutcomeStatistics> ganglionStatistics(String s, String t, Instant i) { return java.util.Map.of(); }
+            public boolean recordMissed(io.casehub.ras.api.MissedDetectionRecord r) { return false; }
         };
 
         var recorder = new OutcomeRecorder(failingLedger, registry);
