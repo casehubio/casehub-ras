@@ -64,8 +64,22 @@ public class JpaOutcomeLedger implements OutcomeLedger {
     }
 
     @Override
+    @Transactional
     public boolean recordMissed(io.casehub.ras.api.MissedDetectionRecord record) {
-        throw new UnsupportedOperationException("TODO");
+        int inserted = em.createNativeQuery(
+                                 "INSERT INTO ras_missed_detection (situation_id, correlation_key, tenancy_id, " +
+                                 "event_time, reported_by, report_id, recorded_at) " +
+                                 "VALUES (:sid, :ck, :tid, :et, :rb, :rid, :ra) " +
+                                 "ON CONFLICT DO NOTHING")
+                         .setParameter("sid", record.situationId())
+                         .setParameter("ck", record.correlationKey())
+                         .setParameter("tid", record.tenancyId())
+                         .setParameter("et", record.eventTime())
+                         .setParameter("rb", record.reportedBy())
+                         .setParameter("rid", record.reportId())
+                         .setParameter("ra", record.recordedAt())
+                         .executeUpdate();
+        return inserted > 0;
     }
 
 
@@ -74,26 +88,33 @@ public class JpaOutcomeLedger implements OutcomeLedger {
     @SuppressWarnings("unchecked")
     public OutcomeStatistics statistics(String situationId, String tenancyId, Instant since) {
         List<Object[]> rows = em.createNativeQuery(
-                "SELECT classification, COUNT(*) FROM ras_outcome_record " +
-                "WHERE situation_id = :sid AND tenancy_id = :tid AND closed_at >= :since " +
-                "GROUP BY classification")
-                .setParameter("sid", situationId)
-                .setParameter("tid", tenancyId)
-                .setParameter("since", since)
-                .getResultList();
+                                        "SELECT classification, COUNT(*) FROM ras_outcome_record " +
+                                        "WHERE situation_id = :sid AND tenancy_id = :tid AND closed_at >= :since " +
+                                        "GROUP BY classification")
+                                .setParameter("sid", situationId)
+                                .setParameter("tid", tenancyId)
+                                .setParameter("since", since)
+                                .getResultList();
 
         long noise = 0, confirmed = 0, neutral = 0;
         for (Object[] row : rows) {
-            String cls = (String) row[0];
-            long count = ((Number) row[1]).longValue();
+            String cls   = (String) row[0];
+            long   count = ((Number) row[1]).longValue();
             switch (OutcomeClassification.valueOf(cls)) {
                 case NOISE -> noise = count;
                 case CONFIRMED -> confirmed = count;
                 case NEUTRAL -> neutral = count;
             }
         }
+        long missedCount = ((Number) em.createNativeQuery(
+                                               "SELECT COUNT(*) FROM ras_missed_detection " +
+                                               "WHERE situation_id = :sid AND tenancy_id = :tid AND event_time >= :since")
+                                       .setParameter("sid", situationId)
+                                       .setParameter("tid", tenancyId)
+                                       .setParameter("since", since)
+                                       .getSingleResult()).longValue();
         return new OutcomeStatistics(situationId, tenancyId,
-                noise + confirmed + neutral, noise, confirmed, neutral, since);
+                                     noise + confirmed + neutral, noise, confirmed, neutral, since, missedCount);
     }
 
     @Override
@@ -183,21 +204,31 @@ public class JpaOutcomeLedger implements OutcomeLedger {
     @SuppressWarnings("unchecked")
     public Set<String> distinctTenancies(String situationId) {
         List<String> tenancies = em.createNativeQuery(
-                "SELECT DISTINCT tenancy_id FROM ras_outcome_record " +
-                "WHERE situation_id = :sid")
-                .setParameter("sid", situationId)
-                .getResultList();
+                                           "SELECT DISTINCT tenancy_id FROM ras_outcome_record " +
+                                           "WHERE situation_id = :sid " +
+                                           "UNION " +
+                                           "SELECT DISTINCT tenancy_id FROM ras_missed_detection " +
+                                           "WHERE situation_id = :sid")
+                                   .setParameter("sid", situationId)
+                                   .getResultList();
         return Set.copyOf(tenancies);
     }
 
     @Override
     @Transactional
     public int removeRecordsBefore(String situationId, Instant cutoff) {
-        return em.createNativeQuery(
-                "DELETE FROM ras_outcome_record " +
-                "WHERE situation_id = :sid AND closed_at < :cutoff")
-                .setParameter("sid", situationId)
-                .setParameter("cutoff", cutoff)
-                .executeUpdate();
+        int outcomeRemoved = em.createNativeQuery(
+                                       "DELETE FROM ras_outcome_record " +
+                                       "WHERE situation_id = :sid AND closed_at < :cutoff")
+                               .setParameter("sid", situationId)
+                               .setParameter("cutoff", cutoff)
+                               .executeUpdate();
+        int missedRemoved = em.createNativeQuery(
+                                      "DELETE FROM ras_missed_detection " +
+                                      "WHERE situation_id = :sid AND event_time < :cutoff")
+                              .setParameter("sid", situationId)
+                              .setParameter("cutoff", cutoff)
+                              .executeUpdate();
+        return outcomeRemoved + missedRemoved;
     }
 }
