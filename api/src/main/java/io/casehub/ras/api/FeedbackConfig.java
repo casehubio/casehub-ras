@@ -11,13 +11,25 @@ public record FeedbackConfig(
         Duration suppressionCooldown,
         double learningRate,
         Duration retentionPeriod,
-        boolean tuningEnabled
+        boolean tuningEnabled,
+        double overSensitiveThreshold,
+        double underSensitiveThreshold,
+        Duration crossRefWindow
 ) {
+
+    public FeedbackConfig(Set<String> noiseLabels, Set<String> confirmedLabels,
+                          Duration suppressionCooldown, double learningRate,
+                          Duration retentionPeriod, boolean tuningEnabled) {
+        this(noiseLabels, confirmedLabels, suppressionCooldown, learningRate,
+             retentionPeriod, tuningEnabled, 0.5, 0.5, Duration.ofHours(1));
+    }
+
     public FeedbackConfig {
         Objects.requireNonNull(noiseLabels, "noiseLabels");
         Objects.requireNonNull(confirmedLabels, "confirmedLabels");
         Objects.requireNonNull(suppressionCooldown, "suppressionCooldown");
         Objects.requireNonNull(retentionPeriod, "retentionPeriod");
+        Objects.requireNonNull(crossRefWindow, "crossRefWindow");
         noiseLabels = Set.copyOf(noiseLabels);
         confirmedLabels = Set.copyOf(confirmedLabels);
         if (!Collections.disjoint(noiseLabels, confirmedLabels)) {
@@ -40,6 +52,18 @@ public record FeedbackConfig(
             throw new IllegalArgumentException(
                     "retentionPeriod must be >= suppressionCooldown: "
                             + retentionPeriod + " < " + suppressionCooldown);
+        }
+        if (overSensitiveThreshold <= 0.0 || overSensitiveThreshold > 1.0) {
+            throw new IllegalArgumentException(
+                    "overSensitiveThreshold must be in (0.0, 1.0], got: " + overSensitiveThreshold);
+        }
+        if (underSensitiveThreshold <= 0.0 || underSensitiveThreshold > 1.0) {
+            throw new IllegalArgumentException(
+                    "underSensitiveThreshold must be in (0.0, 1.0], got: " + underSensitiveThreshold);
+        }
+        if (crossRefWindow.isZero() || crossRefWindow.isNegative()) {
+            throw new IllegalArgumentException(
+                    "crossRefWindow must be positive, got: " + crossRefWindow);
         }
     }
 

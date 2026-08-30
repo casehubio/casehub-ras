@@ -1,5 +1,6 @@
 package io.casehub.ras.runtime;
 
+import io.casehub.ras.api.DriftDirection;
 import io.casehub.ras.api.GanglionOutcomeStatistics;
 import io.casehub.ras.api.OutcomeStatistics;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -8,6 +9,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -16,6 +19,8 @@ public class FeedbackMetrics {
 
     private final MeterRegistry                                      meterRegistry;
     private final ConcurrentHashMap<String, AtomicReference<Double>> gaugeHolders =
+            new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Map<DriftDirection, AtomicReference<Double>>> driftHolders =
             new ConcurrentHashMap<>();
 
     @Inject
@@ -42,6 +47,26 @@ public class FeedbackMetrics {
                             "tenancy_id", tenancyId);
         setGauge("ras.feedback.ganglion.precision", tags, stats.precision());
         setGauge("ras.feedback.ganglion.noise_rate", tags, stats.noiseRate());
+        setGauge("ras.feedback.ganglion.recall", tags, stats.recall());
+    }
+
+    public void setDriftGauges(DriftDirection direction, String situationId, String tenancyId) {
+        if (meterRegistry == null) return;
+        String holderKey = situationId + "|" + tenancyId;
+        Map<DriftDirection, AtomicReference<Double>> holders = driftHolders.computeIfAbsent(holderKey, k -> {
+            Map<DriftDirection, AtomicReference<Double>> m = new EnumMap<>(DriftDirection.class);
+            for (DriftDirection d : DriftDirection.values()) {
+                AtomicReference<Double> ref = new AtomicReference<>(0.0);
+                Tags tags = Tags.of("direction", d.name(), "situation_id", situationId,
+                                    "tenancy_id", tenancyId);
+                meterRegistry.gauge("ras.feedback.drift", tags, ref, AtomicReference::get);
+                m.put(d, ref);
+            }
+            return m;
+        });
+        for (var entry : holders.entrySet()) {
+            entry.getValue().set(entry.getKey() == direction ? 1.0 : 0.0);
+        }
     }
 
     public void thresholdAdjusted(String situationId, String tenancyId, double newThreshold) {

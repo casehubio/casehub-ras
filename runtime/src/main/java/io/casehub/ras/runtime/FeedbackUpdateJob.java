@@ -1,6 +1,7 @@
 package io.casehub.ras.runtime;
 
 import io.casehub.ras.api.ChainMode;
+import io.casehub.ras.api.DriftDirection;
 import io.casehub.ras.api.FeedbackConfig;
 import io.casehub.ras.api.FeedbackTuningStrategy;
 import io.casehub.ras.api.GanglionDescriptor;
@@ -91,7 +92,11 @@ public class FeedbackUpdateJob {
                     entry.getKey(), situationId, tenancyId, entry.getValue());
         }
 
+        DriftDirection drift = tuningStrategy.classifyDrift(stats, config);
+        feedbackMetrics.setDriftGauges(drift, situationId, tenancyId);
+
         if (!config.tuningEnabled()) return;
+        if (drift == DriftDirection.BOTH_DRIFTING) return;
 
         if (definition.chainMode() instanceof ChainMode.Threshold threshold) {
             double currentThreshold = feedbackState.effectiveThreshold(situationId, tenancyId)

@@ -86,11 +86,13 @@ Three-layer architecture: ingestion, analysis, application. All feedback state i
 **Analysis:** `FeedbackAnalyzer` queries `OutcomeLedger.statistics()` and `OutcomeLedger.ganglionStatistics()` within the retention window. Returns `OutcomeStatistics` / `Map<String, GanglionOutcomeStatistics>`. Both implement `QualityMetrics` (shared `precision()`, `noiseRate()` computation).
 
 **Application:** `FeedbackUpdateJob` (`@Scheduled(every = "${ras.feedback.update-interval:PT5M}")`). Per situation with feedback config, per tenant:
-1. Records situation-level metrics via `FeedbackMetrics` (precision, noise rate, outcome totals)
-1b. Records per-ganglion metrics via `FeedbackMetrics.recordGanglionStatistics()` — `ras.feedback.ganglion.precision` and `ras.feedback.ganglion.noise_rate` gauges per `(ganglion_id, situation_id, tenancy_id)`. Only counts positive-signal (DETECTED/WEAK) contributions.
-2. If `tuningEnabled`:
-   - **Threshold adjustment** — for `ChainMode.Threshold` situations, calls `FeedbackTuningStrategy.adjustThreshold()` and applies via `FeedbackState.applyThresholdOverride()`. `SituationEvaluator` uses `FeedbackState.effectiveThreshold()` to construct an adjusted `ChainMode.Threshold` before policy evaluation.
+1. Records situation-level metrics via `FeedbackMetrics` (precision, noise rate, recall, outcome totals)
+1b. Records per-ganglion metrics via `FeedbackMetrics.recordGanglionStatistics()` — `ras.feedback.ganglion.precision`, `ras.feedback.ganglion.noise_rate`, and `ras.feedback.ganglion.recall` gauges per `(ganglion_id, situation_id, tenancy_id)`. Only counts positive-signal (DETECTED/WEAK) contributions. Per-ganglion recall requires ganglion-attributed missed detection reports (`MissedDetectionRecord.ganglionIds`); NaN (gauge suppressed) when no ganglion-level missed data exists.
+1c. Classifies drift via `FeedbackTuningStrategy.classifyDrift()` → `DriftDirection` enum. Publishes `ras.feedback.drift` state-gauge set (5 gauges per situation-tenant: OVER_SENSITIVE, UNDER_SENSITIVE, BOTH_DRIFTING, STABLE, INSUFFICIENT_DATA — active=1.0, others=0.0).
+2. If `tuningEnabled` AND drift is not `BOTH_DRIFTING`:
+   - **Threshold adjustment** — for `ChainMode.Threshold` and `ChainMode.Rate` situations, calls `FeedbackTuningStrategy.adjustThreshold()` (uses `config.overSensitiveThreshold()`, not hardcoded 0.5) and applies via `FeedbackState.applyThresholdOverride()`. `SituationEvaluator` uses `FeedbackState.effectiveThreshold()` to construct an adjusted `ChainMode.Threshold` before policy evaluation.
    - **Prior recalibration** — for NaiveBayes ganglia with `outcomeGroundTruth`, maps case outcome labels to NaiveBayes outcome indices, calls `FeedbackTuningStrategy.adjustPriors()` (Laplace-smoothed blend), applies via `FeedbackState.applyPriorOverride()` (converts raw→log at the boundary). `NaiveBayesGanglion` uses `FeedbackState.adjustedLogPriors()` as initial priors for new situation instances.
+   - **BOTH_DRIFTING guard** — when both noise rate and recall cross their thresholds, auto-tuning is suppressed (threshold raising worsens recall; the correct action is ganglion reconfiguration, not knob-turning).
 3. Runs retention cleanup via `OutcomeLedger.removeRecordsBefore()`
 
 **Suppression** (always active, even without tuning): `SituationEvaluator` checks `SuppressionStrategy.shouldSuppress()` before detection. `DefaultSuppressionStrategy` suppresses when the correlation key's last noise dismissal is within `suppressionCooldown`. Metric: `ras.feedback.suppressions_total`.
@@ -109,11 +111,11 @@ Core SPIs and domain types.
 
 **SPIs:** `Ganglion`, `SituationStore`, `GanglionStateStore`, `CaseTrigger`, `RasTriggerPolicy`, `CaseInputContributor`, `OrphanedResourceCleaner`, `EventFilter`, `CorrelationKeyExtractor`, `SituationDefinitionProvider`, `SituationQueryService`, `SituationSource`, `SituationEventRetention`, `OutcomeLedger`, `SuppressionStrategy`, `FeedbackTuningStrategy`.
 
-**Records:** `SituationDefinition`, `SituationContext`, `SituationRegistration`, `DetectionResult`, `CaseTriggerConfig`, `GanglionState`, `GanglionStateKey`, `ActiveSituation`, `SituationChangeEvent`, `SituationEvent`, `PolicyDecision`, `TrendResult`, `TenantHealth`, `SituationSummary`, `TimestampedDetection`, `FeedbackConfig`, `OutcomeRecord`, `OutcomeStatistics`.
+**Records:** `SituationDefinition`, `SituationContext`, `SituationRegistration`, `DetectionResult`, `CaseTriggerConfig`, `GanglionState`, `GanglionStateKey`, `ActiveSituation`, `SituationChangeEvent`, `SituationEvent`, `PolicyDecision`, `TrendResult`, `TenantHealth`, `SituationSummary`, `TimestampedDetection`, `FeedbackConfig`, `OutcomeRecord`, `OutcomeStatistics`, `MissedDetectionRecord`, `GanglionContribution`, `GanglionOutcomeStatistics`.
 
 **Sealed types:** `ChainMode` (7 variants: And, Or, Threshold, Sequence, Count, Streak, Rate), `TriggerMode` (FireOnce, Repeating), `TriggerAction` (CreateCase, NotifyOnly), `GanglionDescriptor` (NaiveBayes, ExpressionRules).
 
-**Enums:** `TriggerDecision` (6 values: TRIGGER, TRIGGER_AND_CONTINUE, CONTINUE_ACCUMULATING, DISCARD, RESOLVE, SUPPRESS), `DetectionSignal` (NOISE, ANTI, WEAK, DETECTED), `OutcomeClassification` (NOISE, CONFIRMED, NEUTRAL).
+**Enums:** `TriggerDecision` (6 values: TRIGGER, TRIGGER_AND_CONTINUE, CONTINUE_ACCUMULATING, DISCARD, RESOLVE, SUPPRESS), `DetectionSignal` (NOISE, ANTI, WEAK, DETECTED), `OutcomeClassification` (NOISE, CONFIRMED, NEUTRAL), `DriftDirection` (OVER_SENSITIVE, UNDER_SENSITIVE, BOTH_DRIFTING, STABLE, INSUFFICIENT_DATA).
 
 **Other:** `JavaSwitchGanglion` (abstract base class), `DefaultCorrelationKeyExtractor`, `SituationConflictException`, `GanglionStateConflictException`, `SuppressionMetadataKeys` (constants: TIER, DISMISSAL_RATE, MATCH_COUNT, AVERAGE_SIMILARITY).
 

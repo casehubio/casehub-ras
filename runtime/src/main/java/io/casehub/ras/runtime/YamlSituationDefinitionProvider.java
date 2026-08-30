@@ -781,10 +781,17 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
         double learningRate = ((Number) map.get("learningRate")).doubleValue();
         Duration retentionPeriod = Duration.parse(requireString(map, "retentionPeriod"));
         boolean tuningEnabled = Boolean.TRUE.equals(map.get("tuningEnabled"));
+        double overSensitiveThreshold = map.containsKey("overSensitiveThreshold")
+                ? ((Number) map.get("overSensitiveThreshold")).doubleValue() : 0.5;
+        double underSensitiveThreshold = map.containsKey("underSensitiveThreshold")
+                ? ((Number) map.get("underSensitiveThreshold")).doubleValue() : 0.5;
+        Duration crossRefWindow = map.containsKey("crossRefWindow")
+                ? Duration.parse(map.get("crossRefWindow").toString()) : Duration.ofHours(1);
         return new io.casehub.ras.api.FeedbackConfig(
                 new LinkedHashSet<>(noiseLabels),
                 new LinkedHashSet<>(confirmedLabels),
-                suppressionCooldown, learningRate, retentionPeriod, tuningEnabled);
+                suppressionCooldown, learningRate, retentionPeriod, tuningEnabled,
+                overSensitiveThreshold, underSensitiveThreshold, crossRefWindow);
     }
 
     @SuppressWarnings("unchecked")
