@@ -51,7 +51,7 @@ class MissedDetectionResourceTest {
                 "sit-1", "key-1", "tenant-a",
                 Instant.now().minus(Duration.ofMinutes(5)),
                 "operator@example.com",
-                UUID.randomUUID()));
+                UUID.randomUUID(), null));
         assertThat(result.getStatus()).isEqualTo(201);
     }
 
@@ -59,9 +59,9 @@ class MissedDetectionResourceTest {
     void post_duplicate_returns_200() {
         Instant eventTime = Instant.now().minus(Duration.ofMinutes(5));
         resource.reportMissed(new MissedDetectionResource.MissedDetectionRequest(
-                "sit-1", "key-1", "tenant-a", eventTime, "op", UUID.randomUUID()));
+                "sit-1", "key-1", "tenant-a", eventTime, "op", UUID.randomUUID(), null));
         var result = resource.reportMissed(new MissedDetectionResource.MissedDetectionRequest(
-                "sit-1", "key-1", "tenant-a", eventTime, "op", UUID.randomUUID()));
+                "sit-1", "key-1", "tenant-a", eventTime, "op", UUID.randomUUID(), null));
         assertThat(result.getStatus()).isEqualTo(200);
     }
 
@@ -70,7 +70,7 @@ class MissedDetectionResourceTest {
         var result = resource.reportMissed(new MissedDetectionResource.MissedDetectionRequest(
                 "unknown", "key-1", "tenant-a",
                 Instant.now().minus(Duration.ofMinutes(5)),
-                "op", UUID.randomUUID()));
+                "op", UUID.randomUUID(), null));
         assertThat(result.getStatus()).isEqualTo(400);
     }
 
@@ -79,7 +79,7 @@ class MissedDetectionResourceTest {
         var result = resource.reportMissed(new MissedDetectionResource.MissedDetectionRequest(
                 "sit-1", "key-1", "tenant-a",
                 Instant.now().minus(Duration.ofDays(60)),
-                "op", UUID.randomUUID()));
+                "op", UUID.randomUUID(), null));
         assertThat(result.getStatus()).isEqualTo(400);
     }
 
@@ -88,7 +88,7 @@ class MissedDetectionResourceTest {
         resource.reportMissed(new MissedDetectionResource.MissedDetectionRequest(
                 "sit-1", "key-1", "tenant-a",
                 Instant.now().minus(Duration.ofMinutes(5)),
-                "op", UUID.randomUUID()));
+                "op", UUID.randomUUID(), null));
         var stats = ledger.statistics("sit-1", "tenant-a", Instant.now().minus(Duration.ofHours(1)));
         assertThat(stats.missedCount()).isEqualTo(1);
     }

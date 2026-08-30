@@ -3,33 +3,53 @@ package io.casehub.ras.runtime;
 import io.casehub.ras.api.FeedbackConfig;
 import io.casehub.ras.api.MissedDetectionRecord;
 import io.casehub.ras.api.OutcomeLedger;
+import io.casehub.ras.api.SituationChangeEvent;
+import io.casehub.ras.api.SituationEvent;
+import io.casehub.ras.api.SituationQueryService;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 @ApplicationScoped
 public class MissedDetectionRecorder {
 
+    private static final java.util.logging.Logger LOG =
+            java.util.logging.Logger.getLogger(MissedDetectionRecorder.class.getName());
     private static final Duration FUTURE_SKEW_TOLERANCE = Duration.ofSeconds(30);
 
     private final OutcomeLedger ledger;
     private final SituationDefinitionRegistry registry;
     private final RasMetrics metrics;
+    private final Instance<SituationQueryService> queryServiceInstance;
+    private final Duration eventHistoryRetention;
 
     @Inject
     public MissedDetectionRecorder(OutcomeLedger ledger,
                                     SituationDefinitionRegistry registry,
-                                    RasMetrics metrics) {
+                                    RasMetrics metrics,
+                                    Instance<SituationQueryService> queryServiceInstance,
+                                    @ConfigProperty(name = "ras.event-history.retention",
+                                                    defaultValue = "P30D")
+                                    Duration eventHistoryRetention) {
         this.ledger = ledger;
         this.registry = registry;
         this.metrics = metrics;
+        this.queryServiceInstance = queryServiceInstance;
+        this.eventHistoryRetention = eventHistoryRetention;
     }
 
     MissedDetectionRecorder(OutcomeLedger ledger,
                             SituationDefinitionRegistry registry) {
-        this(ledger, registry, null);
+        this.ledger = ledger;
+        this.registry = registry;
+        this.metrics = null;
+        this.queryServiceInstance = null;
+        this.eventHistoryRetention = Duration.ofDays(30);
     }
 
     public RecordResult record(MissedDetectionRecord record) {
@@ -65,11 +85,51 @@ public class MissedDetectionRecorder {
         if (isNew && metrics != null) {
             metrics.missedRecorded(record.situationId(), record.tenancyId());
         }
-        return RecordResult.accepted(isNew);
+
+        boolean possiblyDetected = false;
+        Instant lastTriggerTime = null;
+        boolean crossRefConclusive = false;
+
+        if (queryServiceInstance != null && queryServiceInstance.isResolvable()) {
+            Instant historyWindowStart = now.minus(eventHistoryRetention);
+            if (!record.eventTime().isBefore(historyWindowStart)) {
+                try {
+                    crossRefConclusive = true;
+                    Duration crossRefWindow = config.crossRefWindow();
+                    List<SituationEvent> history = queryServiceInstance.get().history(
+                            record.tenancyId(), record.situationId(), record.correlationKey(),
+                            record.eventTime().minus(crossRefWindow),
+                            record.eventTime().plus(crossRefWindow));
+                    for (SituationEvent event : history) {
+                        if (event.changeType() == SituationChangeEvent.ChangeType.TRIGGERED) {
+                            possiblyDetected = true;
+                            lastTriggerTime = event.eventTime();
+                            break;
+                        }
+                    }
+                } catch (RuntimeException ex) {
+                    crossRefConclusive = false;
+                    LOG.warning("Cross-reference query failed for situation '"
+                                + record.situationId() + "': " + ex.getMessage());
+                }
+            }
+        }
+        return RecordResult.accepted(isNew, possiblyDetected, lastTriggerTime, crossRefConclusive);
     }
 
-    public record RecordResult(boolean accepted, boolean isNew, String rejectionReason) {
-        static RecordResult accepted(boolean isNew) { return new RecordResult(true, isNew, null); }
-        static RecordResult rejected(String reason) { return new RecordResult(false, false, reason); }
+    public record RecordResult(boolean accepted, boolean isNew, String rejectionReason,
+                                boolean possiblyDetected, Instant lastTriggerTime,
+                                boolean crossRefConclusive) {
+        static RecordResult accepted(boolean isNew) {
+            return new RecordResult(true, isNew, null, false, null, false);
+        }
+        static RecordResult accepted(boolean isNew, boolean possiblyDetected,
+                                      Instant lastTriggerTime, boolean crossRefConclusive) {
+            return new RecordResult(true, isNew, null, possiblyDetected,
+                                    lastTriggerTime, crossRefConclusive);
+        }
+        static RecordResult rejected(String reason) {
+            return new RecordResult(false, false, reason, false, null, false);
+        }
     }
 }
