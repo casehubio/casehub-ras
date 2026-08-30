@@ -114,7 +114,7 @@ public class InMemoryOutcomeLedger implements OutcomeLedger {
                 if (r.closedAt().isBefore(since)) {continue;}
                 for (GanglionContribution gc : r.ganglionContributions()) {
                     if (!gc.signal().isAtLeast(DetectionSignal.WEAK)) {continue;}
-                    long[] c = counts.computeIfAbsent(gc.ganglionId(), k -> new long[3]);
+                    long[] c = counts.computeIfAbsent(gc.ganglionId(), k -> new long[4]);
                     switch (r.classification()) {
                         case NOISE -> c[0]++;
                         case CONFIRMED -> c[1]++;
@@ -123,11 +123,19 @@ public class InMemoryOutcomeLedger implements OutcomeLedger {
                 }
             }
         }
+        for (MissedDetectionRecord r : missedStore.values()) {
+            if (!r.situationId().equals(situationId) || !r.tenancyId().equals(tenancyId)
+                    || r.eventTime().isBefore(since) || r.ganglionIds() == null) continue;
+            for (String gid : r.ganglionIds()) {
+                long[] c = counts.computeIfAbsent(gid, k -> new long[4]);
+                c[3]++;
+            }
+        }
         Map<String, GanglionOutcomeStatistics> result = new LinkedHashMap<>();
         for (var entry : counts.entrySet()) {
             long[] c = entry.getValue();
             result.put(entry.getKey(), new GanglionOutcomeStatistics(
-                    entry.getKey(), c[0] + c[1] + c[2], c[0], c[1], c[2]));
+                    entry.getKey(), c[0] + c[1] + c[2], c[0], c[1], c[2], c[3]));
         }
         return result;
     }

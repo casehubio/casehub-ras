@@ -66,10 +66,19 @@ public class JpaOutcomeLedger implements OutcomeLedger {
     @Override
     @Transactional
     public boolean recordMissed(io.casehub.ras.api.MissedDetectionRecord record) {
+        String gidsJson = null;
+        if (record.ganglionIds() != null && !record.ganglionIds().isEmpty()) {
+            try {
+                gidsJson = objectMapper.writeValueAsString(record.ganglionIds());
+            } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+                LOG.warning("Failed to serialize ganglionIds for report "
+                            + record.reportId() + ": " + ex.getMessage());
+            }
+        }
         int inserted = em.createNativeQuery(
                                  "INSERT INTO ras_missed_detection (situation_id, correlation_key, tenancy_id, " +
-                                 "event_time, reported_by, report_id, recorded_at) " +
-                                 "VALUES (:sid, :ck, :tid, :et, :rb, :rid, :ra) " +
+                                 "event_time, reported_by, report_id, recorded_at, ganglion_ids) " +
+                                 "VALUES (:sid, :ck, :tid, :et, :rb, :rid, :ra, CAST(:gids AS jsonb)) " +
                                  "ON CONFLICT DO NOTHING")
                          .setParameter("sid", record.situationId())
                          .setParameter("ck", record.correlationKey())
@@ -78,6 +87,7 @@ public class JpaOutcomeLedger implements OutcomeLedger {
                          .setParameter("rb", record.reportedBy())
                          .setParameter("rid", record.reportId())
                          .setParameter("ra", record.recordedAt())
+                         .setParameter("gids", gidsJson)
                          .executeUpdate();
         return inserted > 0;
     }
@@ -181,7 +191,7 @@ public class JpaOutcomeLedger implements OutcomeLedger {
             String ganglionId = (String) row[0];
             String cls        = (String) row[1];
             long   count      = ((Number) row[2]).longValue();
-            long[] c          = counts.computeIfAbsent(ganglionId, k -> new long[3]);
+            long[] c          = counts.computeIfAbsent(ganglionId, k -> new long[4]);
             switch (OutcomeClassification.valueOf(cls)) {
                 case NOISE -> c[0] += count;
                 case CONFIRMED -> c[1] += count;
@@ -189,11 +199,31 @@ public class JpaOutcomeLedger implements OutcomeLedger {
             }
         }
 
+        @SuppressWarnings("unchecked")
+        List<Object[]> missedRows = em.createNativeQuery(
+                        "SELECT elem AS ganglion_id, COUNT(*) " +
+                        "FROM ras_missed_detection, " +
+                        "jsonb_array_elements_text(ganglion_ids) elem " +
+                        "WHERE situation_id = :sid AND tenancy_id = :tid " +
+                        "AND event_time >= :since " +
+                        "GROUP BY elem")
+                .setParameter("sid", situationId)
+                .setParameter("tid", tenancyId)
+                .setParameter("since", since)
+                .getResultList();
+
+        for (Object[] row : missedRows) {
+            String ganglionId = (String) row[0];
+            long   count      = ((Number) row[1]).longValue();
+            long[] c          = counts.computeIfAbsent(ganglionId, k -> new long[4]);
+            c[3] += count;
+        }
+
         Map<String, io.casehub.ras.api.GanglionOutcomeStatistics> result = new LinkedHashMap<>();
         for (var entry : counts.entrySet()) {
             long[] c = entry.getValue();
             result.put(entry.getKey(), new io.casehub.ras.api.GanglionOutcomeStatistics(
-                    entry.getKey(), c[0] + c[1] + c[2], c[0], c[1], c[2]));
+                    entry.getKey(), c[0] + c[1] + c[2], c[0], c[1], c[2], c[3]));
         }
         return result;
     }

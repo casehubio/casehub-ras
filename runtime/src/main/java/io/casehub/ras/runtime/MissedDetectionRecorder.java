@@ -42,6 +42,18 @@ public class MissedDetectionRecorder {
             if (metrics != null) metrics.missedRejected(record.situationId(), "FEEDBACK_NOT_CONFIGURED");
             return RecordResult.rejected("FEEDBACK_NOT_CONFIGURED");
         }
+        if (record.ganglionIds() != null && !record.ganglionIds().isEmpty()) {
+            var definition = registry.definition(record.situationId());
+            if (definition != null) {
+                java.util.Set<String> validGanglia = definition.chainMode().referencedGanglia();
+                for (String gid : record.ganglionIds()) {
+                    if (!validGanglia.contains(gid)) {
+                        if (metrics != null) metrics.missedRejected(record.situationId(), "UNKNOWN_GANGLION");
+                        return RecordResult.rejected("UNKNOWN_GANGLION");
+                    }
+                }
+            }
+        }
         Instant now = Instant.now();
         Instant windowStart = now.minus(config.retentionPeriod());
         if (record.eventTime().isBefore(windowStart)

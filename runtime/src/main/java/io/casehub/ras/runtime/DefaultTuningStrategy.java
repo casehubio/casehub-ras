@@ -22,9 +22,10 @@ public class DefaultTuningStrategy implements FeedbackTuningStrategy {
         if (statistics.totalOutcomes() < MIN_OUTCOMES_THRESHOLD) return OptionalDouble.empty();
 
         double noiseRate = statistics.noiseRate();
-        if (Double.isNaN(noiseRate) || noiseRate <= 0.5) return OptionalDouble.empty();
+        double threshold = config.overSensitiveThreshold();
+        if (Double.isNaN(noiseRate) || noiseRate <= threshold) return OptionalDouble.empty();
 
-        double adjustment = config.learningRate() * (noiseRate - 0.5);
+        double adjustment = config.learningRate() * (noiseRate - threshold);
         double adjusted = currentThreshold + adjustment;
         adjusted = Math.max(Double.MIN_VALUE, Math.min(1.0, adjusted));
         return OptionalDouble.of(adjusted);
