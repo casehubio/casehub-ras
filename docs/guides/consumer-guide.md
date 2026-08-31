@@ -247,6 +247,26 @@ RAS is a pure CloudEvent consumer. Platform stream modules produce CloudEvents a
 
 ---
 
+## Meta-Situations
+
+Meta-situations compose multiple situations into higher-order detections. Features include cycle detection (prevents infinite meta-situation loops) and deadline triggers (time-bounded escalation). `SituationReplayRunner.drainAllDeadlines()` advances all pending deadline triggers without real-time waits for deterministic testing.
+
+---
+
+## Missed Detection and Feedback Tuning
+
+**MissedDetectionRecorder:** Records situations that should have been detected but were missed. REST endpoint: `POST /api/ras/feedback/missed`. Persistence: `MissedDetectionEntity` (JPA, Flyway V9-V10). Deduplication via `OutcomeLedger.recordMissed()`. `MissedDetectionRecord` carries ganglion IDs (JSONB).
+
+**Recall metrics:** `OutcomeStatistics.recall()` computes the ratio of true detections to total expected (detected + missed). `GanglionOutcomeStatistics.missedCount` tracks per-ganglion miss counts.
+
+**Drift classification:** `FeedbackTuningStrategy.classifyDrift()` default method detects when detection rates diverge from baselines. `DriftDirection` enum: `RISING`, `FALLING`, `STABLE`, `BOTH_DRIFTING`. `FeedbackConfig` carries drift thresholds and `crossRefWindow`.
+
+**Feedback metrics:** Per-ganglion recall gauge + drift state-gauge for monitoring. `FeedbackUpdateJob` publishes drift assessments with `BOTH_DRIFTING` guard.
+
+**Cross-reference:** Missed detection records cross-referenced with trigger history for root cause analysis.
+
+---
+
 ## Configuration Properties
 
 | Property | Default | Purpose |
