@@ -1,0 +1,12 @@
+name: Generate API Docs
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/src/main/java/**'
+  workflow_dispatch:
+jobs:
+  generate:
+    uses: casehubio/parent/.github/workflows/generate-api-docs.yml@main
+    secrets: inherit
+
