@@ -1090,7 +1090,7 @@ class YamlSituationDefinitionProviderTest {
         assertThat(provider.registrations()).hasSize(1);
 
         var jqEngine = new io.casehub.platform.expression.JQExpressionEngine();
-        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry(java.util.List.of());
         engines.register(jqEngine);
         var stateStore = new InMemoryGanglionStateStore();
 
@@ -1273,7 +1273,7 @@ class YamlSituationDefinitionProviderTest {
                 Thread.currentThread().getContextClassLoader()
                       .getResourceAsStream("META-INF/ras-situations-e2e-per-rule-evidence.yaml"));
 
-        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry(java.util.List.of());
         engines.register(new io.casehub.platform.expression.JQExpressionEngine());
         var registry = new SituationDefinitionRegistry(
                 java.util.List.of(provider), java.util.List.of(), engines, new InMemoryGanglionStateStore(), null, null);
@@ -1300,7 +1300,7 @@ class YamlSituationDefinitionProviderTest {
                 Thread.currentThread().getContextClassLoader()
                       .getResourceAsStream("META-INF/ras-situations-e2e-per-outcome-evidence.yaml"));
 
-        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry(java.util.List.of());
         engines.register(new io.casehub.platform.expression.JQExpressionEngine());
         var registry = new SituationDefinitionRegistry(
                 java.util.List.of(provider), java.util.List.of(), engines, new InMemoryGanglionStateStore(), null, null);
@@ -2363,7 +2363,7 @@ class YamlSituationDefinitionProviderTest {
                                 """);
 
         var jqEngine = new io.casehub.platform.expression.JQExpressionEngine();
-        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry(java.util.List.of());
         engines.register(jqEngine);
 
         var registry = new SituationDefinitionRegistry(
