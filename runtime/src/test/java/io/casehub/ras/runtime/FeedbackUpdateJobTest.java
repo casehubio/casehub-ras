@@ -151,7 +151,7 @@ class FeedbackUpdateJobTest {
             public List<GanglionDescriptor> ganglionDescriptors() { return List.of(descriptor); }
         };
 
-        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry(java.util.List.of());
         engines.register(new io.casehub.platform.expression.JQExpressionEngine());
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(), engines, new InMemoryGanglionStateStore(), null, null);
@@ -189,7 +189,7 @@ class FeedbackUpdateJobTest {
             public List<GanglionDescriptor> ganglionDescriptors() { return List.of(descriptor); }
         };
 
-        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        var engines = new io.casehub.platform.expression.DefaultExpressionEngineRegistry(java.util.List.of());
         engines.register(new io.casehub.platform.expression.JQExpressionEngine());
         var registry = new SituationDefinitionRegistry(
                 List.of(provider), List.of(), engines, new InMemoryGanglionStateStore(), null, null);

@@ -238,7 +238,7 @@ class ExpressionIntegrationTest {
 
 
     private static DefaultExpressionEngineRegistry buildExpressionRegistry() {
-        var registry = new DefaultExpressionEngineRegistry();
+        var registry = new DefaultExpressionEngineRegistry(List.of());
         registry.register(new JQExpressionEngine());
         registry.register(new MvelExpressionEngine());
         return registry;

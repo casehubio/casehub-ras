@@ -385,7 +385,7 @@ class SituationDefinitionRegistryTest {
     @Test
     void jqAdapter_extractsCorrelationKeyFromCloudEvent() {
         var g1 = ganglion("g1", "io.test.event");
-        var realRegistry = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        var realRegistry = new io.casehub.platform.expression.DefaultExpressionEngineRegistry(java.util.List.of());
         realRegistry.register(new io.casehub.platform.expression.JQExpressionEngine());
         var registry = new SituationDefinitionRegistry(List.of(), List.of(g1), realRegistry);
 
@@ -411,7 +411,7 @@ class SituationDefinitionRegistryTest {
     @Test
     void jqAdapter_nullResultFallsBackToSingleton() {
         var g1 = ganglion("g1", "io.test.event");
-        var realRegistry = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        var realRegistry = new io.casehub.platform.expression.DefaultExpressionEngineRegistry(java.util.List.of());
         realRegistry.register(new io.casehub.platform.expression.JQExpressionEngine());
         var registry = new SituationDefinitionRegistry(List.of(), List.of(g1), realRegistry);
 
@@ -818,7 +818,7 @@ class SituationDefinitionRegistryTest {
 
     @Test
     void endToEndDynamicConfidenceExpression() {
-        var realRegistry = new io.casehub.platform.expression.DefaultExpressionEngineRegistry();
+        var realRegistry = new io.casehub.platform.expression.DefaultExpressionEngineRegistry(java.util.List.of());
         realRegistry.register(new io.casehub.platform.expression.JQExpressionEngine());
         var provider = new YamlSituationDefinitionProvider(
                 Thread.currentThread().getContextClassLoader()
