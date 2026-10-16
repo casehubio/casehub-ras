@@ -7,7 +7,7 @@
     <parent>
         <groupId>io.casehub</groupId>
         <artifactId>casehub-parent</artifactId>
-        <version>0.4-SNAPSHOT</version>
+        <version>${revision}</version>
     </parent>
 
     <artifactId>casehub-ras-parent</artifactId>
@@ -35,6 +35,7 @@
     </modules>
 
     <properties>
+    <revision>0.4-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <jandex-maven-plugin.version>3.3.1</jandex-maven-plugin.version>
         <version.drools>10.1.0</version.drools>
