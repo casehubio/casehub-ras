@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.casehub</groupId>
         <artifactId>casehub-ras-parent</artifactId>
-        <version>${revision}</version>
+        <version>0.4-SNAPSHOT</version>
     </parent>
     <artifactId>casehub-ras-testing</artifactId>
     <name>CaseHub RAS :: Testing</name>
