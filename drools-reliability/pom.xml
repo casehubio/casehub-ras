@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.casehub</groupId>
         <artifactId>casehub-ras-parent</artifactId>
-        <version>0.3</version>
+        <version>${revision}</version>
     </parent>
     <artifactId>casehub-ras-drools-reliability</artifactId>
     <name>CaseHub RAS :: Drools Reliability</name>
