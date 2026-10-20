@@ -39,6 +39,12 @@ public sealed interface GanglionDescriptor {
             Map<String, String> outcomeGroundTruth
     ) implements GanglionDescriptor {
 
+        public NaiveBayes {
+            evidenceTemplates        = evidenceTemplates != null ? evidenceTemplates : Map.of();
+            outcomeEvidenceTemplates = outcomeEvidenceTemplates != null ? outcomeEvidenceTemplates : Map.of();
+            features                 = features != null ? features : Map.of();
+        }
+
         public NaiveBayes(String ganglionId, Set<String> handledEventTypes,
                           List<String> outcomes, double[] priors,
                           Map<String, Feature> features, SignalMapping signalMapping,
@@ -86,23 +92,20 @@ public sealed interface GanglionDescriptor {
             Map<String, ExpressionEvaluator> evidenceTemplates
     ) implements GanglionDescriptor {
 
+        public ExpressionRules {
+            evidenceTemplates = evidenceTemplates != null ? evidenceTemplates : Map.of();
+        }
+
+        @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"otherwise"})
         public record Rule(
                 ExpressionEvaluator when,
-                boolean otherwise,
                 DetectionSignal signal,
                 double confidence,
                 ExpressionEvaluator confidenceExpression,
                 Map<String, ExpressionEvaluator> evidenceTemplates
         ) {
             public Rule {
-                if (when != null && otherwise) {
-                    throw new IllegalArgumentException(
-                            "Rule cannot have both 'when' and 'otherwise'");
-                }
-                if (when == null && !otherwise) {
-                    throw new IllegalArgumentException(
-                            "Rule must have either 'when' or 'otherwise'");
-                }
+                evidenceTemplates = evidenceTemplates != null ? evidenceTemplates : Map.of();
             }
         }
     }
@@ -112,6 +115,10 @@ public sealed interface GanglionDescriptor {
             Map<SituationChangeEvent.ChangeType, DetectionSignal> changeTypeMapping,
             Map<String, ExpressionEvaluator> evidenceTemplates
     ) implements GanglionDescriptor {
+
+        public SituationWatcher {
+            evidenceTemplates = evidenceTemplates != null ? evidenceTemplates : Map.of();
+        }
 
         private static final String EVENT_TYPE_PREFIX = "ras.situation.";
 
