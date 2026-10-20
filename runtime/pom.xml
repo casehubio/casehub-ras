@@ -18,6 +18,7 @@
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-platform-api</artifactId></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-platform</artifactId></dependency>
         <dependency><groupId>io.casehub</groupId><artifactId>casehub-engine-api</artifactId></dependency>
+        <dependency><groupId>io.casehub</groupId><artifactId>casehub-platform-bootstrap</artifactId></dependency>
         <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-arc</artifactId></dependency>
         <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-scheduler</artifactId></dependency>
         <dependency><groupId>io.quarkus</groupId><artifactId>quarkus-rest</artifactId></dependency>
