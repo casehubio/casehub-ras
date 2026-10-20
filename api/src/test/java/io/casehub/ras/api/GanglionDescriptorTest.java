@@ -52,9 +52,9 @@ class GanglionDescriptorTest {
     void expressionRulesRecordCarriesAllFields() {
         var rule = new GanglionDescriptor.ExpressionRules.Rule(
                 new JQExpressionEvaluator(".data.severity == \"HIGH\""),
-                DetectionSignal.DETECTED, 0.9, null, Map.of());
+                false, DetectionSignal.DETECTED, 0.9, null, Map.of());
         var otherwise = new GanglionDescriptor.ExpressionRules.Rule(
-                null, DetectionSignal.NOISE, 0.0, null, Map.of());
+                null, true, DetectionSignal.NOISE, 0.0, null, Map.of());
 
         var descriptor = new GanglionDescriptor.ExpressionRules(
                 "severity-checker", Set.of("sensor.reading"),
@@ -75,7 +75,7 @@ class GanglionDescriptorTest {
     void expressionRulesWithEvidenceTemplates() {
         var descriptor = new GanglionDescriptor.ExpressionRules(
                 "checker", Set.of("event.type"),
-                List.of(new GanglionDescriptor.ExpressionRules.Rule(null, DetectionSignal.NOISE, 0.0, null, Map.of())),
+                List.of(new GanglionDescriptor.ExpressionRules.Rule(null, true, DetectionSignal.NOISE, 0.0, null, Map.of())),
                 Map.of("severity", new JQExpressionEvaluator(".data.severity")));
 
         assertThat(descriptor.evidenceTemplates()).containsKey("severity");
@@ -85,7 +85,7 @@ class GanglionDescriptorTest {
     void ruleWithEvidenceTemplates() {
         var rule = new GanglionDescriptor.ExpressionRules.Rule(
                 new JQExpressionEvaluator(".data.severity == \"HIGH\""),
-                DetectionSignal.DETECTED, 0.9, null,
+                false, DetectionSignal.DETECTED, 0.9, null,
                 Map.of("reason", new JQExpressionEvaluator(".data.reason")));
         assertThat(rule.evidenceTemplates()).containsKey("reason");
     }
@@ -94,7 +94,7 @@ class GanglionDescriptorTest {
     void ruleWithConfidenceExpression() {
         var rule = new GanglionDescriptor.ExpressionRules.Rule(
                 new JQExpressionEvaluator(".data.severity == \"HIGH\""),
-                DetectionSignal.DETECTED, 0.5,
+                false, DetectionSignal.DETECTED, 0.5,
                 new JQExpressionEvaluator(".data.score / 100"),
                 Map.of());
         assertThat(rule.confidenceExpression()).isNotNull();

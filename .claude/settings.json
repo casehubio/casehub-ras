@@ -3,7 +3,7 @@
     "additionalDirectories": [
       "/Users/mdproctor/claude"
     ],
-    "defaultMode": "acceptEdits",
+
     "allow": [
       "Bash(git *)",
       "Bash(mvn *)",

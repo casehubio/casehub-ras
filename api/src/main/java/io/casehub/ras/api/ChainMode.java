@@ -1,5 +1,6 @@
 package io.casehub.ras.api;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
@@ -31,7 +32,7 @@ public sealed interface ChainMode {
         };
     }
 
-    record And(Set<String> requiredGanglia) implements ChainMode {
+    record And(@JsonProperty("ganglia") Set<String> requiredGanglia) implements ChainMode {
         public And {
             if (requiredGanglia == null || requiredGanglia.isEmpty()) {
                 throw new IllegalArgumentException("requiredGanglia must not be empty");
@@ -62,7 +63,7 @@ public sealed interface ChainMode {
         }
     }
 
-    record Sequence(List<String> orderedGanglia) implements ChainMode {
+    record Sequence(@JsonProperty("ganglia") List<String> orderedGanglia) implements ChainMode {
         public Sequence {
             if (orderedGanglia == null || orderedGanglia.isEmpty()) {
                 throw new IllegalArgumentException("orderedGanglia must not be empty");

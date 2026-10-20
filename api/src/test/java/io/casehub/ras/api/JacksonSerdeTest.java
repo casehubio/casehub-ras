@@ -54,7 +54,7 @@ class JacksonSerdeTest {
         var and = new ChainMode.And(Set.of("g1"));
         String json = mapper.writeValueAsString(and);
         assertThat(json).contains("\"type\":\"and\"");
-        assertThat(json).contains("\"requiredGanglia\"");
+        assertThat(json).contains("\"ganglia\"");
     }
 
     @Test

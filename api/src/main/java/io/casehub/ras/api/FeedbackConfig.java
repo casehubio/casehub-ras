@@ -25,6 +25,10 @@ public record FeedbackConfig(
     }
 
     public FeedbackConfig {
+        crossRefWindow = crossRefWindow != null ? crossRefWindow : Duration.ofHours(1);
+        overSensitiveThreshold = overSensitiveThreshold == 0.0 ? 0.5 : overSensitiveThreshold;
+        underSensitiveThreshold = underSensitiveThreshold == 0.0 ? 0.5 : underSensitiveThreshold;
+
         Objects.requireNonNull(noiseLabels, "noiseLabels");
         Objects.requireNonNull(confirmedLabels, "confirmedLabels");
         Objects.requireNonNull(suppressionCooldown, "suppressionCooldown");

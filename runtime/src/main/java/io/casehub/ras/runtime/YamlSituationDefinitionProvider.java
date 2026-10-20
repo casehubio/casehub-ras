@@ -314,7 +314,7 @@ public class YamlSituationDefinitionProvider implements SituationDefinitionProvi
 
             ExpressionEvaluator confidenceExpr = parseExpressionEvaluator(ruleMap, "confidenceExpression");
 
-            rules.add(new GanglionDescriptor.ExpressionRules.Rule(when, signal, confidence, confidenceExpr, parseEvidenceTemplates(ruleMap)));
+            rules.add(new GanglionDescriptor.ExpressionRules.Rule(when, !hasWhen, signal, confidence, confidenceExpr, parseEvidenceTemplates(ruleMap)));
         }
 
         Map<String, ExpressionEvaluator> evidenceTemplates = parseEvidenceTemplates(map);

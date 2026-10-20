@@ -1,11 +1,24 @@
 package io.casehub.ras.api;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import io.casehub.platform.api.expression.ExpressionEvaluator;
+import io.casehub.platform.api.expression.JQExpressionEvaluator;
+import io.casehub.platform.api.expression.MvelExpressionEvaluator;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = GanglionDescriptor.NaiveBayes.class, name = "naive-bayes"),
+        @JsonSubTypes.Type(value = GanglionDescriptor.ExpressionRules.class, name = "expression-rules"),
+        @JsonSubTypes.Type(value = GanglionDescriptor.SituationWatcher.class, name = "situation-watcher")
+})
 public sealed interface GanglionDescriptor {
 
     String ganglionId();
@@ -39,7 +52,24 @@ public sealed interface GanglionDescriptor {
                 ExpressionEvaluator expression,
                 List<String> values,
                 double[][] likelihoods
-        ) {}
+        ) {
+            @JsonCreator
+            public static Feature fromYaml(
+                    @JsonProperty("expression") String expressionText,
+                    @JsonProperty("language") String language,
+                    @JsonProperty("values") List<String> values,
+                    @JsonProperty("likelihoods") double[][] likelihoods) {
+                Objects.requireNonNull(expressionText, "Feature missing required 'expression' field");
+                Objects.requireNonNull(language, "Feature missing required 'language' field");
+                ExpressionEvaluator evaluator = switch (language) {
+                    case "jq" -> new JQExpressionEvaluator(expressionText);
+                    case "mvel" -> new MvelExpressionEvaluator(expressionText);
+                    default -> throw new IllegalArgumentException(
+                            "Unknown expression language: " + language);
+                };
+                return new Feature(evaluator, values, likelihoods);
+            }
+        }
 
         public record SignalMapping(
                 String targetOutcome,
@@ -58,11 +88,23 @@ public sealed interface GanglionDescriptor {
 
         public record Rule(
                 ExpressionEvaluator when,
+                boolean otherwise,
                 DetectionSignal signal,
                 double confidence,
                 ExpressionEvaluator confidenceExpression,
                 Map<String, ExpressionEvaluator> evidenceTemplates
-        ) {}
+        ) {
+            public Rule {
+                if (when != null && otherwise) {
+                    throw new IllegalArgumentException(
+                            "Rule cannot have both 'when' and 'otherwise'");
+                }
+                if (when == null && !otherwise) {
+                    throw new IllegalArgumentException(
+                            "Rule must have either 'when' or 'otherwise'");
+                }
+            }
+        }
     }
 
     record SituationWatcher(

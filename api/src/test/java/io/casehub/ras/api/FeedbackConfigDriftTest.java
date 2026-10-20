@@ -32,11 +32,11 @@ class FeedbackConfigDriftTest {
     }
 
     @Test
-    void overSensitiveThresholdRejectsZero() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new FeedbackConfig(Set.of("n"), Set.of("c"),
-                        Duration.ofHours(1), 0.1, Duration.ofDays(1), false,
-                        0.0, 0.5, Duration.ofHours(1)));
+    void overSensitiveThresholdZeroDefaultsToHalf() {
+        var config = new FeedbackConfig(Set.of("n"), Set.of("c"),
+                Duration.ofHours(1), 0.1, Duration.ofDays(1), false,
+                0.0, 0.5, Duration.ofHours(1));
+        assertEquals(0.5, config.overSensitiveThreshold());
     }
 
     @Test
@@ -56,11 +56,11 @@ class FeedbackConfigDriftTest {
     }
 
     @Test
-    void underSensitiveThresholdRejectsZero() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new FeedbackConfig(Set.of("n"), Set.of("c"),
-                        Duration.ofHours(1), 0.1, Duration.ofDays(1), false,
-                        0.5, 0.0, Duration.ofHours(1)));
+    void underSensitiveThresholdZeroDefaultsToHalf() {
+        var config = new FeedbackConfig(Set.of("n"), Set.of("c"),
+                Duration.ofHours(1), 0.1, Duration.ofDays(1), false,
+                0.5, 0.0, Duration.ofHours(1));
+        assertEquals(0.5, config.underSensitiveThreshold());
     }
 
     @Test

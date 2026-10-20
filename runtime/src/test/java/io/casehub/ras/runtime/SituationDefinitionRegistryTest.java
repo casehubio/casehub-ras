@@ -596,7 +596,7 @@ class SituationDefinitionRegistryTest {
                 "rules-g", Set.of("test.event"),
                 List.of(new io.casehub.ras.api.GanglionDescriptor.ExpressionRules.Rule(
                         new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.x == \"Y\""),
-                        io.casehub.ras.api.DetectionSignal.DETECTED, 0.9, null, Map.of())),
+                        false, io.casehub.ras.api.DetectionSignal.DETECTED, 0.9, null, Map.of())),
                 Map.of());
 
         io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
@@ -618,7 +618,7 @@ class SituationDefinitionRegistryTest {
         var descriptor = new io.casehub.ras.api.GanglionDescriptor.ExpressionRules(
                 "rules-evid", Set.of("test.event"),
                 List.of(new io.casehub.ras.api.GanglionDescriptor.ExpressionRules.Rule(
-                        null, io.casehub.ras.api.DetectionSignal.NOISE, 0.0, null, Map.of())),
+                        null, true, io.casehub.ras.api.DetectionSignal.NOISE, 0.0, null, Map.of())),
                 Map.of("raw", new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.x")));
 
         io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
@@ -649,7 +649,7 @@ class SituationDefinitionRegistryTest {
         var erDescriptor = new io.casehub.ras.api.GanglionDescriptor.ExpressionRules(
                 "er-g", Set.of("test.event"),
                 List.of(new io.casehub.ras.api.GanglionDescriptor.ExpressionRules.Rule(
-                        null, io.casehub.ras.api.DetectionSignal.NOISE, 0.0, null, Map.of())),
+                        null, true, io.casehub.ras.api.DetectionSignal.NOISE, 0.0, null, Map.of())),
                 Map.of());
 
         io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
@@ -671,7 +671,7 @@ class SituationDefinitionRegistryTest {
         var descriptor = new io.casehub.ras.api.GanglionDescriptor.ExpressionRules(
                 "dup-g", Set.of("test.event"),
                 List.of(new io.casehub.ras.api.GanglionDescriptor.ExpressionRules.Rule(
-                        null, io.casehub.ras.api.DetectionSignal.NOISE, 0.0, null, Map.of())),
+                        null, true, io.casehub.ras.api.DetectionSignal.NOISE, 0.0, null, Map.of())),
                 Map.of());
 
         io.casehub.ras.api.SituationDefinitionProvider provider = new io.casehub.ras.api.SituationDefinitionProvider() {
@@ -754,7 +754,7 @@ class SituationDefinitionRegistryTest {
                 "per-rule-evid", Set.of("test.event"),
                 List.of(new io.casehub.ras.api.GanglionDescriptor.ExpressionRules.Rule(
                         new io.casehub.platform.api.expression.JQExpressionEvaluator("true"),
-                        io.casehub.ras.api.DetectionSignal.DETECTED, 0.9, null,
+                        false, io.casehub.ras.api.DetectionSignal.DETECTED, 0.9, null,
                         Map.of("extracted", new io.casehub.platform.api.expression.JQExpressionEvaluator(".type")))),
                 Map.of());
 
@@ -801,7 +801,7 @@ class SituationDefinitionRegistryTest {
         var descriptor = new io.casehub.ras.api.GanglionDescriptor.ExpressionRules(
                 "dyn-g", Set.of("test.event"),
                 List.of(new io.casehub.ras.api.GanglionDescriptor.ExpressionRules.Rule(
-                        null, io.casehub.ras.api.DetectionSignal.DETECTED, 0.5,
+                        null, true, io.casehub.ras.api.DetectionSignal.DETECTED, 0.5,
                         new io.casehub.platform.api.expression.JQExpressionEvaluator(".data.score"),
                         Map.of())),
                 Map.of());

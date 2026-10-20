@@ -1,5 +1,6 @@
 package io.casehub.ras.api;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.casehub.platform.api.expression.ExpressionEvaluator;
 
 import java.time.Duration;
@@ -15,10 +16,10 @@ public record SituationDefinition(
         ChainMode chainMode,
         TriggerAction triggerAction,
         TriggerMode triggerMode,
-        ExpressionEvaluator correlationKeyExpression,
+        @JsonProperty("correlationKey") ExpressionEvaluator correlationKeyExpression,
         ExpressionEvaluator eventFilter,
         Map<String, ExpressionEvaluator> dynamicCaseData,
-        FeedbackConfig feedbackConfig,
+        @JsonProperty("feedback") FeedbackConfig feedbackConfig,
         Duration deadline
 ) {
     public SituationDefinition {
