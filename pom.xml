@@ -171,6 +171,8 @@
             <id>github</id>
             <name>casehubio GitHub Packages</name>
             <url>https://maven.pkg.github.com/casehubio/*</url>
+            <releases><enabled>false</enabled></releases>
+
             <snapshots><enabled>true</enabled></snapshots>
         </repository>
     </repositories>
